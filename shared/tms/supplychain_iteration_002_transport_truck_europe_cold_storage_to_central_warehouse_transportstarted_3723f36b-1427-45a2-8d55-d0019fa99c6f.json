@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-005d6bfa-c6a4-477b-be38-688365ab424e",
+  "source_node": "EUROPE_COLD_STORAGE",
+  "target_node": "CENTRAL_WAREHOUSE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-110",
+  "carrier": {
+    "carrier_id": "CAR-103",
+    "carrier_name": "Maersk"
+  },
+  "estimated_arrival": "2026-05-21T17:50:40.915610",
+  "timestamp": "2026-05-12T11:50:40.915612"
+}

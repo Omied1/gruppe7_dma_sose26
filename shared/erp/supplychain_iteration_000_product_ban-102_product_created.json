@@ -1,0 +1,8 @@
+{
+  "event_type": "ProductCreated",
+  "product_code": "BAN-102",
+  "product_name": "Organic Banana",
+  "category": "Fresh Fruit",
+  "supplier_reference": "SUP-110",
+  "timestamp": "2026-05-12T11:50:40.901795"
+}

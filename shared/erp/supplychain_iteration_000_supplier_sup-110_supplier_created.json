@@ -1,0 +1,7 @@
+{
+  "event_type": "SupplierCreated",
+  "supplier_code": "SUP-110",
+  "supplier_name": "Global Banana Source",
+  "country": "Ghana",
+  "timestamp": "2026-05-12T11:50:40.901766"
+}

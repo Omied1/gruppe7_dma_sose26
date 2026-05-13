@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-511f7917-d873-4cfb-8944-e52a08b31ff1",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-104",
+    "customer_name": "EDEKA",
+    "city": "Munich",
+    "country": "Germany",
+    "timestamp": "2026-05-12T11:50:40.901780"
+  },
+  "items": [
+    {
+      "product_code": "BAN-104",
+      "description": "Baby Banana",
+      "quantity": 986,
+      "unit_price": 1.62
+    }
+  ],
+  "delivery_priority": "NORMAL",
+  "timestamp": "2026-05-12T11:50:40.934484"
+}

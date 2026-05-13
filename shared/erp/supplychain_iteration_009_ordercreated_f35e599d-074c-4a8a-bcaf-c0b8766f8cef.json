@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-f47cfd84-29fa-4915-9b91-62c25967e62f",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-110",
+    "customer_name": "SPAR",
+    "city": "Cologne",
+    "country": "Germany",
+    "timestamp": "2026-05-12T11:50:40.901789"
+  },
+  "items": [
+    {
+      "product_code": "BAN-103",
+      "description": "Premium Banana",
+      "quantity": 433,
+      "unit_price": 3.15
+    }
+  ],
+  "delivery_priority": "LOW",
+  "timestamp": "2026-05-12T11:50:40.945667"
+}

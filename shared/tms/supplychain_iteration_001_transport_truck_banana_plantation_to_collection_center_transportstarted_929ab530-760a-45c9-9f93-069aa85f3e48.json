@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-5ab1645d-1f62-4bde-a42f-7e6e08a65698",
+  "source_node": "BANANA_PLANTATION",
+  "target_node": "COLLECTION_CENTER",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-108",
+  "carrier": {
+    "carrier_id": "CAR-101",
+    "carrier_name": "Hapag Lloyd"
+  },
+  "estimated_arrival": "2026-05-18T07:50:40.911249",
+  "timestamp": "2026-05-12T11:50:40.911256"
+}

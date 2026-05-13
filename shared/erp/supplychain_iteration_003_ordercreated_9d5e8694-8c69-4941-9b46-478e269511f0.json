@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-2f115f39-2371-48c7-9759-70f51d67b324",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-101",
+    "customer_name": "ALDI",
+    "city": "Frankfurt",
+    "country": "Germany",
+    "timestamp": "2026-05-12T11:50:40.901772"
+  },
+  "items": [
+    {
+      "product_code": "BAN-110",
+      "description": "Tropical Banana",
+      "quantity": 738,
+      "unit_price": 3.97
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-12T11:50:40.922135"
+}

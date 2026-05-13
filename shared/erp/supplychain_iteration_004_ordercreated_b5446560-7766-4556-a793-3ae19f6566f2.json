@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-b491e818-0c1a-4576-b416-3670bcaf6253",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-101",
+    "customer_name": "ALDI",
+    "city": "Frankfurt",
+    "country": "Germany",
+    "timestamp": "2026-05-12T11:50:40.901772"
+  },
+  "items": [
+    {
+      "product_code": "BAN-103",
+      "description": "Premium Banana",
+      "quantity": 277,
+      "unit_price": 3.07
+    }
+  ],
+  "delivery_priority": "NORMAL",
+  "timestamp": "2026-05-12T11:50:40.927150"
+}

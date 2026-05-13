@@ -1,0 +1,8 @@
+{
+  "event_type": "ProductCreated",
+  "product_code": "BAN-101",
+  "product_name": "Cavendish Banana",
+  "category": "Fresh Fruit",
+  "supplier_reference": "SUP-104",
+  "timestamp": "2026-05-12T11:50:40.901793"
+}

@@ -1,0 +1,8 @@
+{
+  "event_type": "ProductCreated",
+  "product_code": "BAN-106",
+  "product_name": "Export Banana",
+  "category": "Fresh Fruit",
+  "supplier_reference": "SUP-101",
+  "timestamp": "2026-05-12T11:50:40.901804"
+}

@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-b668e756-ba16-4fba-a327-f4ee86bae5a8",
+  "source_node": "COLLECTION_CENTER",
+  "target_node": "QUALITY_CONTROL",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-108",
+  "carrier": {
+    "carrier_id": "CAR-102",
+    "carrier_name": "Hapag Lloyd"
+  },
+  "estimated_arrival": "2026-05-21T00:50:40.911280",
+  "timestamp": "2026-05-12T11:50:40.911283"
+}

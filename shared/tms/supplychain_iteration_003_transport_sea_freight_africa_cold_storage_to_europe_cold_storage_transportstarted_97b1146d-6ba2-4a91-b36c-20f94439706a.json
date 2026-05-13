@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-3a6717f7-2d1f-461d-a517-99d8ab9e05be",
+  "source_node": "AFRICA_COLD_STORAGE",
+  "target_node": "EUROPE_COLD_STORAGE",
+  "transport_mode": "SEA_FREIGHT",
+  "cargo_product_reference": "ban-110",
+  "carrier": {
+    "carrier_id": "CAR-101",
+    "carrier_name": "DB Schenker"
+  },
+  "estimated_arrival": "2026-05-16T03:50:40.922276",
+  "timestamp": "2026-05-12T11:50:40.922279"
+}

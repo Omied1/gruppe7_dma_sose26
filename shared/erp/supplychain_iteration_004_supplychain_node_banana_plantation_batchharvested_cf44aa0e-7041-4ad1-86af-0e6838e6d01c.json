@@ -1,0 +1,11 @@
+{
+  "event_type": "BatchHarvested",
+  "supply_chain_node": "BANANA_PLANTATION",
+  "product_code": "BAN-103",
+  "wms_sku": "BAN_103",
+  "tms_product_reference": "ban-103",
+  "batch_identifier": "BATCH-4e6b6658-b564-44be-a3fa-ed4ac5bea5ea",
+  "origin_country": "Ghana",
+  "quantity": 277,
+  "timestamp": "2026-05-12T11:50:40.927163"
+}

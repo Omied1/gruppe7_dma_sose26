@@ -1,0 +1,8 @@
+{
+  "event_type": "CustomerCreated",
+  "customer_number": "CUST-108",
+  "customer_name": "CARREFOUR",
+  "city": "Frankfurt",
+  "country": "Germany",
+  "timestamp": "2026-05-12T11:50:40.901786"
+}

@@ -1,0 +1,16 @@
+{
+  "event_type": "ShipmentPositionUpdated",
+  "shipment_identifier": "SHIP-9647d821-ee9c-4cab-b921-501c412ba89e",
+  "cargo_product_reference": "ban-110",
+  "current_route": {
+    "source": "AFRICA_COLD_STORAGE",
+    "target": "EUROPE_COLD_STORAGE"
+  },
+  "coordinates": {
+    "latitude": -63.404698,
+    "longitude": -123.911539
+  },
+  "container_temperature": 13.49,
+  "speed_kmh": 31.51,
+  "timestamp": "2026-05-12T11:50:40.915599"
+}

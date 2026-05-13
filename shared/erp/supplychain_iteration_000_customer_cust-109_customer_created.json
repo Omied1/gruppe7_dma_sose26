@@ -1,0 +1,8 @@
+{
+  "event_type": "CustomerCreated",
+  "customer_number": "CUST-109",
+  "customer_name": "AUCHAN",
+  "city": "Frankfurt",
+  "country": "Germany",
+  "timestamp": "2026-05-12T11:50:40.901788"
+}

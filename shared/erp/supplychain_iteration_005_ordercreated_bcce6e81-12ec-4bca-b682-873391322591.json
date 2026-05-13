@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-54ce98f5-0850-4f90-935e-304fb81406f3",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-102",
+    "customer_name": "LIDL",
+    "city": "Cologne",
+    "country": "Germany",
+    "timestamp": "2026-05-12T11:50:40.901776"
+  },
+  "items": [
+    {
+      "product_code": "BAN-104",
+      "description": "Baby Banana",
+      "quantity": 194,
+      "unit_price": 1.89
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-12T11:50:40.931277"
+}

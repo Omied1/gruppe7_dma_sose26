@@ -1,0 +1,8 @@
+{
+  "event_type": "ProductCreated",
+  "product_code": "BAN-107",
+  "product_name": "Sweet Banana",
+  "category": "Fresh Fruit",
+  "supplier_reference": "SUP-108",
+  "timestamp": "2026-05-12T11:50:40.901805"
+}

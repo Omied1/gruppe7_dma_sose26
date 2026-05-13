@@ -1,0 +1,8 @@
+{
+  "event_type": "CustomerCreated",
+  "customer_number": "CUST-107",
+  "customer_name": "TESCO",
+  "city": "Frankfurt",
+  "country": "Germany",
+  "timestamp": "2026-05-12T11:50:40.901785"
+}
