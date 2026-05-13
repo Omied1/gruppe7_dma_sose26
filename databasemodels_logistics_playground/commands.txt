@@ -1,0 +1,60 @@
+## docker
+
+# docker compose ausführen
+docker compose up -d
+
+# container stoppen und entfernen, images aber nicht entfernen
+docker compose down (optional -v) für volumes löschen
+#container nur stoppen (alternativ: starten)
+docker compose stop (alternativ: start)
+
+
+# container anzeigen
+docker ps
+
+# in container springen
+docker exec -it 1b429959a53b /bin/bash
+
+# alles von Rechner löschen
+docker compose down -v --rmi all --remove-orphans
+
+## psql
+psql -U user -d logistics # einwählen in postgres client
+
+\dt # show tables
+SELECT * FROM <Tabellenname>
+
+## mongoDB
+mongosh "mongodb://localhost:27017" # einwählen in SH-client
+
+show databases
+
+use logistics
+
+show shipments
+
+db.shipments.find()
+
+## redis
+
+redis-cli
+
+INFO keyspace
+
+SELECT 0
+
+KEYS*
+
+## neo4j
+
+cypher-shell -u neo4j -p password
+
+MATCH (w:Warehouse)
+RETURN w;
+
+## minio
+mc alias set myminio http://localhost:9000 admin password
+
+mc ls myminio
+mc ls myminio/docs
+mc cat myminio/mein-bucket/test.txt
