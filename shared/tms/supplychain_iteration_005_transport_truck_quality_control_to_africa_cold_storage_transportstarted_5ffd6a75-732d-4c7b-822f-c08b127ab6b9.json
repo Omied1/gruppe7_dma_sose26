@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-adc8ceb7-2010-473a-91ac-d633f89f49a5",
+  "source_node": "QUALITY_CONTROL",
+  "target_node": "AFRICA_COLD_STORAGE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-104",
+  "carrier": {
+    "carrier_id": "CAR-104",
+    "carrier_name": "Maersk"
+  },
+  "estimated_arrival": "2026-05-17T08:50:40.931325",
+  "timestamp": "2026-05-12T11:50:40.931326"
+}

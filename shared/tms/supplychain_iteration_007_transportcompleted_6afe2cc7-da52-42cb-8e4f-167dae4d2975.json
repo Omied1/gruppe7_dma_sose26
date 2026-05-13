@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-6f5d600c-94c5-408e-8a92-4bf98d6a3581",
+  "cargo_product_reference": "ban-104",
+  "arrival_node": "RETAIL_STORE",
+  "delay_minutes": 2,
+  "timestamp": "2026-05-12T11:50:40.938154"
+}

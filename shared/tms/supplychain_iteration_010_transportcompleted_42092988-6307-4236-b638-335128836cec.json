@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-d21b6161-0b84-412c-90f9-b7bcfc6f887a",
+  "cargo_product_reference": "ban-105",
+  "arrival_node": "QUALITY_CONTROL",
+  "delay_minutes": 31,
+  "timestamp": "2026-05-12T11:50:40.949544"
+}

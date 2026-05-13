@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-ae966271-01e1-4266-998e-4aca1518d245",
+  "source_node": "AFRICA_COLD_STORAGE",
+  "target_node": "EUROPE_COLD_STORAGE",
+  "transport_mode": "SEA_FREIGHT",
+  "cargo_product_reference": "ban-105",
+  "carrier": {
+    "carrier_id": "CAR-105",
+    "carrier_name": "Maersk"
+  },
+  "estimated_arrival": "2026-05-13T19:50:40.949569",
+  "timestamp": "2026-05-12T11:50:40.949571"
+}

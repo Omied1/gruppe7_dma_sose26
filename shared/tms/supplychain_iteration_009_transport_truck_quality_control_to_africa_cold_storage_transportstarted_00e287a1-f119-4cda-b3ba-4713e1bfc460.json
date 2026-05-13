@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-4c82f317-48d6-4ee8-bb76-887e3b42c557",
+  "source_node": "QUALITY_CONTROL",
+  "target_node": "AFRICA_COLD_STORAGE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-103",
+  "carrier": {
+    "carrier_id": "CAR-103",
+    "carrier_name": "DHL"
+  },
+  "estimated_arrival": "2026-05-17T00:50:40.945710",
+  "timestamp": "2026-05-12T11:50:40.945712"
+}

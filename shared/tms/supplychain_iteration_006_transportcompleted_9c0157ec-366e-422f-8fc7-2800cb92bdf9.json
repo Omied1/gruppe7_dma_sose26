@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-9977e13e-8282-45e5-bdbc-1459ac451767",
+  "cargo_product_reference": "ban-104",
+  "arrival_node": "EUROPE_COLD_STORAGE",
+  "delay_minutes": 32,
+  "timestamp": "2026-05-12T11:50:40.934553"
+}
