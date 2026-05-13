@@ -1,0 +1,9 @@
+{
+  "event_type": "NodeProcessed",
+  "supply_chain_node": "COLLECTION_CENTER",
+  "batch_reference": "BATCH-1fc8aacf-2bce-4051-91c6-b10b4702cd97",
+  "sku": "BAN_103",
+  "temperature": 13.07,
+  "status": "COMPLETED",
+  "timestamp": "2026-05-12T11:50:40.945691"
+}

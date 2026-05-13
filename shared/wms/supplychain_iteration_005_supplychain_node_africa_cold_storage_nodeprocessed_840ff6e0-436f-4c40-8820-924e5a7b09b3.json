@@ -1,0 +1,9 @@
+{
+  "event_type": "NodeProcessed",
+  "supply_chain_node": "AFRICA_COLD_STORAGE",
+  "batch_reference": "BATCH-1f6c9e56-580b-43ec-b2aa-db0955adf841",
+  "sku": "BAN_104",
+  "temperature": 13.67,
+  "status": "COMPLETED",
+  "timestamp": "2026-05-12T11:50:40.931333"
+}

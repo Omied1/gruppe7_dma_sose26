@@ -1,0 +1,9 @@
+{
+  "event_type": "NodeProcessed",
+  "supply_chain_node": "BANANA_PLANTATION",
+  "batch_reference": "BATCH-c1a38b8e-4cc4-4098-8b18-9c9641fc46c0",
+  "sku": "BAN_101",
+  "temperature": 11.6,
+  "status": "COMPLETED",
+  "timestamp": "2026-05-12T11:50:40.942020"
+}
