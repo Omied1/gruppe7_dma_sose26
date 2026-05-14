@@ -189,10 +189,14 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                         cur.execute("""
                             INSERT INTO erp.order_items
                                 (order_id, product_id, quantity, unit_price)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT DO NOTHING
+                            SELECT %s, %s, %s, %s
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM erp.order_items
+                                WHERE order_id = %s AND product_id = %s
+                            )
                         """, (order_id, prow[0], item["quantity"],
-                              safe_float(item.get("unit_price"))))
+                              safe_float(item.get("unit_price")),
+                              order_id, prow[0]))
                 count("pg.orders")
 
         elif et == "BatchHarvested":
@@ -226,12 +230,16 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             cur.execute("""
                 INSERT INTO wms.node_processings
                     (node_id, batch_reference, sku, temperature, status, processed_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
+                SELECT %s, %s, %s, %s, %s, %s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM wms.node_processings
+                    WHERE node_id = %s AND batch_reference = %s
+                )
             """, (nrow[0], ev["batch_reference"],
                   normalize_key(ev["sku"]),
                   safe_float(ev.get("temperature")),
-                  ev.get("status"), ev.get("timestamp")))
+                  ev.get("status"), ev.get("timestamp"),
+                  nrow[0], ev["batch_reference"]))
             count("pg.node_processings")
 
     # ── Schritt 6: TMS-Eventdaten ─────────────────────────────────────────────
@@ -270,14 +278,18 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                 INSERT INTO tms.shipment_positions
                     (shipment_id, latitude, longitude,
                      container_temperature, speed_kmh, recorded_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
+                SELECT %s, %s, %s, %s, %s, %s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM tms.shipment_positions
+                    WHERE shipment_id = %s AND recorded_at = %s
+                )
             """, (srow[0],
                   safe_float(coords.get("latitude")),
                   safe_float(coords.get("longitude")),
                   safe_float(ev.get("container_temperature")),
                   safe_float(ev.get("speed_kmh")),
-                  ev.get("timestamp")))
+                  ev.get("timestamp"),
+                  srow[0], ev.get("timestamp")))
             count("pg.positions")
 
         elif et == "TransportCompleted":
@@ -290,11 +302,15 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             cur.execute("""
                 INSERT INTO tms.transport_completions
                     (shipment_id, arrival_node, delay_minutes, completed_at)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
+                SELECT %s, %s, %s, %s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM tms.transport_completions
+                    WHERE shipment_id = %s
+                )
             """, (srow[0], ev.get("arrival_node"),
                   safe_int(ev.get("delay_minutes")),
-                  ev.get("timestamp")))
+                  ev.get("timestamp"),
+                  srow[0]))
             count("pg.completions")
 
         elif et == "DeliveryCompleted":
@@ -306,11 +322,14 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                 continue
             cur.execute("""
                 INSERT INTO tms.deliveries
-                    (shipment_id, delivery_status, received_by, delivered_at)
-                VALUES (%s, %s, %s, %s)
+                    (shipment_id, delivery_status, received_by,
+                     cargo_product_reference, delivered_at)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
             """, (srow[0], ev.get("delivery_status"),
-                  ev.get("received_by"), ev.get("timestamp")))
+                  ev.get("received_by"),
+                  ev.get("cargo_product_reference"),
+                  ev.get("timestamp")))
             count("pg.deliveries")
 
     pg.commit()
@@ -512,9 +531,11 @@ def load_neo4j(erp_events, tms_events, driver):
                     MERGE (b:Batch {batch_identifier: $bid})
                       SET b.quantity = $qty, b.origin_country = $oc
                     WITH b
-                    MATCH (o:Order)
+                    OPTIONAL MATCH (o:Order)
                     WHERE EXISTS { MATCH (o)-[:CONTAINS]->(p:Product {product_code: $pc}) }
-                    MERGE (o)-[:TRIGGERED]->(b)
+                    FOREACH (_ IN CASE WHEN o IS NOT NULL THEN [1] ELSE [] END |
+                        MERGE (o)-[:TRIGGERED]->(b)
+                    )
                 """, bid=ev["batch_identifier"],
                      qty=safe_int(ev.get("quantity")),
                      oc=ev.get("origin_country"),
@@ -600,7 +621,7 @@ def load_minio(erp_events, tms_events, minio_client, pg):
                 INSERT INTO erp.document_references
                     (entity_type, entity_key, document_type, bucket, object_path)
                 VALUES ('SHIPMENT', %s, 'delivery_note', 'delivery-notes', %s)
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (entity_key, document_type) DO NOTHING
             """, (sid, path))
             count("minio.delivery_notes")
 
@@ -621,7 +642,7 @@ def load_minio(erp_events, tms_events, minio_client, pg):
                     INSERT INTO erp.document_references
                         (entity_type, entity_key, document_type, bucket, object_path)
                     VALUES ('SHIPMENT', %s, 'invoice', 'invoices', %s)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (entity_key, document_type) DO NOTHING
                 """, (sid, path))
                 count("minio.invoices")
 

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PGPASSWORD=password psql -h localhost -U user -d logistics -f ../sql/01_create_schemas.sql)",
+      "Bash(docker exec postgres psql -U user -d logistics -c ' *)"
+    ]
+  }
+}
+
