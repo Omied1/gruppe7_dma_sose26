@@ -54,6 +54,7 @@ und getestet.
 | Datei | Inhalt | Status |
 |---|---|---|
 | `bananasupplychain/etl_load.py` | ETL-Hauptskript: 383 Events -> PostgreSQL, MongoDB, Redis, Neo4j, MinIO | getestet |
+| `bananasupplychain/etl_dwh.py` | ETL Phase 2: Operative Schemas -> DWH-Sternschema (6 Dimensionen + fact_fulfillment) | getestet |
 | `bananasupplychain/generate_documents.py` | MinIO-Dokumentengenerator (PDFs + 66 PostgreSQL-Referenzen) | getestet |
 | `bananasupplychain/test_data_generator.py` | Datengenerator für ERP/WMS/TMS-JSON-Events | getestet |
 | `bananasupplychain/container/docker-compose.yml` | Docker-Setup: PostgreSQL, MongoDB, Redis, Neo4j, MinIO | getestet |
@@ -76,18 +77,20 @@ und getestet.
 
 ## 3. Technisch getestete Artefakte
 
-Alle folgenden Komponenten wurden am **2026-05-12** gegen laufende Docker-Container geprüft:
+Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docker-Container geprüft:
 
 | Komponente | Ergebnis |
 |---|---|
-| PostgreSQL: SQL 01-08 | 6 Schemas, 26 Tabellen erstellt |
+| PostgreSQL: SQL 01-08 | 6 Schemas, 26 Tabellen erstellt (mit UNIQUE-Constraints auf TMS-Tabellen) |
 | MDM `resolve_canonical_key()` | BAN_101 / ban-101 / BAN-101 -> alle loesen auf BAN-101 auf |
 | DWH `dim_date` | 1095 Zeilen (2025-01-01 bis 2027-12-31) |
-| MongoDB: 4 Collections | shipment_events (500), node_events (121), batch_tracking (11), order_events (11) |
-| Redis: alle Key-Typen | STRING, HASH, LIST, SORTED SET, COUNTER funktionieren |
-| Neo4j: Graphmodell | 125 Nodes, 47+ Relationships; Pfad PLANTATION->RETAIL in 6 Hops |
+| DWH `fact_fulfillment` | 60 Facts (Shipment-Hop-Grain): 6 SUCCESSFUL + 4 DELAYED + 50 IN_TRANSIT |
+| MongoDB: 4 Collections | shipment_events (248), node_events (60), batch_tracking (10), order_events (10) |
+| Redis: alle Key-Typen | STRING, HASH, LIST, SORTED SET, COUNTER + TTLs auf info/position |
+| Neo4j: Graphmodell | 125+ Nodes, alle Relationships; Pfad PLANTATION->RETAIL in 6 Hops |
 | MinIO: 4 Buckets | 60 Lieferscheine, 6 Rechnungen, 66 PostgreSQL-Referenzen |
-| ETL-Skript | 383 Events vollstaendig in alle 5 Systeme geladen |
+| ETL Phase 1 idempotent | 2 aufeinanderfolgende Läufe ergeben identische Zeilenzahlen (PG + MongoDB) |
+| ETL Phase 2 idempotent | DELETE+INSERT-Pattern, 60 Facts konstant bei Mehrfach-Lauf |
 
 ---
 
@@ -96,9 +99,7 @@ Alle folgenden Komponenten wurden am **2026-05-12** gegen laufende Docker-Contai
 | Artefakt | Hinweis |
 |---|---|
 | `sql/08_data_quality_checks.sql` | Erstellt, aber noch nicht systematisch ausgefuehrt und Ergebnisse dokumentiert |
-| ETL Idempotenz | Mehrfach-Ausfuehrung von `etl_load.py` erzeugt Duplikate – ON CONFLICT DO NOTHING fehlt |
-| ETL Phase 2 (DWH) | Konzept dokumentiert, aber kein lauffaehiges Skript vorhanden |
-| Neo4j ETL aus TMS-Daten | Nur Stammdaten geladen; Fulfillment-Routen aus TMS-Events nicht automatisch importiert |
+| Neo4j ETL aus TMS-Daten | Stammdaten + Shipments/Deliveries geladen; volle Fulfillment-Routen-Pfade nicht automatisch importiert |
 
 ---
 
@@ -106,9 +107,11 @@ Alle folgenden Komponenten wurden am **2026-05-12** gegen laufende Docker-Contai
 
 | # | Aufgabe | Priorität |
 |---|---|---|
-| T1-1 | ETL-Idempotenz: `ON CONFLICT DO NOTHING` in `etl_load.py` einbauen | Mittel |
-| T1-2 | DQ-Checks (`sql/08`) systematisch ausfuehren und Ergebnisse dokumentieren | Mittel |
-| T1-3 | ETL Phase 2 als lauffaehiges Python-Skript implementieren (operative Schemas -> DWH) | Mittel |
+| T1-1 | ETL-Idempotenz | **erledigt 2026-05-14** |
+| T1-2 | DQ-Checks systematisch ausfuehren und dokumentieren | **erledigt 2026-05-14** (26/26 PASS + Sanity-Test bestand) |
+| T1-3 | ETL Phase 2 testen | **erledigt 2026-05-14** (60 Facts, idempotent) |
+| T1-5 | Metadaten auf alle Spalten erweitern | **erledigt 2026-05-14** (168/168 Spalten in `sql/06b_metadata_complete.sql`) |
+| T1-6 | MDM um Customer/Supplier/Carrier/Node Golden Records erweitern | **erledigt 2026-05-14** (42 Golden Records, 69 Source Mappings) |
 | T1-4 | Neo4j ETL: Fulfillment-Routen automatisch aus TMS-JSON-Daten laden | Niedrig |
 
 ---
@@ -131,7 +134,7 @@ Alle folgenden Komponenten wurden am **2026-05-12** gegen laufende Docker-Contai
 
 | # | Fehler | Betroffene Datei | Status |
 |---|---|---|---|
-| F-1 | Mehrfach-Ausfuehrung von `etl_load.py` erzeugt Duplikate in PostgreSQL | `bananasupplychain/etl_load.py` | offen |
+| F-1 | Mehrfach-Ausfuehrung von `etl_load.py` erzeugt Duplikate in PostgreSQL | `bananasupplychain/etl_load.py` | **behoben 2026-05-14** (UNIQUE-Constraints + ON CONFLICT auf shipment_positions/transport_completions/deliveries) |
 | F-2 | VS Code erzeugt beim gleichzeitigen Committen `.git/index.lock` – git-Operationen blockiert | git-Workflow | offen (Workaround: Lock manuell loeschen) |
 
 ---
@@ -140,7 +143,7 @@ Alle folgenden Komponenten wurden am **2026-05-12** gegen laufende Docker-Contai
 
 | # | Typ | Beschreibung |
 |---|---|---|
-| R-1 | Risiko | ETL Phase 2 (DWH) ist nur konzipiert, nicht implementiert – blockiert Analytics-Aufgaben A-1 bis A-6 |
+| R-1 | Risiko | ETL Phase 2 (DWH) implementiert aber noch nicht getestet – erst nach Docker-Test freigeben |
 | R-2 | Risiko | PowerBI benoetigt laufende PostgreSQL-Verbindung – Verbindungsparameter muessen vor Abgabe geprueft werden |
 | R-3 | Annahme | [ANNAHME] Docker-Container laufen bei der Abgabe auf dem lokalen Rechner – kein Cloud-Deployment geplant |
 | R-4 | Annahme | [ANNAHME] TMS-Daten enthalten genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell 10 Iterationen) |

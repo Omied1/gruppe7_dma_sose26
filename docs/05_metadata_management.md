@@ -1,8 +1,10 @@
 # Metadatenmanagement – Banana Supply Chain
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
-**Stand:** 2026-05-12  
-**SQL-Implementierung:** `sql/06_create_metadata_tables.sql`
+**Stand:** 2026-05-14  
+**SQL-Implementierung:** `sql/06_create_metadata_tables.sql` (Grundstruktur) + `sql/06b_metadata_complete.sql` (Vollabdeckung)
+
+> **Vollständigkeitsnachweis:** Alle **168 Spalten** der SQL-Datenbank (ERP, WMS, TMS, MDM, DWH) sind in `meta.columns` mit Skalenniveau klassifiziert. Verteilung: 129 NOMINAL · 16 INTERVAL · 13 RATIO · 11 ORDINAL.
 
 ---
 

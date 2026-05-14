@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS tms.shipment_positions (
     speed_kmh               NUMERIC(6,2)    CHECK (speed_kmh >= 0),
     recorded_at             TIMESTAMP       NOT NULL,
     created_at              TIMESTAMP       NOT NULL DEFAULT NOW(),
-    source_event            VARCHAR(50)     NOT NULL DEFAULT 'ShipmentPositionUpdated'
+    source_event            VARCHAR(50)     NOT NULL DEFAULT 'ShipmentPositionUpdated',
+    CONSTRAINT uq_tms_position_per_time UNIQUE (shipment_id, recorded_at)
 );
 
 COMMENT ON TABLE  tms.shipment_positions IS 'GPS-Positionsarchiv. Primärsystem für aktuelle Position ist Redis. Diese Tabelle speichert den historischen Positionsverlauf.';
@@ -110,7 +111,8 @@ CREATE TABLE IF NOT EXISTS tms.transport_completions (
     delay_minutes           INT             NOT NULL DEFAULT 0 CHECK (delay_minutes >= 0),
     completed_at            TIMESTAMP       NOT NULL,
     created_at              TIMESTAMP       NOT NULL DEFAULT NOW(),
-    source_event            VARCHAR(50)     NOT NULL DEFAULT 'TransportCompleted'
+    source_event            VARCHAR(50)     NOT NULL DEFAULT 'TransportCompleted',
+    CONSTRAINT uq_tms_completion_per_shipment UNIQUE (shipment_id)
 );
 
 COMMENT ON TABLE  tms.transport_completions IS 'Abschlüsse von Transportvorgängen. delay_minutes ist zentrale KPI (0-180 Min laut Datengenerator). Jedes Shipment hat genau einen Abschluss.';
@@ -130,7 +132,8 @@ CREATE TABLE IF NOT EXISTS tms.deliveries (
     cargo_product_reference     VARCHAR(30),    -- TMS-Format: "ban-108"
     delivered_at                TIMESTAMP       NOT NULL,
     created_at                  TIMESTAMP       NOT NULL DEFAULT NOW(),
-    source_event                VARCHAR(50)     NOT NULL DEFAULT 'DeliveryCompleted'
+    source_event                VARCHAR(50)     NOT NULL DEFAULT 'DeliveryCompleted',
+    CONSTRAINT uq_tms_delivery_per_shipment UNIQUE (shipment_id)
 );
 
 COMMENT ON TABLE  tms.deliveries IS 'Lieferabschlüsse am Retail Store. delivery_status SUCCESSFUL/DELAYED ist Haupt-KPI für Fulfillment-Qualität.';

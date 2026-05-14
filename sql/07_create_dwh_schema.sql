@@ -150,9 +150,10 @@ CREATE TABLE IF NOT EXISTS dwh.dim_delivery_status (
 );
 
 INSERT INTO dwh.dim_delivery_status (status_code, status_name, is_successful, description) VALUES
-    ('SUCCESSFUL', 'Erfolgreich geliefert', TRUE,  'Ware pünktlich und vollständig beim Kunden angekommen'),
-    ('DELAYED',    'Verzögert geliefert',   TRUE,  'Ware angekommen, aber mit Zeitverzögerung'),
-    ('FAILED',     'Lieferung fehlgeschlagen', FALSE, 'Ware nicht beim Kunden angekommen')
+    ('SUCCESSFUL', 'Erfolgreich geliefert',     TRUE,  'Ware pünktlich und vollständig beim Kunden angekommen'),
+    ('DELAYED',    'Verzögert geliefert',       TRUE,  'Ware angekommen, aber mit Zeitverzögerung'),
+    ('FAILED',     'Lieferung fehlgeschlagen',  FALSE, 'Ware nicht beim Kunden angekommen'),
+    ('IN_TRANSIT', 'Zwischenhop in Lieferkette', FALSE, 'Transportetappe ohne Endlieferung (Plantation -> ... -> RETAIL_STORE)')
 ON CONFLICT (status_code) DO NOTHING;
 
 -- =============================================================================

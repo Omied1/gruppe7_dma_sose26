@@ -1,8 +1,11 @@
 # Masterdatenmanagement – Banana Supply Chain
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
-**Stand:** 2026-05-12  
-**SQL-Implementierung:** `sql/05_create_mdm_tables.sql`
+**Stand:** 2026-05-14  
+**SQL-Implementierung:** `sql/05_create_mdm_tables.sql`  
+**ETL-Befüllung:** `bananasupplychain/etl_load.py` – Funktion `load_mdm()`
+
+> **Abdeckung:** Golden Records existieren für **alle 5 Entity-Typen**: PRODUCT (10), CUSTOMER (10), SUPPLIER (10), CARRIER (5), SUPPLY_CHAIN_NODE (7). Source Mappings: 30 für PRODUCT (3 Systeme), 10 ERP-Mappings je für CUSTOMER/SUPPLIER, 5 TMS-Mappings für CARRIER, 14 für NODE (WMS+TMS).
 
 ---
 

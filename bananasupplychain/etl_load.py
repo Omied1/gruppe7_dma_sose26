@@ -155,6 +155,21 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
 
     pg.commit()
 
+    # ── Reparatur-Pass: supplier_id für Produkte setzen ───────────────────────
+    # Notwendig, weil ProductCreated alphabetisch vor SupplierCreated verarbeitet
+    # wird und der Supplier-Lookup daher im ersten Durchlauf fehlschlägt.
+    for ev in erp_events:
+        if ev.get("event_type") == "ProductCreated" and ev.get("supplier_reference"):
+            cur.execute("""
+                UPDATE erp.products
+                SET supplier_id = s.supplier_id
+                FROM erp.suppliers s
+                WHERE erp.products.product_code = %s
+                  AND s.supplier_code           = %s
+                  AND erp.products.supplier_id IS NULL
+            """, (normalize_key(ev["product_code"]), ev.get("supplier_reference")))
+    pg.commit()
+
     # ── Schritt 4: ERP-Bewegungsdaten ─────────────────────────────────────────
     for ev in erp_events:
         et = ev.get("event_type")
@@ -243,7 +258,14 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             count("pg.node_processings")
 
     # ── Schritt 6: TMS-Eventdaten ─────────────────────────────────────────────
-    for ev in tms_events:
+    # Reihenfolge: zuerst TransportStarted (erzeugt shipments), erst danach
+    # die Folge-Events. Sonst werden Positions/Completions/Deliveries
+    # geskippt, weil das Shipment im Lookup noch nicht existiert.
+    tms_sorted = sorted(
+        tms_events,
+        key=lambda e: 0 if e.get("event_type") == "TransportStarted" else 1
+    )
+    for ev in tms_sorted:
         et = ev.get("event_type")
 
         if et == "TransportStarted":
@@ -278,18 +300,14 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                 INSERT INTO tms.shipment_positions
                     (shipment_id, latitude, longitude,
                      container_temperature, speed_kmh, recorded_at)
-                SELECT %s, %s, %s, %s, %s, %s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM tms.shipment_positions
-                    WHERE shipment_id = %s AND recorded_at = %s
-                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (shipment_id, recorded_at) DO NOTHING
             """, (srow[0],
                   safe_float(coords.get("latitude")),
                   safe_float(coords.get("longitude")),
                   safe_float(ev.get("container_temperature")),
                   safe_float(ev.get("speed_kmh")),
-                  ev.get("timestamp"),
-                  srow[0], ev.get("timestamp")))
+                  ev.get("timestamp")))
             count("pg.positions")
 
         elif et == "TransportCompleted":
@@ -302,15 +320,11 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             cur.execute("""
                 INSERT INTO tms.transport_completions
                     (shipment_id, arrival_node, delay_minutes, completed_at)
-                SELECT %s, %s, %s, %s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM tms.transport_completions
-                    WHERE shipment_id = %s
-                )
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (shipment_id) DO NOTHING
             """, (srow[0], ev.get("arrival_node"),
                   safe_int(ev.get("delay_minutes")),
-                  ev.get("timestamp"),
-                  srow[0]))
+                  ev.get("timestamp")))
             count("pg.completions")
 
         elif et == "DeliveryCompleted":
@@ -325,7 +339,7 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                     (shipment_id, delivery_status, received_by,
                      cargo_product_reference, delivered_at)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (shipment_id) DO NOTHING
             """, (srow[0], ev.get("delivery_status"),
                   ev.get("received_by"),
                   ev.get("cargo_product_reference"),
@@ -341,60 +355,89 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
 # Läuft nach den Stammdaten-Schritten, da erp.products bereits befüllt sein muss.
 # Erzeugt für jedes Produkt 1 Golden Record + 3 Source Mappings (ERP/WMS/TMS).
 # =============================================================================
+def _upsert_golden(cur, entity_type_id, canonical_key, canonical_name, score=0.95):
+    """Legt einen Golden Record an oder gibt die existierende golden_id zurück."""
+    cur.execute("""
+        INSERT INTO mdm.golden_records
+            (entity_type_id, canonical_key, canonical_name, status, quality_score)
+        VALUES (%s, %s, %s, 'ACTIVE', %s)
+        ON CONFLICT (entity_type_id, canonical_key) DO NOTHING
+        RETURNING golden_id
+    """, (entity_type_id, canonical_key, canonical_name, score))
+    res = cur.fetchone()
+    if res:
+        return res[0]
+    cur.execute("""
+        SELECT golden_id FROM mdm.golden_records
+        WHERE entity_type_id = %s AND canonical_key = %s
+    """, (entity_type_id, canonical_key))
+    return cur.fetchone()[0]
+
+
+def _upsert_mapping(cur, golden_id, source_system, source_key, is_canonical):
+    """Registriert ein Quellsystem-Schlüsselmapping (idempotent)."""
+    cur.execute("""
+        INSERT INTO mdm.source_mappings
+            (golden_id, source_system, source_key, normalized_key, is_canonical)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (source_system, source_key) DO NOTHING
+    """, (golden_id, source_system, source_key,
+          source_key.strip().lower().replace("_", "-"), is_canonical))
+
+
 def load_mdm(pg):
     cur = pg.cursor()
 
-    cur.execute("SELECT entity_type_id FROM mdm.entity_types WHERE entity_type_code = 'PRODUCT'")
-    row = cur.fetchone()
-    if not row:
-        print("  WARNUNG: entity_type PRODUCT nicht in mdm.entity_types gefunden")
-        cur.close()
-        return
-    product_type_id = row[0]
+    # Entity-Type-Lookups
+    cur.execute("SELECT entity_type_code, entity_type_id FROM mdm.entity_types")
+    type_ids = dict(cur.fetchall())
 
-    cur.execute("SELECT product_code, product_name FROM erp.products ORDER BY product_code")
-    products = cur.fetchall()
+    # ── PRODUCT (3 Quellsysteme, echte Schlüsselharmonisierung) ─────────────
+    if "PRODUCT" in type_ids:
+        cur.execute("SELECT product_code, product_name FROM erp.products ORDER BY product_code")
+        for product_code, product_name in cur.fetchall():
+            gid = _upsert_golden(cur, type_ids["PRODUCT"], product_code, product_name, 0.95)
+            _upsert_mapping(cur, gid, "ERP", product_code,                 True)
+            _upsert_mapping(cur, gid, "WMS", product_code.replace("-","_"), False)
+            _upsert_mapping(cur, gid, "TMS", product_code.lower(),          False)
+            count("mdm.golden_records.product")
 
-    for product_code, product_name in products:
-        # Golden Record anlegen (ERP-Schlüssel ist kanonisch)
-        # UNIQUE-Constraint liegt auf (entity_type_id, canonical_key)
-        cur.execute("""
-            INSERT INTO mdm.golden_records
-                (entity_type_id, canonical_key, canonical_name, status, quality_score)
-            VALUES (%s, %s, %s, 'ACTIVE', 0.95)
-            ON CONFLICT (entity_type_id, canonical_key) DO NOTHING
-            RETURNING golden_id
-        """, (product_type_id, product_code, product_name))
-        res = cur.fetchone()
+    # ── CUSTOMER (Single-Source: ERP) ───────────────────────────────────────
+    # Mapping nur für ERP, da Kunden ausschließlich im ERP entstehen.
+    # Score 1.00, weil keine Schlüssel-Konflikte existieren.
+    if "CUSTOMER" in type_ids:
+        cur.execute("SELECT customer_number, customer_name FROM erp.customers ORDER BY customer_number")
+        for cust_num, cust_name in cur.fetchall():
+            gid = _upsert_golden(cur, type_ids["CUSTOMER"], cust_num, cust_name, 1.00)
+            _upsert_mapping(cur, gid, "ERP", cust_num, True)
+            count("mdm.golden_records.customer")
 
-        if res:
-            golden_id = res[0]
-        else:
-            cur.execute("""
-                SELECT golden_id FROM mdm.golden_records
-                WHERE entity_type_id = %s AND canonical_key = %s
-            """, (product_type_id, product_code))
-            golden_id = cur.fetchone()[0]
+    # ── SUPPLIER (Single-Source: ERP) ───────────────────────────────────────
+    if "SUPPLIER" in type_ids:
+        cur.execute("SELECT supplier_code, supplier_name FROM erp.suppliers ORDER BY supplier_code")
+        for sup_code, sup_name in cur.fetchall():
+            gid = _upsert_golden(cur, type_ids["SUPPLIER"], sup_code, sup_name, 1.00)
+            _upsert_mapping(cur, gid, "ERP", sup_code, True)
+            count("mdm.golden_records.supplier")
 
-        # WMS-Schlüssel: BAN-101 → BAN_101
-        wms_key = product_code.replace("-", "_")
-        # TMS-Schlüssel: BAN-101 → ban-101
-        tms_key = product_code.lower()
+    # ── CARRIER (Single-Source: TMS) ────────────────────────────────────────
+    if "CARRIER" in type_ids:
+        cur.execute("SELECT carrier_code, carrier_name FROM tms.carriers ORDER BY carrier_code")
+        for car_code, car_name in cur.fetchall():
+            gid = _upsert_golden(cur, type_ids["CARRIER"], car_code, car_name, 1.00)
+            _upsert_mapping(cur, gid, "TMS", car_code, True)
+            count("mdm.golden_records.carrier")
 
-        mappings = [
-            ("ERP", product_code, True),
-            ("WMS", wms_key,      False),
-            ("TMS", tms_key,      False),
-        ]
-        for source_system, source_key, is_canonical in mappings:
-            cur.execute("""
-                INSERT INTO mdm.source_mappings
-                    (golden_id, source_system, source_key, normalized_key, is_canonical)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (source_system, source_key) DO NOTHING
-            """, (golden_id, source_system, source_key,
-                  source_key.strip().lower().replace("_", "-"), is_canonical))
-        count("mdm.golden_records")
+    # ── SUPPLY_CHAIN_NODE (Multi-Source: WMS und TMS, identische Codes) ─────
+    # WMS und TMS verwenden denselben node_code, registrieren wird trotzdem
+    # für Vollständigkeit des Datenkatalogs.
+    if "SUPPLY_CHAIN_NODE" in type_ids:
+        cur.execute("SELECT node_code, node_name FROM wms.supply_chain_nodes ORDER BY sequence_order")
+        for node_code, node_name in cur.fetchall():
+            gid = _upsert_golden(cur, type_ids["SUPPLY_CHAIN_NODE"], node_code, node_name, 1.00)
+            _upsert_mapping(cur, gid, "WMS", node_code, True)
+            _upsert_mapping(cur, gid, "TMS", node_code, False)
+            count("mdm.golden_records.node")
 
     pg.commit()
     cur.close()
@@ -409,24 +452,44 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
     bt  = mongo_db["batch_tracking"]
     oe  = mongo_db["order_events"]
 
+    # Unique-Indizes als Idempotenz-Sicherheitsnetz auf DB-Ebene.
+    # Verhindert Duplikate auch bei Mehrfach-ETL-Läufen.
+    oe.create_index("order_reference", unique=True)
+    ne.create_index([("batch_reference", 1), ("supply_chain_node", 1), ("timestamp", 1)],
+                    unique=True, name="uq_node_event")
+    se.create_index([("event_type", 1), ("shipment_identifier", 1), ("timestamp", 1)],
+                    unique=True, name="uq_shipment_event")
+    bt.create_index("batch_identifier", unique=True)
+
     for ev in erp_events:
         if ev.get("event_type") == "OrderCreated":
-            if not oe.find_one({"order_reference": ev["order_reference"]}):
-                oe.insert_one(ev.copy())
+            res = oe.update_one(
+                {"order_reference": ev["order_reference"]},
+                {"$setOnInsert": ev.copy()},
+                upsert=True
+            )
+            if res.upserted_id is not None:
                 count("mongo.order_events")
 
     for ev in wms_events:
         if ev.get("event_type") == "NodeProcessed":
             doc = ev.copy()
             doc["node_code"] = doc.get("supply_chain_node", "")
-            ne.insert_one(doc)
-            count("mongo.node_events")
+            res = ne.update_one(
+                {"batch_reference": ev["batch_reference"],
+                 "supply_chain_node": ev["supply_chain_node"],
+                 "timestamp": ev["timestamp"]},
+                {"$setOnInsert": doc},
+                upsert=True
+            )
+            if res.upserted_id is not None:
+                count("mongo.node_events")
             # Batch-Tracking aktualisieren
             bt.update_one(
                 {"batch_identifier": ev["batch_reference"]},
-                {"$push": {"nodes_processed": ev["supply_chain_node"]},
-                 "$set":  {"current_node": ev["supply_chain_node"],
-                           "last_temperature": ev.get("temperature")}},
+                {"$addToSet": {"nodes_processed": ev["supply_chain_node"]},
+                 "$set":      {"current_node": ev["supply_chain_node"],
+                               "last_temperature": ev.get("temperature")}},
                 upsert=True
             )
             count("mongo.batch_tracking")
@@ -449,8 +512,15 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
         et = ev.get("event_type")
         if et in ("TransportStarted", "ShipmentPositionUpdated",
                   "TransportCompleted", "DeliveryCompleted"):
-            se.insert_one(ev.copy())
-            count("mongo.shipment_events")
+            res = se.update_one(
+                {"event_type": et,
+                 "shipment_identifier": ev.get("shipment_identifier"),
+                 "timestamp": ev.get("timestamp")},
+                {"$setOnInsert": ev.copy()},
+                upsert=True
+            )
+            if res.upserted_id is not None:
+                count("mongo.shipment_events")
 
 
 # =============================================================================
@@ -470,6 +540,7 @@ def load_redis(tms_events, r):
                 "started_at":     ev.get("timestamp", ""),
                 "carrier_id":     ev["carrier"]["carrier_id"]
             })
+            r.expire(f"shipment:info:{sid}", 86400)
             count("redis.status_set")
 
         elif et == "ShipmentPositionUpdated":
@@ -481,10 +552,11 @@ def load_redis(tms_events, r):
                 "speed_kmh":   str(ev.get("speed_kmh", "")),
                 "updated_at":  ev.get("timestamp", "")
             })
+            r.expire(f"shipment:position:{sid}", 3600)
             temp = safe_float(ev.get("container_temperature"))
             if temp is not None and not (10.0 <= temp <= 15.0):
                 r.zadd("monitoring:temp_violations",
-                       {f"{sid}:{ev.get('timestamp','')}:temp={temp}": 1})
+                       {f"{sid}:{ev.get('timestamp','')}:temp={temp}": temp})
                 count("redis.temp_violations")
             count("redis.positions")
 

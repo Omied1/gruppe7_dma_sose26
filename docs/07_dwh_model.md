@@ -125,11 +125,19 @@ erDiagram
 
 ### Grain (Granularität)
 
-**Eine Zeile = Ein abgeschlossener Fulfillment-Vorgang:**
-- 1 Bestellposition aus einer Order
-- → 1 Ernte-Batch
-- → 1 finaler Transport zum Retail Store
-- → 1 Lieferabschluss
+**Eine Zeile = Ein Transport-Hop in der Lieferkette** (entspricht einem Datensatz in `tms.shipments`).
+
+Bei 10 abgeschlossenen Endlieferungen entlang einer 6-stufigen Supply Chain (Plantation → Collection → Quality Control → Africa Cold Storage → Europe Cold Storage → Central Warehouse → Retail Store) ergeben sich **60 Faktenzeilen**:
+- 10 Hops mit Endlieferungs-Status (`SUCCESSFUL` / `DELAYED` / `FAILED`)
+- 50 Zwischenhops mit Status `IN_TRANSIT`
+
+Verknüpfung:
+- `shipment.cargo_product_reference == product.product_code` → Customer, Supplier, Order, Bestellwert
+- `shipment.shipment_id → transport_completions` → `delay_minutes`
+- `shipment.shipment_id → deliveries` → `delivery_status`, `delivered_at` (nur Endhops)
+- `product.product_code → batches → node_processings` → `avg_temperature`
+
+Diese Granularität ermöglicht **Hop-Level-Analytics**: Carrier-Performance pro Etappe, Verzögerungs-Heatmaps pro Knoten, Routenanalysen.
 
 ### Kennzahlen (Measures)
 

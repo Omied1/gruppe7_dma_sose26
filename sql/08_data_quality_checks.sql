@@ -112,7 +112,9 @@ HAVING COUNT(*) > 1;
 -- =============================================================================
 
 -- 3.1 WMS-SKUs ohne MDM-Mapping
--- Jede WMS-SKU muss als Source-Mapping im MDM registriert sein
+-- Hinweis: Das ETL normalisiert WMS-SKUs (BAN_101 → BAN-101) beim Laden, damit
+-- alle Schlüssel in der Datenbank im ERP-Format vorliegen. Der Lookup gegen
+-- mdm.source_mappings erfolgt daher über normalized_key (kanonisches Format).
 SELECT
     'KONSISTENZ'         AS dimension,
     'wms.warehouse_skus' AS tabelle,
@@ -122,7 +124,8 @@ SELECT
 FROM wms.warehouse_skus w
 WHERE NOT EXISTS (
     SELECT 1 FROM mdm.source_mappings sm
-    WHERE sm.source_key = w.sku AND sm.source_system = 'WMS'
+    WHERE sm.source_system  = 'WMS'
+      AND sm.normalized_key = LOWER(REPLACE(w.sku, '_', '-'))
 );
 
 -- 3.2 TMS-Produktreferenzen ohne MDM-Mapping
@@ -135,7 +138,8 @@ SELECT
 FROM tms.transport_product_references t
 WHERE NOT EXISTS (
     SELECT 1 FROM mdm.source_mappings sm
-    WHERE sm.source_key = t.transport_product_reference AND sm.source_system = 'TMS'
+    WHERE sm.source_system  = 'TMS'
+      AND sm.normalized_key = LOWER(t.transport_product_reference)
 );
 
 -- 3.3 Batches mit inkonsistenten WMS-SKUs
