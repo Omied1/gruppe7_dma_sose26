@@ -52,15 +52,20 @@ def extract_events(base_dir: str, system: str) -> list[dict]:
 
 ### 2.2 Transform (T)
 
-**Schritt 1: MDM-Schlüsselharmonisierung**
+**Schritt 1: Schlüsselharmonisierung via ETL**
+
+Die Normalisierung aller Produktschlüssel auf das kanonische ERP-Format (`BAN-NNN`) findet direkt im ETL-Skript statt — nicht über einen separaten MDM-Ladeschritt. Die Funktion wird auf jeden eingehenden Schlüssel angewendet, bevor er in eine Zieldatenbank geschrieben wird:
+
 ```python
-def normalize_product_key(key: str) -> str:
-    """Normalisiert alle Produktschlüssel auf ERP-Format (BAN-101)."""
+def normalize_key(key: str) -> str:
+    """Normalisiert Produktschlüssel auf ERP-Format, unabhängig vom Quellsystem."""
     return key.strip().lower().replace("_", "-").upper()
-    # BAN_101 → ban-101 → BAN-101
-    # ban-101 → ban-101 → BAN-101
-    # BAN-101 → ban-101 → BAN-101 ✓
+    # BAN_101 (WMS) → ban-101 → BAN-101  ✓
+    # ban-101 (TMS) → ban-101 → BAN-101  ✓
+    # BAN-101 (ERP) → ban-101 → BAN-101  ✓
 ```
+
+Die MDM-Tabellen (`mdm.golden_records`, `mdm.source_mappings`) dokumentieren die Mapping-Regeln als formales Referenzmodell und stellen die SQL-Funktion `mdm.resolve_canonical_key()` für Laufzeit-Auflösungen bereit. Die Inkonsistenz der Quellschlüssel bleibt ausschließlich in den JSON-Quelldateien erhalten.
 
 **Schritt 2: Typkonvertierung**
 ```python
@@ -105,12 +110,14 @@ def validate_event(event: dict) -> tuple[bool, list[str]]:
 ### 2.3 Load-Reihenfolge (wichtig wegen FK-Abhängigkeiten)
 
 ```
-Schritt 1: MDM zuerst (Golden Records + Source Mappings)
+Schritt 1: ERP-Stammdaten zuerst (erp.suppliers, erp.customers, erp.products)
            → SupplierCreated, CustomerCreated, ProductCreated
-           → CarrierCreated, WarehouseSKUCreated, TransportProductReferenceCreated
+           → Schlüssel werden via normalize_key() auf BAN-NNN-Format gebracht
+           → MDM-Tabellen enthalten ein vollständiges Referenzbeispiel (BAN-101)
 
-Schritt 2: ERP-Stammdaten (erp.suppliers, erp.customers, erp.products)
-           → Abhängig von MDM-Mappings
+Schritt 2: WMS/TMS-Stammdaten (wms.warehouse_skus, tms.carriers, tms.transport_product_references)
+           → CarrierCreated, WarehouseSKUCreated, TransportProductReferenceCreated
+           → normalize_key() harmonisiert BAN_101 / ban-101 → BAN-101
 
 Schritt 3: WMS-Stammdaten (wms.warehouse_skus, wms.supply_chain_nodes)
            → Unabhängig von Schritt 2
@@ -202,16 +209,16 @@ WHERE  d.delivery_status IS NOT NULL;  -- Nur abgeschlossene Fulfillments
 
 | Quelle | Eventtyp / Tabelle | Transformation | Zielsystem | Begründung |
 |---|---|---|---|---|
-| `shared/erp/` | `SupplierCreated` | Schlüssel normalisieren, Golden Record anlegen | PostgreSQL `erp.suppliers` + `mdm.golden_records` | Stammdaten, referenzielle Integrität |
-| `shared/erp/` | `CustomerCreated` | Schlüssel normalisieren, Golden Record anlegen | PostgreSQL `erp.customers` + `mdm.golden_records` | Stammdaten, referenzielle Integrität |
-| `shared/erp/` | `ProductCreated` | Schlüssel normalisieren, supplier_reference auflösen | PostgreSQL `erp.products` + `mdm.golden_records` | Stammdaten mit FK |
-| `shared/wms/` | `WarehouseSKUCreated` | `BAN_101` → MDM-Mapping zu `BAN-101` | PostgreSQL `wms.warehouse_skus` + `mdm.source_mappings` | WMS-Stammdaten + MDM |
-| `shared/tms/` | `CarrierCreated` | Schlüssel normalisieren | PostgreSQL `tms.carriers` + `mdm.golden_records` | TMS-Stammdaten |
-| `shared/tms/` | `TransportProductReferenceCreated` | `ban-101` → MDM-Mapping zu `BAN-101` | PostgreSQL `tms.transport_product_references` + `mdm.source_mappings` | TMS-Stammdaten + MDM |
+| `shared/erp/` | `SupplierCreated` | `normalize_key()` auf supplier_code | PostgreSQL `erp.suppliers` | Stammdaten, referenzielle Integrität |
+| `shared/erp/` | `CustomerCreated` | `normalize_key()` auf customer_number | PostgreSQL `erp.customers` | Stammdaten, referenzielle Integrität |
+| `shared/erp/` | `ProductCreated` | `normalize_key()` auf product_code, supplier_reference → FK | PostgreSQL `erp.products` | Stammdaten mit FK |
+| `shared/wms/` | `WarehouseSKUCreated` | `normalize_key()`: `BAN_101` → `BAN-101` | PostgreSQL `wms.warehouse_skus` | WMS-Stammdaten (Inkonsistenz wird im ETL aufgelöst) |
+| `shared/tms/` | `CarrierCreated` | `normalize_key()` auf carrier_id | PostgreSQL `tms.carriers` | TMS-Stammdaten |
+| `shared/tms/` | `TransportProductReferenceCreated` | `normalize_key()`: `ban-101` → `BAN-101` | PostgreSQL `tms.transport_product_references` | TMS-Stammdaten (Inkonsistenz wird im ETL aufgelöst) |
 | `shared/erp/` | `OrderCreated` | items[] normalisieren, customer-Objekt → FK auflösen | PostgreSQL `erp.orders` + `erp.order_items` | Transaktionale Bewegungsdaten |
 | `shared/erp/` | `BatchHarvested` | Timestamp parsen, order_reference → order_id FK | PostgreSQL `erp.batches` | Operative Bewegungsdaten |
 | `shared/wms/` | `NodeProcessed` | supply_chain_node → node_id FK, Temperatur validieren | PostgreSQL `wms.node_processings` + MongoDB `node_events` | Knotenverarbeitung + Event-Archiv |
-| `shared/tms/` | `TransportStarted` | cargo_product_reference → MDM auflösen, carrier-Objekt → carrier_id | PostgreSQL `tms.shipments` + MongoDB `shipment_events` + Neo4j | Strukturiert + Event-Stream + Graph |
+| `shared/tms/` | `TransportStarted` | `normalize_key()` auf cargo_product_reference, carrier-Objekt → carrier_id | PostgreSQL `tms.shipments` + MongoDB `shipment_events` + Neo4j | Strukturiert + Event-Stream + Graph |
 | `shared/tms/` | `ShipmentPositionUpdated` | Koordinaten validieren, Temperatur prüfen | **Redis** `shipment:position:*` (aktuell) + MongoDB `shipment_events` (Archiv) | Echtzeit + Persistenz |
 | `shared/tms/` | `TransportCompleted` | delay_minutes validieren (≥ 0) | PostgreSQL `tms.transport_completions` + MongoDB `shipment_events.$push` | Abschluss-Event |
 | `shared/tms/` | `DeliveryCompleted` | delivery_status validieren, Redis-Status aktualisieren | PostgreSQL `tms.deliveries` + MongoDB + Redis (Status-Update) | Finales Event |

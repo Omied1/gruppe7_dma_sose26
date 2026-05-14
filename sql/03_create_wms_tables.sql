@@ -58,13 +58,13 @@ COMMENT ON COLUMN wms.supply_chain_nodes.sequence_order IS 'Reihenfolge im Suppl
 -- Stammdaten: Knoten der Banana Supply Chain
 INSERT INTO wms.supply_chain_nodes (node_code, node_name, node_type, region, sequence_order)
 VALUES
-    ('BANANA_PLANTATION',   'Banana Plantation Ghana',      'PLANTATION',        'Africa',  1),
-    ('COLLECTION_CENTER',   'Collection Center Ghana',      'COLLECTION_CENTER', 'Africa',  2),
-    ('QUALITY_CONTROL',     'Quality Control Station',      'QUALITY_CONTROL',   'Africa',  3),
-    ('AFRICA_COLD_STORAGE', 'Africa Cold Storage Accra',    'COLD_STORAGE',      'Africa',  4),
-    ('EUROPE_COLD_STORAGE', 'Europe Cold Storage Hamburg',  'COLD_STORAGE',      'Europe',  5),
-    ('CENTRAL_WAREHOUSE',   'Central Warehouse Germany',    'WAREHOUSE',         'Europe',  6),
-    ('RETAIL_STORE',        'Retail Store',                 'RETAIL',            'Europe',  7)
+    ('BANANA_PLANTATION',   'Banana Plantation',   'PLANTATION',        'Africa',  1),
+    ('COLLECTION_CENTER',   'Collection Center',   'COLLECTION_CENTER', 'Africa',  2),
+    ('QUALITY_CONTROL',     'Quality Control',     'QUALITY_CONTROL',   'Africa',  3),
+    ('AFRICA_COLD_STORAGE', 'Africa Cold Storage', 'COLD_STORAGE',      'Africa',  4),
+    ('EUROPE_COLD_STORAGE', 'Europe Cold Storage', 'COLD_STORAGE',      'Europe',  5),
+    ('CENTRAL_WAREHOUSE',   'Central Warehouse',   'WAREHOUSE',         'Europe',  6),
+    ('RETAIL_STORE',        'Retail Store',        'RETAIL',            'Europe',  7)
 ON CONFLICT (node_code) DO NOTHING;
 
 -- -----------------------------------------------------------------------------

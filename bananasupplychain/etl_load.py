@@ -318,6 +318,70 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
 
 
 # =============================================================================
+# LOAD – MDM Golden Records + Source Mappings
+# Läuft nach den Stammdaten-Schritten, da erp.products bereits befüllt sein muss.
+# Erzeugt für jedes Produkt 1 Golden Record + 3 Source Mappings (ERP/WMS/TMS).
+# =============================================================================
+def load_mdm(pg):
+    cur = pg.cursor()
+
+    cur.execute("SELECT entity_type_id FROM mdm.entity_types WHERE entity_type_code = 'PRODUCT'")
+    row = cur.fetchone()
+    if not row:
+        print("  WARNUNG: entity_type PRODUCT nicht in mdm.entity_types gefunden")
+        cur.close()
+        return
+    product_type_id = row[0]
+
+    cur.execute("SELECT product_code, product_name FROM erp.products ORDER BY product_code")
+    products = cur.fetchall()
+
+    for product_code, product_name in products:
+        # Golden Record anlegen (ERP-Schlüssel ist kanonisch)
+        # UNIQUE-Constraint liegt auf (entity_type_id, canonical_key)
+        cur.execute("""
+            INSERT INTO mdm.golden_records
+                (entity_type_id, canonical_key, canonical_name, status, quality_score)
+            VALUES (%s, %s, %s, 'ACTIVE', 0.95)
+            ON CONFLICT (entity_type_id, canonical_key) DO NOTHING
+            RETURNING golden_id
+        """, (product_type_id, product_code, product_name))
+        res = cur.fetchone()
+
+        if res:
+            golden_id = res[0]
+        else:
+            cur.execute("""
+                SELECT golden_id FROM mdm.golden_records
+                WHERE entity_type_id = %s AND canonical_key = %s
+            """, (product_type_id, product_code))
+            golden_id = cur.fetchone()[0]
+
+        # WMS-Schlüssel: BAN-101 → BAN_101
+        wms_key = product_code.replace("-", "_")
+        # TMS-Schlüssel: BAN-101 → ban-101
+        tms_key = product_code.lower()
+
+        mappings = [
+            ("ERP", product_code, True),
+            ("WMS", wms_key,      False),
+            ("TMS", tms_key,      False),
+        ]
+        for source_system, source_key, is_canonical in mappings:
+            cur.execute("""
+                INSERT INTO mdm.source_mappings
+                    (golden_id, source_system, source_key, normalized_key, is_canonical)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (source_system, source_key) DO NOTHING
+            """, (golden_id, source_system, source_key,
+                  source_key.strip().lower().replace("_", "-"), is_canonical))
+        count("mdm.golden_records")
+
+    pg.commit()
+    cur.close()
+
+
+# =============================================================================
 # LOAD – MongoDB
 # =============================================================================
 def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
@@ -593,23 +657,27 @@ def main():
     print(f"  TMS: {len(tms_events)} Events")
 
     # ── Load: PostgreSQL ──────────────────────────────────────────────────────
-    print("\n[3/7] PostgreSQL laden...")
+    print("\n[3/8] PostgreSQL laden...")
     load_postgres(erp_events, wms_events, tms_events, pg)
 
+    # ── Load: MDM ─────────────────────────────────────────────────────────────
+    print("[4/8] MDM Golden Records + Source Mappings laden...")
+    load_mdm(pg)
+
     # ── Load: MongoDB ─────────────────────────────────────────────────────────
-    print("[4/7] MongoDB laden...")
+    print("[5/8] MongoDB laden...")
     load_mongodb(erp_events, wms_events, tms_events, mongo)
 
     # ── Load: Redis ───────────────────────────────────────────────────────────
-    print("[5/7] Redis laden...")
+    print("[6/8] Redis laden...")
     load_redis(tms_events, r)
 
     # ── Load: Neo4j ───────────────────────────────────────────────────────────
-    print("[6/7] Neo4j laden...")
+    print("[7/8] Neo4j laden...")
     load_neo4j(erp_events, tms_events, neo4j_driver)
 
     # ── Load: MinIO ───────────────────────────────────────────────────────────
-    print("[7/7] MinIO laden (Dokument-Trigger)...")
+    print("[8/8] MinIO laden (Dokument-Trigger)...")
     load_minio(erp_events, tms_events, minio, pg)
 
     # ── Verbindungen schließen ─────────────────────────────────────────────────

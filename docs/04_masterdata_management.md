@@ -169,14 +169,37 @@ Ohne MDM würde dieser JOIN nicht funktionieren, weil `s.cargo_product_reference
 
 ---
 
-## 5. ETL-Prozess für MDM-Befüllung
+## 5. Implementierung: Normalisierung im ETL
 
-Die MDM-Tabellen werden als **erster Schritt** im ETL-Prozess befüllt, bevor operative Daten geladen werden:
+### 5.1 Tatsächliche Umsetzung
 
-1. **Extract:** Alle `SupplierCreated`, `CustomerCreated`, `ProductCreated`, `CarrierCreated`, `WarehouseSKUCreated`, `TransportProductReferenceCreated` Events lesen
-2. **Transform:** Normalisierung aller Schlüssel (`normalize_key()`), Duplikaterkennung
-3. **Load Golden Records:** Für jede eindeutige Entität einen Golden Record anlegen (ERP-Format als kanonisch)
-4. **Load Source Mappings:** Pro Golden Record drei Mappings anlegen (ERP, WMS, TMS)
-5. **Qualitätsscore berechnen:** Vollständigkeit prüfen, Score setzen
+Die Schlüsselharmonisierung findet in der Praxis **im ETL-Skript** statt, nicht über einen separaten MDM-Vorab-Ladeschritt. Das ETL-Skript (`bananasupplychain/etl_load.py`) normalisiert jeden Produktschlüssel unmittelbar vor dem Datenbankinsert:
 
-Erst nach diesem Schritt können ERP-, WMS- und TMS-Daten geladen werden, da alle Cross-Schema-Referenzen über MDM aufgelöst werden.
+```python
+def normalize_key(key: str) -> str:
+    return key.strip().lower().replace("_", "-").upper()
+    # BAN_101 → ban_101 → ban-101 → BAN-101  ✓
+    # ban-101 → ban-101            → BAN-101  ✓
+    # BAN-101 → ban-101            → BAN-101  ✓
+```
+
+Dadurch sind alle Produktschlüssel bereits bei der Ankunft in PostgreSQL, MongoDB, Redis und Neo4j im kanonischen Format `BAN-NNN`. Die Inkonsistenz existiert ausschließlich in den JSON-Quelldateien (`shared/wms/`, `shared/tms/`).
+
+### 5.2 Rolle der MDM-Tabellen
+
+Die MDM-Tabellen (`mdm.golden_records`, `mdm.source_mappings`) erfüllen in dieser Implementierung zwei Aufgaben:
+
+1. **Referenzmodell:** Sie dokumentieren formal, welche Systemschlüssel zu welchem Golden Record gehören. Das ermöglicht nachvollziehbare systemübergreifende JOINs über `mdm.source_mappings` (siehe Abschnitt 3.3).
+
+2. **SQL-Funktion als Schnittstelle:** `mdm.resolve_canonical_key()` steht als aufrufbare Funktion bereit für Abfragen, die zur Laufzeit systemfremde Schlüssel auflösen müssen — ohne das ETL-Skript einzubeziehen.
+
+### 5.3 Aktueller Stand der MDM-Tabellen
+
+In der Datenbank ist aktuell ein exemplarischer Golden Record vollständig befüllt:
+
+| Tabelle | Inhalt |
+|---|---|
+| `mdm.golden_records` | 1 Eintrag: `BAN-101` (Cavendish Banana) |
+| `mdm.source_mappings` | 3 Einträge: ERP `BAN-101`, WMS `BAN_101`, TMS `ban-101` |
+
+Die Einträge für BAN-102 bis BAN-110 sind konzeptuell identisch aufgebaut (vgl. Abschnitt 2.2) und können bei Bedarf per ETL nachgefüllt werden. Für den Nachweis der MDM-Logik genügt das vollständige BAN-101-Beispiel, da der Normalisierungsalgorithmus für alle Produktcodes identisch ist.
