@@ -142,7 +142,8 @@ def kv_table(pairs: list, cols=2):
         row.append(cell)
         if len(row) == cols or i == len(pairs) - 1:
             while len(row) < cols:
-                row.append(["", ""])
+                row.append([Paragraph("", ParagraphStyle("KE", fontSize=8)),
+                            Paragraph("", ParagraphStyle("KE2", fontSize=9))])
             rows.append(row)
             row = []
 
@@ -161,6 +162,10 @@ def kv_table(pairs: list, cols=2):
 def data_table(headers: list, rows: list):
     """Datentabelle mit Kopfzeile."""
     col_w = 18 * cm / len(headers)
+    hdr_style = ParagraphStyle("DH", fontSize=8, textColor=white, fontName="Helvetica-Bold")
+    cell_style = ParagraphStyle("DC", fontSize=8, textColor=DARK_GRAY, fontName="Helvetica")
+    headers = [Paragraph(str(h), hdr_style) for h in headers]
+    rows = [[Paragraph(str(c), cell_style) for c in row] for row in rows]
     data  = [headers] + rows
     t = Table(data, colWidths=[col_w] * len(headers))
     t.setStyle(TableStyle([
