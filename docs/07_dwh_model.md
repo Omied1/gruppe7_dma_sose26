@@ -223,7 +223,7 @@ erp.*, wms.*, tms.*       →    dwh.dim_* (idempotent, ON CONFLICT DO NOTHING)
 | `erp.products` JOIN `erp.suppliers` | Denormalisierung: Lieferantenattribute in Produktzeile einfügen | `dim_product` |
 | `tms.carriers` | Direkte Kopie | `dim_carrier` |
 | `wms.supply_chain_nodes` | Direkte Kopie | `dim_supply_chain_node` |
-| `tms.shipments` | Grain: 1 Zeile pro Hop | `fact_fulfillment` |
+| `tms.shipments` | Grain: 1 Zeile pro Endlieferung (INNER JOIN tms.deliveries) | `fact_fulfillment` |
 | `tms.deliveries` | JOIN auf shipment_id → `delivery_status`, `delivered_at` | `fact_fulfillment.delivery_status_sk` |
 | `tms.transport_completions` | JOIN auf shipment_id → `delay_minutes` | `fact_fulfillment.delay_minutes` |
 | `wms.node_processings` | AVG(temperature) pro Produktcode | `fact_fulfillment.avg_temperature` |
@@ -350,7 +350,7 @@ SELECT COUNT(*) FROM dwh.dim_carrier;            -- erwartet:  5
 SELECT COUNT(*) FROM dwh.dim_supply_chain_node;  -- erwartet:  7
 SELECT COUNT(*) FROM dwh.dim_date;               -- erwartet: 1095
 SELECT COUNT(*) FROM dwh.dim_delivery_status;    -- erwartet:  4
-SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 60
+SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 10 (1 Endlieferung pro Order/Batch)
 
 -- KPI-Übersicht
 SELECT * FROM dwh.v_kpi_summary;
