@@ -74,6 +74,34 @@ stats = {}
 def count(label):
     stats[label] = stats.get(label, 0) + 1
 
+# ── Neo4j Topologie-Konstanten ────────────────────────────────────────────────
+_SUPPLY_CHAIN_NODES = [
+    ("BANANA_PLANTATION",   "Banana Plantation Ghana",       "PLANTATION",       "Africa", 1),
+    ("COLLECTION_CENTER",   "Collection Center Ghana",       "COLLECTION_CENTER","Africa", 2),
+    ("QUALITY_CONTROL",     "Quality Control Station",       "QUALITY_CONTROL",  "Africa", 3),
+    ("AFRICA_COLD_STORAGE", "Africa Cold Storage Accra",     "COLD_STORAGE",     "Africa", 4),
+    ("EUROPE_COLD_STORAGE", "Europe Cold Storage Hamburg",   "COLD_STORAGE",     "Europe", 5),
+    ("CENTRAL_WAREHOUSE",   "Central Warehouse Germany",     "WAREHOUSE",        "Europe", 6),
+    ("RETAIL_STORE",        "Retail Store",                  "RETAIL",           "Europe", 7),
+]
+
+_SUPPLY_CHAIN_TOPOLOGY = [
+    ("BANANA_PLANTATION",   "COLLECTION_CENTER",   "TRUCK",       4),
+    ("COLLECTION_CENTER",   "QUALITY_CONTROL",     "TRUCK",       2),
+    ("QUALITY_CONTROL",     "AFRICA_COLD_STORAGE", "TRUCK",       6),
+    ("AFRICA_COLD_STORAGE", "EUROPE_COLD_STORAGE", "SEA_FREIGHT", 240),
+    ("EUROPE_COLD_STORAGE", "CENTRAL_WAREHOUSE",   "TRUCK",       8),
+    ("CENTRAL_WAREHOUSE",   "RETAIL_STORE",        "TRUCK",       3),
+]
+
+# Truck-Carrier → Landstrecken; Seefracht-Carrier → Kaltlager
+_CARRIER_OPERATES_ON = {
+    "CAR-101": ("TRUCK",       ["PLANTATION", "COLLECTION_CENTER", "QUALITY_CONTROL", "WAREHOUSE", "RETAIL"]),
+    "CAR-102": ("SEA_FREIGHT", ["COLD_STORAGE"]),
+    "CAR-103": ("SEA_FREIGHT", ["COLD_STORAGE"]),
+    "CAR-104": ("SEA_FREIGHT", ["COLD_STORAGE"]),
+}
+
 # =============================================================================
 # LOAD – PostgreSQL
 # =============================================================================
@@ -781,10 +809,106 @@ def load_redis(erp_events, tms_events, r):
 
 
 # =============================================================================
+# LOAD – Neo4j Hilfsfunktionen
+# =============================================================================
+def _neo4j_setup_schema(session):
+    """Constraints und Indizes – idempotent (IF NOT EXISTS)."""
+    constraints = [
+        "CREATE CONSTRAINT supplier_code_unique   IF NOT EXISTS FOR (s:Supplier)        REQUIRE s.supplier_code       IS UNIQUE",
+        "CREATE CONSTRAINT customer_number_unique IF NOT EXISTS FOR (c:Customer)        REQUIRE c.customer_number     IS UNIQUE",
+        "CREATE CONSTRAINT product_code_unique    IF NOT EXISTS FOR (p:Product)         REQUIRE p.product_code        IS UNIQUE",
+        "CREATE CONSTRAINT carrier_code_unique    IF NOT EXISTS FOR (c:Carrier)         REQUIRE c.carrier_code        IS UNIQUE",
+        "CREATE CONSTRAINT node_code_unique       IF NOT EXISTS FOR (n:SupplyChainNode) REQUIRE n.node_code           IS UNIQUE",
+        "CREATE CONSTRAINT batch_id_unique        IF NOT EXISTS FOR (b:Batch)           REQUIRE b.batch_identifier    IS UNIQUE",
+        "CREATE CONSTRAINT shipment_id_unique     IF NOT EXISTS FOR (s:Shipment)        REQUIRE s.shipment_identifier IS UNIQUE",
+        "CREATE CONSTRAINT order_ref_unique       IF NOT EXISTS FOR (o:Order)           REQUIRE o.order_reference     IS UNIQUE",
+    ]
+    for stmt in constraints:
+        session.run(stmt)
+
+
+def _neo4j_load_master_data(erp_events, tms_events, session):
+    """Stammdaten: SupplyChainNodes, Supplier, Carrier, Product + SUPPLIES."""
+    # SupplyChainNode-Topologie (statische Infrastruktur)
+    for code, name, ntype, region, seq in _SUPPLY_CHAIN_NODES:
+        session.run("""
+            MERGE (n:SupplyChainNode {node_code: $code})
+              SET n.node_name = $name, n.node_type = $ntype,
+                  n.region = $region, n.sequence_order = $seq
+        """, code=code, name=name, ntype=ntype, region=region, seq=seq)
+
+    for src, tgt, mode, hours in _SUPPLY_CHAIN_TOPOLOGY:
+        session.run("""
+            MATCH (a:SupplyChainNode {node_code: $src})
+            MATCH (b:SupplyChainNode {node_code: $tgt})
+            MERGE (a)-[:CONNECTED_TO {transport_mode: $mode, typical_hours: $hours}]->(b)
+        """, src=src, tgt=tgt, mode=mode, hours=hours)
+
+    # Supplier + Produkte aus ERP-Stammdaten
+    for ev in erp_events:
+        et = ev.get("event_type")
+        if et == "SupplierCreated":
+            session.run("""
+                MERGE (s:Supplier {supplier_code: $code})
+                  SET s.supplier_name = $name, s.country = $country
+                WITH s
+                MATCH (n:SupplyChainNode {node_code: "BANANA_PLANTATION"})
+                MERGE (s)-[:DELIVERS_TO]->(n)
+            """, code=ev["supplier_code"], name=ev["supplier_name"],
+                 country=ev.get("country", ""))
+            count("neo4j.suppliers")
+
+        elif et == "CustomerCreated":
+            session.run("""
+                MERGE (c:Customer {customer_number: $cn})
+                  SET c.customer_name = $name, c.city = $city, c.country = $country
+                WITH c
+                MATCH (n:SupplyChainNode {node_code: "RETAIL_STORE"})
+                MERGE (c)-[:RECEIVES_FROM]->(n)
+            """, cn=ev["customer_number"], name=ev["customer_name"],
+                 city=ev.get("city", ""), country=ev.get("country", ""))
+
+        elif et == "ProductCreated":
+            supplier_ref = ev.get("supplier_reference")
+            if supplier_ref:
+                session.run("""
+                    MERGE (p:Product {product_code: $pc})
+                      SET p.product_name = $name, p.category = $cat
+                    WITH p
+                    MATCH (s:Supplier {supplier_code: $sc})
+                    MERGE (s)-[:SUPPLIES]->(p)
+                """, pc=normalize_key(ev["product_code"]),
+                     name=ev.get("product_name", ""), cat=ev.get("category", ""),
+                     sc=supplier_ref)
+                count("neo4j.products")
+
+    # Carrier aus TMS-Stammdaten + OPERATES_ON
+    for ev in tms_events:
+        if ev.get("event_type") == "CarrierCreated":
+            cid = ev["carrier_id"]
+            session.run("""
+                MERGE (c:Carrier {carrier_code: $code})
+                  SET c.carrier_name = $name
+            """, code=cid, name=ev["carrier_name"])
+            if cid in _CARRIER_OPERATES_ON:
+                mode, node_types = _CARRIER_OPERATES_ON[cid]
+                session.run("""
+                    MATCH (c:Carrier {carrier_code: $cid})
+                    MATCH (n:SupplyChainNode)
+                    WHERE n.node_type IN $types
+                    MERGE (c)-[:OPERATES_ON {transport_mode: $mode}]->(n)
+                """, cid=cid, types=node_types, mode=mode)
+            count("neo4j.carriers")
+
+
+# =============================================================================
 # LOAD – Neo4j
 # =============================================================================
-def load_neo4j(erp_events, tms_events, driver):
+def load_neo4j(erp_events, wms_events, tms_events, driver):
     with driver.session() as session:
+        _neo4j_setup_schema(session)
+        _neo4j_load_master_data(erp_events, tms_events, session)
+
         for ev in erp_events:
             if ev.get("event_type") == "OrderCreated":
                 order_ref  = ev["order_reference"]
@@ -873,6 +997,23 @@ def load_neo4j(erp_events, tms_events, driver):
                      ts=ev.get("timestamp"))
                 count("neo4j.deliveries")
 
+        for ev in wms_events:
+            if ev.get("event_type") == "NodeProcessed":
+                session.run("""
+                    MATCH (b:Batch {batch_identifier: $bid})
+                    MATCH (n:SupplyChainNode {node_code: $node})
+                    MERGE (b)-[:PROCESSED_AT {
+                        temperature: $temp,
+                        status: $status,
+                        processed_at: $ts
+                    }]->(n)
+                """, bid=ev["batch_reference"],
+                     node=ev["supply_chain_node"],
+                     temp=safe_float(ev.get("temperature")),
+                     status=ev.get("status", "COMPLETED"),
+                     ts=ev.get("timestamp"))
+                count("neo4j.processed_at")
+
 
 # =============================================================================
 # MAIN
@@ -918,7 +1059,7 @@ def main():
 
     # ── Load: Neo4j ───────────────────────────────────────────────────────────
     print("[7/7] Neo4j laden...")
-    load_neo4j(erp_events, tms_events, neo4j_driver)
+    load_neo4j(erp_events, wms_events, tms_events, neo4j_driver)
 
     # ── Verbindungen schließen ─────────────────────────────────────────────────
     pg.close()
