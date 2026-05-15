@@ -17,7 +17,7 @@
 | I-1 | Gruppe gebildet und Projektsrepo eingerichtet | ✅ Erfüllt | GitLab-Repo: `gruppe7_dma_sose26` |
 | I-2 | Vorgegebene Folderstruktur hochgeladen | ✅ Erfüllt | `bananasupplychain/`, `databasemodels_logistics_playground/` |
 | I-3 | Docker Container startbar | ✅ Erfüllt | `bananasupplychain/container/docker-compose.yml` (5 Services: PostgreSQL, MongoDB, Redis, Neo4j, MinIO) |
-| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (70), `shared/wms/` (130), `shared/tms/` (514) JSON-Dateien erzeugt (10 operative Iterationen) |
+| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (257) JSON-Dateien erzeugt (10 operative Iterationen) |
 
 ---
 
@@ -143,9 +143,9 @@
 
 | Ordner | Dateien | Status |
 |---|---|---|
-| `shared/erp/` | 70 JSON-Dateien | ✅ Erzeugt |
-| `shared/wms/` | 130 JSON-Dateien | ✅ Erzeugt |
-| `shared/tms/` | 514 JSON-Dateien | ✅ Erzeugt |
+| `shared/erp/` | 50 JSON-Dateien | ✅ Erzeugt |
+| `shared/wms/` | 70 JSON-Dateien | ✅ Erzeugt |
+| `shared/tms/` | 257 JSON-Dateien | ✅ Erzeugt |
 | `docs/` | 13 Markdown-Dokumente | ✅ Vollständig |
 | `sql/` | 8 SQL-Dateien | ✅ Vollständig |
 | `cypher/` | 1 Cypher-Datei | ✅ Vollständig |
@@ -197,22 +197,21 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | PostgreSQL: SQL 01–08 | ✅ Alle ausgeführt | 6 Schemas, 26 Tabellen (inkl. `erp.document_references`) |
 | PostgreSQL: MDM-Funktion | ✅ Funktioniert | `BAN_101`/`ban-101`/`BAN-101` → alle → `BAN-101` |
 | PostgreSQL: DWH dim_date | ✅ 1095 Zeilen | 2025-01-01 bis 2027-12-31 |
-| MongoDB: Collections | ✅ 4 Collections | shipment_events (500), node_events (121), batch_tracking (11), order_events (11) |
+| MongoDB: Collections | ✅ 4 Collections | shipment_events (60), node_events (60), batch_tracking (60), order_events (10) |
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
-| Neo4j: Graphmodell | ✅ 125 Nodes, 47+ Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
-| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 116 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
-| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 714 Events in alle 5 Systeme |
+| Neo4j: Graphmodell | ✅ Nodes + Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
+| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 98 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
+| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 377 Events in PostgreSQL, MongoDB, Redis, Neo4j |
 
-### ETL-Ergebnis (714 JSON-Events → alle 5 Systeme)
+### ETL-Ergebnis (377 JSON-Events → alle 5 Systeme)
 
 | System | Einträge geladen |
 |---|---|
-| PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 20 Orders, 20 Batches, 120 Shipments, 239 Positions, 120 Completions, 20 Deliveries |
-| MongoDB | 120 shipment_events (Lifecycle-Dokumente), 120 node_events, ≥ 20 batch_tracking, ≥ 20 order_events |
-| Redis | 120 Shipment-Status, 239 Position-Updates, 20 Delivery-Status |
-| Neo4j | ≥ 121 Shipments, ≥ 21 Orders, ≥ 21 Batches + Stammdaten |
-| MinIO (ETL-Stub) | 120 Lieferscheine, 6 Rechnungen |
-| MinIO (generate_documents.py) | +20 Bill of Lading, +20 Customs Clearance, +10 Qualitätszertifikate → 116 Referenzen gesamt |
+| PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 10 Orders, 10 Batches, 60 Shipments, 112 Positions, 60 Completions, 10 Deliveries |
+| MongoDB | 60 shipment_events (Lifecycle-Dokumente), 60 node_events, 60 batch_tracking, 10 order_events |
+| Redis | 60 Shipment-Status, 112 Position-Updates, 10 Delivery-Status |
+| Neo4j | 60 Shipments, 10 Orders, 10 Batches + Stammdaten |
+| MinIO (generate_documents.py) | 60 Lieferscheine, 8 Rechnungen, 10 B/L, 10 Zollfreigaben, 10 Qualitätszertifikate → 98 Referenzen gesamt |
 
 ---
 

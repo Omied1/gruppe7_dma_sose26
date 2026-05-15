@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-1b3be0ce-c2e1-40b1-b479-eb8665453633",
+  "cargo_product_reference": "ban-103",
+  "arrival_node": "CENTRAL_WAREHOUSE",
+  "delay_minutes": 160,
+  "timestamp": "2026-05-15T09:58:15.062830"
+}

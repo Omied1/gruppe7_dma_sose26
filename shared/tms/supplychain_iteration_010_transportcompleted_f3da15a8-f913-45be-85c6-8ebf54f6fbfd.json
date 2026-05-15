@@ -1,8 +1,0 @@
-{
-  "event_type": "TransportCompleted",
-  "shipment_identifier": "SHIP-1f9a4fd3-b04a-4ff3-8e93-918db8d4e9b2",
-  "cargo_product_reference": "ban-107",
-  "arrival_node": "AFRICA_COLD_STORAGE",
-  "delay_minutes": 116,
-  "timestamp": "2026-05-14T15:39:19.907380"
-}

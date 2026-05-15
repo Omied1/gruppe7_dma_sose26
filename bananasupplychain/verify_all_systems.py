@@ -68,10 +68,10 @@ def verify_mongodb():
     db = MongoClient(MONGO_URI)["logistics"]
 
     # Collection-Counts
-    check("MongoDB", "shipment_events (Anzahl Shipments)", db["shipment_events"].count_documents({}),   120, "ge")
-    check("MongoDB", "node_events (WMS NodeProcessed)",    db["node_events"].count_documents({}),       120, "ge")
-    check("MongoDB", "batch_tracking (Batches)",           db["batch_tracking"].count_documents({}),    20,  "ge")
-    check("MongoDB", "order_events (Orders)",              db["order_events"].count_documents({}),      20,  "ge")
+    check("MongoDB", "shipment_events (Anzahl Shipments)", db["shipment_events"].count_documents({}),   60, "ge")
+    check("MongoDB", "node_events (WMS NodeProcessed)",    db["node_events"].count_documents({}),       60, "ge")
+    check("MongoDB", "batch_tracking (Batches)",           db["batch_tracking"].count_documents({}),    10, "ge")
+    check("MongoDB", "order_events (Orders)",              db["order_events"].count_documents({}),      10, "ge")
 
     # Index-Prüfung: shipment_events muss unique-Index auf shipment_identifier haben
     idx_names = [i["name"] for i in db["shipment_events"].list_indexes()]
@@ -105,10 +105,10 @@ def verify_redis():
 
     # Key-Pattern-Counts
     shipment_keys = len(r.keys("shipment:status:*"))
-    check("Redis", "shipment:status:* (Anzahl)", shipment_keys, 120, "ge")
+    check("Redis", "shipment:status:* (Anzahl)", shipment_keys, 60, "ge")
 
     order_keys = len(r.keys("order:status:*"))
-    check("Redis", "order:status:* (Anzahl)", order_keys, 20, "ge")
+    check("Redis", "order:status:* (Anzahl)", order_keys, 10, "ge")
 
     position_keys = len(r.keys("shipment:position:*"))
     check("Redis", "shipment:position:* (aktuelle GPS-Positionen)", position_keys, 1, "ge")

@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-33796c8b-ad2d-4aa9-a4cb-568782597f09",
+  "source_node": "CENTRAL_WAREHOUSE",
+  "target_node": "RETAIL_STORE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-106",
+  "carrier": {
+    "carrier_id": "CAR-105",
+    "carrier_name": "DHL"
+  },
+  "estimated_arrival": "2026-05-16T17:58:15.066836",
+  "timestamp": "2026-05-15T09:58:15.066838"
+}

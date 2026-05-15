@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-e32691ec-deee-4b3b-9690-a10eb5a435c2",
+  "source_node": "COLLECTION_CENTER",
+  "target_node": "QUALITY_CONTROL",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-102",
+  "carrier": {
+    "carrier_id": "CAR-104",
+    "carrier_name": "MSC"
+  },
+  "estimated_arrival": "2026-05-20T06:58:15.092871",
+  "timestamp": "2026-05-15T09:58:15.092873"
+}

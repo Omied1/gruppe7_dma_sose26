@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-9c8eba29-c9f1-4a7d-96f1-34492697962b",
+  "source_node": "QUALITY_CONTROL",
+  "target_node": "AFRICA_COLD_STORAGE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-108",
+  "carrier": {
+    "carrier_id": "CAR-103",
+    "carrier_name": "DB Schenker"
+  },
+  "estimated_arrival": "2026-05-24T10:58:15.054187",
+  "timestamp": "2026-05-15T09:58:15.054189"
+}

@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-b37879f5-8da6-441f-a115-6ca4978db10e",
+  "cargo_product_reference": "ban-106",
+  "arrival_node": "RETAIL_STORE",
+  "delay_minutes": 138,
+  "timestamp": "2026-05-15T09:58:15.080964"
+}

@@ -1,9 +1,0 @@
-{
-  "event_type": "NodeProcessed",
-  "supply_chain_node": "EUROPE_COLD_STORAGE",
-  "batch_reference": "BATCH-dc97edd4-942c-4a3d-8026-ce343f907546",
-  "sku": "BAN_104",
-  "temperature": 13.13,
-  "status": "COMPLETED",
-  "timestamp": "2026-05-12T11:50:40.938116"
-}

@@ -1,0 +1,16 @@
+{
+  "event_type": "ShipmentPositionUpdated",
+  "shipment_identifier": "SHIP-5b9b296d-284f-4d30-a748-7795949c9c72",
+  "cargo_product_reference": "ban-109",
+  "current_route": {
+    "source": "QUALITY_CONTROL",
+    "target": "AFRICA_COLD_STORAGE"
+  },
+  "coordinates": {
+    "latitude": -55.10963,
+    "longitude": -139.927183
+  },
+  "container_temperature": 14.49,
+  "speed_kmh": 33.03,
+  "timestamp": "2026-05-15T09:58:15.089177"
+}

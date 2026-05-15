@@ -56,10 +56,10 @@ und getestet.
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `bananasupplychain/etl_load.py` | ETL-Hauptskript: 714 Events -> 5 Systeme; Bug-Fix: node_processings.sku behält WMS-Format (BAN_108, nicht normalisiert); Bug-Fix Neo4j: product_code auf Batch-Node gesetzt, TRANSPORTED_VIA-Relationship in TransportStarted-Handler ergänzt → DeliveryCompleted kann jetzt DELIVERED_TO-Kante anlegen | erstellt |
+| `bananasupplychain/etl_load.py` | ETL-Hauptskript: 377 Events -> PostgreSQL, MongoDB, Redis, Neo4j (kein MinIO); Bug-Fix: node_processings.sku behält WMS-Format (BAN_108, nicht normalisiert); Bug-Fix Neo4j: product_code auf Batch-Node gesetzt, TRANSPORTED_VIA-Relationship in TransportStarted-Handler ergänzt → DeliveryCompleted kann jetzt DELIVERED_TO-Kante anlegen | erstellt |
 | `bananasupplychain/verify_all_systems.py` | Technische Nachweise MongoDB/Redis/Neo4j/MinIO: Collection-Counts, Index-Prüfung, TTL-Prüfung, Key-Typen, Node/Rel-Counts, 6-Hop-Pfad, Bucket-Prüfung, Metadaten-Check; PASS/FAIL-Ausgabe | erstellt |
-| `bananasupplychain/etl_dwh.py` | ETL Phase 2: Operative Schemas -> DWH-Sternschema (6 Dimensionen + fact_fulfillment); `on_time_flag` berechnet und geladen; **Bug-Fix 2026-05-15:** Grain auf Endlieferungen korrigiert (INNER JOIN tms.deliveries), fact_fulfillment 20 Zeilen statt 120 – Umsatz-Inflation behoben | abgabefähig |
-| `bananasupplychain/generate_documents.py` | MinIO-Dokumentengenerator: alle 4 Buckets; neu: Bill of Lading + Customs Clearance (transport-docs) für 20 SEA_FREIGHT-Shipments; erwartete Ausgabe: 60+20+20+6+10 = 116 PostgreSQL-Referenzen | erstellt |
+| `bananasupplychain/etl_dwh.py` | ETL Phase 2: Operative Schemas -> DWH-Sternschema (6 Dimensionen + fact_fulfillment); `on_time_flag` berechnet und geladen; **Bug-Fix 2026-05-15:** Grain auf Endlieferungen korrigiert (INNER JOIN tms.deliveries), fact_fulfillment 10 Zeilen statt 60 – Umsatz-Inflation behoben | abgabefähig |
+| `bananasupplychain/generate_documents.py` | MinIO-Dokumentengenerator (einziger MinIO-Einstiegspunkt): alle 4 Buckets; erwartete Ausgabe: 60+8+10+10+10 = 98 PostgreSQL-Referenzen | erstellt |
 | `bananasupplychain/test_data_generator.py` | Datengenerator für ERP/WMS/TMS-JSON-Events | getestet |
 | `bananasupplychain/container/docker-compose.yml` | Docker-Setup: PostgreSQL, MongoDB, Redis, Neo4j, MinIO | getestet |
 
@@ -89,16 +89,16 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | PostgreSQL: SQL 01-08 | 6 Schemas, 26 Tabellen erstellt; alle neuen Constraints (UNIQUE, NOT NULL, event_timestamp) aktiv |
 | MDM `resolve_canonical_key()` | BAN_101 / ban-101 / BAN-101 -> alle loesen auf BAN-101 auf |
 | DWH `dim_date` | 1095 Zeilen (2025-01-01 bis 2027-12-31) |
-| DWH `fact_fulfillment` | 20 Facts (1 pro Endlieferung, Grain-Fix 2026-05-15); dim_customer/supplier/carrier mit `source_created_at` befuellt |
+| DWH `fact_fulfillment` | 10 Facts (1 pro Endlieferung, Grain-Fix 2026-05-15); dim_customer/supplier/carrier mit `source_created_at` befuellt |
 | DQ-Checks `08` | 29/30 PASS + 1 echter Befund: 6x SUCCESSFUL-Delivery trotz delay_minutes > 0 (Datengenerator-Inkonsistenz) |
 | WMS warehouse_skus | sku im WMS-Format (BAN_101), erp_product_code normalisiert (BAN-101) – Fix wirksam |
 | erp.batches | kein order_id mehr; harvested_at korrekt aus event.timestamp befuellt |
-| ETL Phase 1 | 714 Events -> 5 Systeme; 10 Suppliers/Customers/Products, 20 Orders/Batches, 120 NodeProcessings, 120 Shipments |
-| ETL Phase 2 | 10 dim_customer, 10 dim_supplier, 10 dim_product, 5 dim_carrier, 20 fact_fulfillment (nach Grain-Fix) |
-| MongoDB: 4 Collections | shipment_events (248 flat, vor Korrektur); ETL load_mongodb() korrigiert – Re-Run erforderlich für Lifecycle-Modell (60 Docs statt 248) |
+| ETL Phase 1 | 377 Events -> PostgreSQL/MongoDB/Redis/Neo4j; 10 Suppliers/Customers/Products, 10 Orders/Batches, 60 NodeProcessings, 60 Shipments |
+| ETL Phase 2 | 10 dim_customer, 10 dim_supplier, 10 dim_product, 5 dim_carrier, 10 fact_fulfillment (nach Grain-Fix) |
+| MongoDB: 4 Collections | 60 shipment_events, 60 node_events, 60 batch_tracking, 10 order_events |
 | Redis: alle Key-Typen | STRING, HASH, LIST, SORTED SET, COUNTER + TTLs auf allen Keys; load_redis() verarbeitet ERP+TMS; monitoring:temp_violations mit Datumskey + 7-Tage-TTL; active_shipments INCR/DECR; shipment:route Sorted Set; Produktcache; orders_today mit EXPIREAT |
 | Neo4j: Graphmodell | 125+ Nodes, alle Relationships; Pfad PLANTATION->RETAIL in 6 Hops |
-| MinIO: 4 Buckets | 120 Lieferscheine, 6 Rechnungen (ETL-Wiederholung gegen Docker erforderlich für aktualisierten Stand) |
+| MinIO: 4 Buckets | 98 Dokumente: 60 Lieferscheine, 8 Rechnungen, 10 B/L, 10 Zollfreigaben, 10 Qualitätszertifikate |
 
 ---
 
@@ -149,7 +149,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | F-6 | MongoDB `shipment_events` enthält 248 flat-Dokumente (1 pro Event) statt 60 Lifecycle-Dokumente (1 pro Shipment) – ETL-Logik war falsch | `bananasupplychain/etl_load.py` | behoben 2026-05-14 (load_mongodb() auf Lifecycle-Modell umgestellt); Re-Run nach `db.shipment_events.drop()` erforderlich |
 | F-7 | `docs/12_etl_concept.md` Phase-2-SQL-Beispiel verwendete `JOIN erp.batches b ON b.order_id = o.order_id` – diese Spalte existiert nicht (F-4-Fix entfernte `order_id` aus `erp.batches`). Mapping-Tabelle BatchHarvested-Zeile beschrieb falschen FK. ETL-Nachweis-Zahlen waren veraltet (121/500 statt 60/60). | `docs/12_etl_concept.md`, `docs/00_part1_checklist.md`, `docs/06_data_quality.md` | behoben 2026-05-15 (SQL korrigiert; BatchHarvested-Mapping-Eintrag korrigiert; Counts auf 60 aktualisiert) |
 | F-8 | `docker-compose.yml` cleanup-Service referenzierte nicht-existente Tabellen `OrderDetails`/`Orders` – PostgreSQL-Fehler bei jedem Container-Start, sofort sichtbar in Logs | `bananasupplychain/container/docker-compose.yml` | **behoben 2026-05-15** (SQL auf `tms.shipment_positions WHERE recorded_at < NOW() - 90 days` korrigiert) |
-| F-9 | `etl_dwh.py` Grain-Fehler: LEFT JOIN auf tms.deliveries ergab 120 Fact-Zeilen (6 Hops × 20 Iterationen); `SUM(total_value)` war 6-fach inflationiert; alle Revenue-KPIs in `v_kpi_summary` und `v_carrier_performance` falsch | `bananasupplychain/etl_dwh.py`, `sql/07_create_dwh_schema.sql`, `docs/07_dwh_model.md` | **behoben 2026-05-15** (INNER JOIN auf tms.deliveries; Grain = 20 Endlieferungen; Grain-Doku aktualisiert) |
+| F-9 | `etl_dwh.py` Grain-Fehler: LEFT JOIN auf tms.deliveries ergab 60 Fact-Zeilen (6 Hops × 10 Iterationen); `SUM(total_value)` war 6-fach inflationiert; alle Revenue-KPIs in `v_kpi_summary` und `v_carrier_performance` falsch | `bananasupplychain/etl_dwh.py`, `sql/07_create_dwh_schema.sql`, `docs/07_dwh_model.md` | **behoben 2026-05-15** (INNER JOIN auf tms.deliveries; Grain = 10 Endlieferungen; Grain-Doku aktualisiert) |
 
 ---
 
@@ -157,7 +157,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 
 | # | Typ | Beschreibung |
 |---|---|---|
-| R-1 | ~~Risiko~~ | ETL Phase 2 (DWH) getestet; Grain-Fix 2026-05-15 → 20 Facts (Endlieferungen), idempotent – **erledigt** |
+| R-1 | ~~Risiko~~ | ETL Phase 2 (DWH) getestet; Grain-Fix 2026-05-15 → 10 Facts (Endlieferungen), idempotent – **erledigt** |
 | R-2 | Risiko | PowerBI benoetigt laufende PostgreSQL-Verbindung – Verbindungsparameter muessen vor Abgabe geprueft werden |
 | R-3 | Annahme | [ANNAHME] Docker-Container laufen bei der Abgabe auf dem lokalen Rechner – kein Cloud-Deployment geplant |
 | R-4 | Annahme | [ANNAHME] TMS-Daten enthalten genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell 10 Iterationen) |

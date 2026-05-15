@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-2b5ce882-28c2-4c0f-ab63-f3edf2bf1a7a",
+  "source_node": "BANANA_PLANTATION",
+  "target_node": "COLLECTION_CENTER",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-110",
+  "carrier": {
+    "carrier_id": "CAR-103",
+    "carrier_name": "DHL"
+  },
+  "estimated_arrival": "2026-05-19T12:58:15.058929",
+  "timestamp": "2026-05-15T09:58:15.058933"
+}

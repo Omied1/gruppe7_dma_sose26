@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-b54e0424-f4c6-425a-9d7e-97325d1def89",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-102",
+    "customer_name": "LIDL",
+    "city": "Berlin",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045945"
+  },
+  "items": [
+    {
+      "product_code": "BAN-106",
+      "description": "Export Banana",
+      "quantity": 808,
+      "unit_price": 4.24
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-15T09:58:15.080865"
+}

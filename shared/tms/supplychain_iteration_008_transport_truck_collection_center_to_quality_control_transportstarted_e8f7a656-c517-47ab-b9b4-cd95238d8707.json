@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-5303c0f6-d362-4bcd-aa64-f819574fc3a7",
+  "source_node": "COLLECTION_CENTER",
+  "target_node": "QUALITY_CONTROL",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-105",
+  "carrier": {
+    "carrier_id": "CAR-102",
+    "carrier_name": "DHL"
+  },
+  "estimated_arrival": "2026-05-23T00:58:15.084862",
+  "timestamp": "2026-05-15T09:58:15.084864"
+}

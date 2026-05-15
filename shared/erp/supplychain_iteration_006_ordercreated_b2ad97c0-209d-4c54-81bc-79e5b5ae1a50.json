@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-7fac35bc-69c0-4d9e-b09c-92c7b3e8eba4",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-110",
+    "customer_name": "SPAR",
+    "city": "Berlin",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045958"
+  },
+  "items": [
+    {
+      "product_code": "BAN-104",
+      "description": "Baby Banana",
+      "quantity": 425,
+      "unit_price": 4.36
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-15T09:58:15.075913"
+}

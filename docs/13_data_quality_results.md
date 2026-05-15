@@ -63,7 +63,7 @@ Ausführung gegen die Live-PostgreSQL nach erfolgreichem ETL Phase 1 + 2:
 ## 3. Befunde nach Dimension
 
 ### 3.1 Vollständigkeit (5/5 PASS)
-Alle Pflichtfelder sind gefüllt. Besonders bemerkenswert: `temperature` ist in **allen 120** `wms.node_processings`-Einträgen vorhanden — der Datengenerator simuliert eine lückenlose Kühlkettenüberwachung. Check 1.5 bestätigt: Jede der generierten Orders hat mindestens eine Bestellposition.
+Alle Pflichtfelder sind gefüllt. Besonders bemerkenswert: `temperature` ist in **allen 60** `wms.node_processings`-Einträgen vorhanden — der Datengenerator simuliert eine lückenlose Kühlkettenüberwachung. Check 1.5 bestätigt: Jede der generierten Orders hat mindestens eine Bestellposition.
 
 ### 3.2 Eindeutigkeit (4/4 PASS)
 Alle Business Keys (`supplier_code`, `order_reference`, `batch_identifier`, `shipment_identifier`) sind eindeutig. Das bestätigt, dass die in K1 behobenen Idempotenz-Bugs vollständig ausgeräumt sind.
@@ -82,9 +82,9 @@ Check 3.4 (neu) belegt: Jede `SUCCESSFUL`-Delivery hat einen korrespondierenden 
 
 ### 3.4 Plausibilität (9/9 PASS)
 Alle Wertebereiche werden eingehalten, insbesondere:
-- Kühlkette: 0 Verstöße über 120 Knotenprozessierungen + 239 GPS-Updates
-- GPS-Bereich: 0 Verstöße über 239 Positionen
-- Verzögerungen: 120/120 Completions ≤ 180 min
+- Kühlkette: 0 Verstöße über 60 Knotenprozessierungen + 112 GPS-Updates
+- GPS-Bereich: 0 Verstöße über 112 Positionen
+- Verzögerungen: 60/60 Completions ≤ 180 min
 
 ### 3.5 Aktualität (3/3 PASS)
 - Keine Transportabschlüsse vor Transportstart
@@ -182,18 +182,18 @@ Ergänzend zu den 28 DQ-Checks belegen die folgenden Prüfqueries, dass alle fü
 | `erp` | `customers` | 10 | CUST-101 bis CUST-110 |
 | `erp` | `products` | 10 | BAN-101 bis BAN-110 (ERP-Format) |
 | `erp` | `orders` | 20 | 20 OrderCreated-Events |
-| `erp` | `order_items` | 20–40 | 1–2 Items pro Order |
-| `erp` | `batches` | 20 | 20 BatchHarvested-Events |
-| `erp` | `document_references` | 116 | 60 Lieferscheine + 6 Rechnungen + 50 weitere (Stand vor ETL-Wiederholung) |
+| `erp` | `order_items` | 10–20 | 1–2 Items pro Order |
+| `erp` | `batches` | 10 | 10 BatchHarvested-Events |
+| `erp` | `document_references` | 98 | 60 Lieferscheine + 8 Rechnungen + 10 B/L + 10 Zollfreigaben + 10 Zertifikate |
 | `wms` | `warehouse_skus` | 10 | BAN_101..BAN_110 (WMS-Format) |
 | `wms` | `supply_chain_nodes` | 7 | PLANTATION bis RETAIL |
-| `wms` | `node_processings` | 120 | 20 Batches × 6 aktive Knoten |
+| `wms` | `node_processings` | 60 | 10 Batches × 6 aktive Knoten |
 | `tms` | `carriers` | 5 | CAR-101 bis CAR-105 |
 | `tms` | `transport_product_references` | 10 | BAN-101..BAN-110 (normalisiert) |
-| `tms` | `shipments` | 120 | 120 TransportStarted-Events |
-| `tms` | `shipment_positions` | 239 | ≈2 GPS-Positionen je Shipment |
-| `tms` | `transport_completions` | 120 | 120 TransportCompleted-Events |
-| `tms` | `deliveries` | 20 | 20 DeliveryCompleted-Events |
+| `tms` | `shipments` | 60 | 60 TransportStarted-Events |
+| `tms` | `shipment_positions` | 112 | ≈2 GPS-Positionen je Shipment |
+| `tms` | `transport_completions` | 60 | 60 TransportCompleted-Events |
+| `tms` | `deliveries` | 10 | 10 DeliveryCompleted-Events |
 | `mdm` | `golden_records` | 42 | 10 Prod + 10 Kund + 10 Lief + 5 Carrier + 7 Knoten |
 | `mdm` | `source_mappings` | 69 | ERP=30, WMS=17, TMS=22 |
 | `dwh` | `dim_date` | 1095 | 2025-01-01 bis 2027-12-31 (Date Spine) |
@@ -203,7 +203,7 @@ Ergänzend zu den 28 DQ-Checks belegen die folgenden Prüfqueries, dass alle fü
 | `dwh` | `dim_carrier` | 5 | aus ETL Phase 2 |
 | `dwh` | `dim_supply_chain_node` | 7 | aus ETL Phase 2 |
 | `dwh` | `dim_delivery_status` | 4 | SUCCESSFUL, DELAYED, FAILED, IN_TRANSIT |
-| `dwh` | `fact_fulfillment` | ≥ 120 | 20 Endlieferungen × 6 Hops |
+| `dwh` | `fact_fulfillment` | 10 | 10 Endlieferungen (1 pro Iteration) |
 
 **FK-Integrität (intra-Schema):** 0 Orphan-Datensätze in allen geprüften Beziehungen.
 **Cross-Schema-Referenzen:** WMS `batch_reference` → ERP `batch_identifier` = 0 Fehler; TMS `cargo_product_reference` → TMS `transport_product_references` = 0 Fehler.
@@ -222,12 +222,12 @@ Alle 42 Golden Records haben genau ein kanonisches Source Mapping (`is_canonical
 
 | Collection | Dokumente | Prüfung | Status |
 |---|---:|---|---|
-| `shipment_events` | ≥ 120 | Unique-Index auf `shipment_identifier` vorhanden | ✅ PASS |
-| `shipment_events` | ≥ 120 | TTL-Index (90 Tage) vorhanden | ✅ PASS |
-| `shipment_events` | ≥ 120 | `events[]`-Array in Dokumenten vorhanden | ✅ PASS |
-| `node_events` | ≥ 120 | `quality_flags` (temperature_ok) vorhanden | ✅ PASS |
-| `batch_tracking` | ≥ 20 | `nodes_processed[]` eingebettet | ✅ PASS |
-| `order_events` | ≥ 20 | Unique-Index auf `order_reference` vorhanden | ✅ PASS |
+| `shipment_events` | ≥ 60 | Unique-Index auf `shipment_identifier` vorhanden | ✅ PASS |
+| `shipment_events` | ≥ 60 | TTL-Index (90 Tage) vorhanden | ✅ PASS |
+| `shipment_events` | ≥ 60 | `events[]`-Array in Dokumenten vorhanden | ✅ PASS |
+| `node_events` | ≥ 60 | `quality_flags` (temperature_ok) vorhanden | ✅ PASS |
+| `batch_tracking` | ≥ 10 | `nodes_processed[]` eingebettet | ✅ PASS |
+| `order_events` | ≥ 10 | Unique-Index auf `order_reference` vorhanden | ✅ PASS |
 
 ### 7.4 Redis – Key-Typen und -Counts
 

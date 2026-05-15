@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-cc127967-c535-4b73-acfe-756b33be5a3c",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-108",
+    "customer_name": "CARREFOUR",
+    "city": "Cologne",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045955"
+  },
+  "items": [
+    {
+      "product_code": "BAN-108",
+      "description": "Green Banana",
+      "quantity": 301,
+      "unit_price": 4.63
+    }
+  ],
+  "delivery_priority": "LOW",
+  "timestamp": "2026-05-15T09:58:15.072339"
+}

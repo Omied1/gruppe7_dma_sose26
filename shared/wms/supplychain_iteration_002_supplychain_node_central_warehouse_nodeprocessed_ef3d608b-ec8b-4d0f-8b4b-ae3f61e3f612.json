@@ -1,0 +1,9 @@
+{
+  "event_type": "NodeProcessed",
+  "supply_chain_node": "CENTRAL_WAREHOUSE",
+  "batch_reference": "BATCH-58e75199-a16c-4351-b8e7-a0eac5873908",
+  "sku": "BAN_110",
+  "temperature": 10.76,
+  "status": "COMPLETED",
+  "timestamp": "2026-05-15T09:58:15.059010"
+}

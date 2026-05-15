@@ -1,0 +1,9 @@
+{
+  "event_type": "DeliveryCompleted",
+  "supply_chain_node": "RETAIL_STORE",
+  "shipment_identifier": "SHIP-040b2406-8a89-4972-8b25-fa5dcbb6434a",
+  "cargo_product_reference": "ban-110",
+  "delivery_status": "DELAYED",
+  "received_by": "EMP-92",
+  "timestamp": "2026-05-15T09:58:15.059024"
+}

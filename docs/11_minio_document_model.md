@@ -256,8 +256,8 @@ Das Projekt trennt bewusst zwei Ausführungspfade:
 
 | Phase | Skript | Zweck | Dokumente |
 |---|---|---|---|
-| ETL (Pflichtlauf) | `bananasupplychain/etl_load.py` | Alle 714 Events in alle 5 Systeme laden | Stub-PDFs (minimal-valid) für delivery-notes + invoices |
-| Dokument-Generator (optional) | `bananasupplychain/generate_documents.py` | Echte, inhaltlich korrekte PDFs erzeugen | Alle 4 Buckets mit vollständigen PDFs |
+| ETL (Pflichtlauf) | `bananasupplychain/etl_load.py` | Alle 377 Events in PostgreSQL, MongoDB, Redis, Neo4j laden | kein MinIO-Upload |
+| Dokument-Generator | `bananasupplychain/generate_documents.py` | Echte, inhaltlich korrekte PDFs erzeugen | Alle 4 Buckets mit vollständigen PDFs (98 Dokumente) |
 
 **Reihenfolge für die Abgabe:**
 ```bash

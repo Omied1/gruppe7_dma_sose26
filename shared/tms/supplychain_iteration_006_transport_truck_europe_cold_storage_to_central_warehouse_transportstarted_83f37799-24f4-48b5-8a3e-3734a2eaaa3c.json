@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-4be0ccbb-3780-4113-8c57-9bcc8bfa6a45",
+  "source_node": "EUROPE_COLD_STORAGE",
+  "target_node": "CENTRAL_WAREHOUSE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-104",
+  "carrier": {
+    "carrier_id": "CAR-102",
+    "carrier_name": "DB Schenker"
+  },
+  "estimated_arrival": "2026-05-25T04:58:15.075983",
+  "timestamp": "2026-05-15T09:58:15.075984"
+}

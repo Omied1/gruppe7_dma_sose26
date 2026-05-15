@@ -2,7 +2,7 @@
   "event_type": "CustomerCreated",
   "customer_number": "CUST-104",
   "customer_name": "EDEKA",
-  "city": "Cologne",
+  "city": "Berlin",
   "country": "Germany",
-  "timestamp": "2026-05-14T15:39:19.835921"
+  "timestamp": "2026-05-15T09:58:15.045949"
 }

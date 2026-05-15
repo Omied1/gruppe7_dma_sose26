@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-b37879f5-8da6-441f-a115-6ca4978db10e",
+  "source_node": "CENTRAL_WAREHOUSE",
+  "target_node": "RETAIL_STORE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-106",
+  "carrier": {
+    "carrier_id": "CAR-103",
+    "carrier_name": "Hapag Lloyd"
+  },
+  "estimated_arrival": "2026-05-18T09:58:15.080952",
+  "timestamp": "2026-05-15T09:58:15.080954"
+}

@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-7ec9cd53-1ec6-4f1f-8ca9-b1dc237506df",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-101",
+    "customer_name": "ALDI",
+    "city": "Munich",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045942"
+  },
+  "items": [
+    {
+      "product_code": "BAN-109",
+      "description": "Yellow Banana",
+      "quantity": 307,
+      "unit_price": 2.72
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-15T09:58:15.089104"
+}

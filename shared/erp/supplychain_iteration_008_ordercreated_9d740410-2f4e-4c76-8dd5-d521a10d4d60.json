@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-9d75c197-e494-49f3-9bef-d620669d0ebf",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-108",
+    "customer_name": "CARREFOUR",
+    "city": "Cologne",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045955"
+  },
+  "items": [
+    {
+      "product_code": "BAN-105",
+      "description": "Fairtrade Banana",
+      "quantity": 447,
+      "unit_price": 4.03
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-15T09:58:15.084817"
+}

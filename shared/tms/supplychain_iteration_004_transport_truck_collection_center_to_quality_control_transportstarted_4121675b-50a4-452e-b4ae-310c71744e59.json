@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-7849d254-c50c-4ea6-98d4-98cc181af0c8",
+  "source_node": "COLLECTION_CENTER",
+  "target_node": "QUALITY_CONTROL",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-106",
+  "carrier": {
+    "carrier_id": "CAR-104",
+    "carrier_name": "Maersk"
+  },
+  "estimated_arrival": "2026-05-18T23:58:15.066767",
+  "timestamp": "2026-05-15T09:58:15.066770"
+}

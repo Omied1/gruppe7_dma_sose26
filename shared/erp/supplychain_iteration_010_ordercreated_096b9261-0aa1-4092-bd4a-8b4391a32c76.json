@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-4f414afc-d745-4e1e-a76a-308379123195",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-106",
+    "customer_name": "KAUFLAND",
+    "city": "Hamburg",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045952"
+  },
+  "items": [
+    {
+      "product_code": "BAN-102",
+      "description": "Organic Banana",
+      "quantity": 327,
+      "unit_price": 3.31
+    }
+  ],
+  "delivery_priority": "NORMAL",
+  "timestamp": "2026-05-15T09:58:15.092830"
+}

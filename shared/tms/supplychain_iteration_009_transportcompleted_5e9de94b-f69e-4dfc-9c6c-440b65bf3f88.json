@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-b23edbec-4c68-48cb-8835-1ebec4e2d4f8",
+  "cargo_product_reference": "ban-109",
+  "arrival_node": "EUROPE_COLD_STORAGE",
+  "delay_minutes": 114,
+  "timestamp": "2026-05-15T09:58:15.089191"
+}

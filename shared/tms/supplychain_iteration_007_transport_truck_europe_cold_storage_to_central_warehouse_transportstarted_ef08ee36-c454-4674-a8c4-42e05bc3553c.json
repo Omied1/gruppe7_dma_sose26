@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-50610835-ddd6-4fb6-9480-90019595b332",
+  "source_node": "EUROPE_COLD_STORAGE",
+  "target_node": "CENTRAL_WAREHOUSE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-106",
+  "carrier": {
+    "carrier_id": "CAR-105",
+    "carrier_name": "Hapag Lloyd"
+  },
+  "estimated_arrival": "2026-05-16T21:58:15.080940",
+  "timestamp": "2026-05-15T09:58:15.080941"
+}

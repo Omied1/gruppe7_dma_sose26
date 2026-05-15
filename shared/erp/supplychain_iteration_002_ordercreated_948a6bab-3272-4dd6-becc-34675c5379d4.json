@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-1b66a912-d685-42fb-ad2a-10fe016605c2",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-106",
+    "customer_name": "KAUFLAND",
+    "city": "Hamburg",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045952"
+  },
+  "items": [
+    {
+      "product_code": "BAN-110",
+      "description": "Tropical Banana",
+      "quantity": 617,
+      "unit_price": 4.07
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-15T09:58:15.058910"
+}

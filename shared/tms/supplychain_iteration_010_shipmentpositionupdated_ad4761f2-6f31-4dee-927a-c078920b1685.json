@@ -1,0 +1,16 @@
+{
+  "event_type": "ShipmentPositionUpdated",
+  "shipment_identifier": "SHIP-e32691ec-deee-4b3b-9690-a10eb5a435c2",
+  "cargo_product_reference": "ban-102",
+  "current_route": {
+    "source": "COLLECTION_CENTER",
+    "target": "QUALITY_CONTROL"
+  },
+  "coordinates": {
+    "latitude": -50.007824,
+    "longitude": -95.434874
+  },
+  "container_temperature": 11.35,
+  "speed_kmh": 61.88,
+  "timestamp": "2026-05-15T09:58:15.092877"
+}

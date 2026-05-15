@@ -1,9 +1,0 @@
-{
-  "event_type": "DeliveryCompleted",
-  "supply_chain_node": "RETAIL_STORE",
-  "shipment_identifier": "SHIP-0c29fad9-b930-47e1-a4da-8b4fdb906888",
-  "cargo_product_reference": "ban-110",
-  "delivery_status": "SUCCESSFUL",
-  "received_by": "EMP-94",
-  "timestamp": "2026-05-12T11:50:40.915657"
-}

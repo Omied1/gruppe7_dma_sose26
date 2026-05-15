@@ -10,10 +10,10 @@
 
 | Quellsystem | Anzahl JSON-Dateien | Eventtypen | Beschreibung |
 |---|---|---|---|
-| ERP | 70 | 5 | Enterprise Resource Planning – Stamm- und Bewegungsdaten |
-| WMS | 130 | 2 | Warehouse Management System – Lager- und Knotenverarbeitung |
-| TMS | 514 | 6 | Transport Management System – Carrier, Transporte, GPS, Lieferungen |
-| **Gesamt** | **714** | **13** | Alle verarbeitbaren Ereignisse in der Supply Chain (10 operative Iterationen + Stammdaten) |
+| ERP | 50 | 5 | Enterprise Resource Planning – Stamm- und Bewegungsdaten |
+| WMS | 70 | 2 | Warehouse Management System – Lager- und Knotenverarbeitung |
+| TMS | 257 | 6 | Transport Management System – Carrier, Transporte, GPS, Lieferungen |
+| **Gesamt** | **377** | **13** | Alle verarbeitbaren Ereignisse in der Supply Chain (10 operative Iterationen + Stammdaten) |
 
 ---
 
@@ -508,11 +508,11 @@ Spiegelstruktur zu `WarehouseSKUCreated` auf TMS-Seite. `ban-101` (Kleinbuchstab
 | 7 | `NodeProcessed` | WMS | 60 | Eventdaten | PostgreSQL (wms) | MongoDB, Neo4j |
 | 8 | `CarrierCreated` | TMS | 5 | Stammdaten | PostgreSQL (tms) | Neo4j |
 | 9 | `TransportProductReferenceCreated` | TMS | 10 | Stammdaten | PostgreSQL (tms) | MDM |
-| 10 | `TransportStarted` | TMS | 120 | Bewegungsdaten | PostgreSQL (tms) | MongoDB, Neo4j, MinIO |
-| 11 | `ShipmentPositionUpdated` | TMS | 239 | **Echtzeitdaten** | **Redis** | MongoDB |
-| 12 | `TransportCompleted` | TMS | 120 | Eventdaten | PostgreSQL (tms) | MongoDB |
-| 13 | `DeliveryCompleted` | TMS | 20 | Eventdaten | PostgreSQL (tms) | MongoDB, MinIO |
-| | **Gesamt** | | **714** | | | |
+| 10 | `TransportStarted` | TMS | 60 | Bewegungsdaten | PostgreSQL (tms) | MongoDB, Neo4j, MinIO |
+| 11 | `ShipmentPositionUpdated` | TMS | 112 | **Echtzeitdaten** | **Redis** | MongoDB |
+| 12 | `TransportCompleted` | TMS | 60 | Eventdaten | PostgreSQL (tms) | MongoDB |
+| 13 | `DeliveryCompleted` | TMS | 10 | Eventdaten | PostgreSQL (tms) | MongoDB, MinIO |
+| | **Gesamt** | | **377** | | | |
 
 ---
 

@@ -1,0 +1,16 @@
+{
+  "event_type": "ShipmentPositionUpdated",
+  "shipment_identifier": "SHIP-af820ba8-6773-4225-8456-6f267c0fa10d",
+  "cargo_product_reference": "ban-108",
+  "current_route": {
+    "source": "BANANA_PLANTATION",
+    "target": "COLLECTION_CENTER"
+  },
+  "coordinates": {
+    "latitude": 54.389466,
+    "longitude": -130.965583
+  },
+  "container_temperature": 14.31,
+  "speed_kmh": 30.76,
+  "timestamp": "2026-05-15T09:58:15.054151"
+}

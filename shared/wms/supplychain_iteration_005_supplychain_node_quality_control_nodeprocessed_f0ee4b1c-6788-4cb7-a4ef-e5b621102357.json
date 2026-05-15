@@ -1,0 +1,9 @@
+{
+  "event_type": "NodeProcessed",
+  "supply_chain_node": "QUALITY_CONTROL",
+  "batch_reference": "BATCH-0eec9bc8-4556-4b99-bd15-9006363a765d",
+  "sku": "BAN_108",
+  "temperature": 12.51,
+  "status": "COMPLETED",
+  "timestamp": "2026-05-15T09:58:15.072391"
+}

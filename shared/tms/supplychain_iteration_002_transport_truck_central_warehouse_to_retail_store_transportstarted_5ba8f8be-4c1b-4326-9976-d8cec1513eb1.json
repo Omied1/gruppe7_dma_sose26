@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-040b2406-8a89-4972-8b25-fa5dcbb6434a",
+  "source_node": "CENTRAL_WAREHOUSE",
+  "target_node": "RETAIL_STORE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-110",
+  "carrier": {
+    "carrier_id": "CAR-101",
+    "carrier_name": "DB Schenker"
+  },
+  "estimated_arrival": "2026-05-16T22:58:15.059015",
+  "timestamp": "2026-05-15T09:58:15.059017"
+}

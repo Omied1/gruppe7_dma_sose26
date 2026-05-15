@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-1b3be0ce-c2e1-40b1-b479-eb8665453633",
+  "source_node": "EUROPE_COLD_STORAGE",
+  "target_node": "CENTRAL_WAREHOUSE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-103",
+  "carrier": {
+    "carrier_id": "CAR-102",
+    "carrier_name": "DHL"
+  },
+  "estimated_arrival": "2026-05-18T22:58:15.062818",
+  "timestamp": "2026-05-15T09:58:15.062820"
+}

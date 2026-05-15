@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-ce88a450-82b4-460b-a90c-586b613923e0",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-110",
+    "customer_name": "SPAR",
+    "city": "Berlin",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045958"
+  },
+  "items": [
+    {
+      "product_code": "BAN-108",
+      "description": "Green Banana",
+      "quantity": 688,
+      "unit_price": 2.1
+    }
+  ],
+  "delivery_priority": "LOW",
+  "timestamp": "2026-05-15T09:58:15.054088"
+}

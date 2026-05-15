@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-7392a097-2b7a-449c-85bd-8fd1f6723bed",
+  "source_node": "AFRICA_COLD_STORAGE",
+  "target_node": "EUROPE_COLD_STORAGE",
+  "transport_mode": "SEA_FREIGHT",
+  "cargo_product_reference": "ban-104",
+  "carrier": {
+    "carrier_id": "CAR-101",
+    "carrier_name": "DHL"
+  },
+  "estimated_arrival": "2026-05-21T22:58:15.075971",
+  "timestamp": "2026-05-15T09:58:15.075972"
+}

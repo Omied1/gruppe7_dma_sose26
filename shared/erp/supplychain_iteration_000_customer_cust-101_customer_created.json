@@ -2,7 +2,7 @@
   "event_type": "CustomerCreated",
   "customer_number": "CUST-101",
   "customer_name": "ALDI",
-  "city": "Frankfurt",
+  "city": "Munich",
   "country": "Germany",
-  "timestamp": "2026-05-14T15:39:19.835914"
+  "timestamp": "2026-05-15T09:58:15.045942"
 }

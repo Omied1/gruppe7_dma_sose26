@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-77ea5166-3d65-4832-93f4-feef6dbfd075",
+  "source_node": "AFRICA_COLD_STORAGE",
+  "target_node": "EUROPE_COLD_STORAGE",
+  "transport_mode": "SEA_FREIGHT",
+  "cargo_product_reference": "ban-108",
+  "carrier": {
+    "carrier_id": "CAR-104",
+    "carrier_name": "Hapag Lloyd"
+  },
+  "estimated_arrival": "2026-05-16T16:58:15.054203",
+  "timestamp": "2026-05-15T09:58:15.054205"
+}

@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-dabd4686-8f96-469c-b669-d551d18e3142",
+  "source_node": "EUROPE_COLD_STORAGE",
+  "target_node": "CENTRAL_WAREHOUSE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-102",
+  "carrier": {
+    "carrier_id": "CAR-101",
+    "carrier_name": "MSC"
+  },
+  "estimated_arrival": "2026-05-20T07:58:15.092916",
+  "timestamp": "2026-05-15T09:58:15.092918"
+}

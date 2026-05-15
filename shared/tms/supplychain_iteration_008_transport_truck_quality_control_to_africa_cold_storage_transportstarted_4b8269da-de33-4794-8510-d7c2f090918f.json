@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-27565117-a98e-4cce-bd82-16dcd361eb7e",
+  "source_node": "QUALITY_CONTROL",
+  "target_node": "AFRICA_COLD_STORAGE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-105",
+  "carrier": {
+    "carrier_id": "CAR-105",
+    "carrier_name": "MSC"
+  },
+  "estimated_arrival": "2026-05-22T17:58:15.084881",
+  "timestamp": "2026-05-15T09:58:15.084883"
+}

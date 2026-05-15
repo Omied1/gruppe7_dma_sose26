@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-5ef01efc-217d-4a82-913b-3174f283b9c1",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-103",
+    "customer_name": "REWE",
+    "city": "Frankfurt",
+    "country": "Germany",
+    "timestamp": "2026-05-15T09:58:15.045947"
+  },
+  "items": [
+    {
+      "product_code": "BAN-103",
+      "description": "Premium Banana",
+      "quantity": 658,
+      "unit_price": 2.55
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-15T09:58:15.062737"
+}

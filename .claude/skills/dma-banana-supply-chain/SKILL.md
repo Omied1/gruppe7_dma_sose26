@@ -51,7 +51,7 @@ Niveau „gut bis sehr gut".
 
 - ERP: 50 JSON-Dateien (Supplier, Customer, Product, Order, Batch)
 - WMS: 70 JSON-Dateien (WarehouseSKU, NodeProcessed)
-- TMS: 263 JSON-Dateien (Carrier, TransportRef, Shipment, Position, Delivery)
+- TMS: 257 JSON-Dateien (Carrier, TransportRef, Shipment, Position, Delivery)
 
 ---
 
@@ -218,6 +218,7 @@ Bibliotheken: `matplotlib`, `seaborn`, `pandas`. Jeder Chart: Titel, Achsenbesch
 ## 5.1 Code-Regeln
 
 - **Bestehende Dateien nicht ohne Rückfrage überschreiben.** Immer fragen, bevor eine existierende Datei ersetzt wird.
+- **`test_data_generator.py` nicht verändern.** Diese Datei ist die Datenbasis-/Generator-Referenz und darf weder direkt bearbeitet noch durch automatische Fixes angepasst werden; notwendige Anpassungen müssen in separaten Skripten, ETL-Logik oder Dokumentation erfolgen.
 - **SQL muss ausführbar und konsistent sein.** Tabellennamen, Schemas und Spalten müssen mit den tatsächlich vorhandenen DDL-Dateien übereinstimmen.
 - **Python-Code kommentieren.** Jede Funktion bekommt einen einzeiligen Kommentar, der erklärt _warum_ – nicht was – sie tut.
 - **ETL-Phasen klar trennen.** Keine gemischten Extract/Load-Blöcke. Jede Phase als eigene Funktion oder Sektion.

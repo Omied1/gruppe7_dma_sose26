@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-2372e9f7-bae6-4056-a99d-74a068dde9b8",
+  "source_node": "CENTRAL_WAREHOUSE",
+  "target_node": "RETAIL_STORE",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-108",
+  "carrier": {
+    "carrier_id": "CAR-104",
+    "carrier_name": "Maersk"
+  },
+  "estimated_arrival": "2026-05-24T03:58:15.072605",
+  "timestamp": "2026-05-15T09:58:15.072607"
+}

@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-af820ba8-6773-4225-8456-6f267c0fa10d",
+  "source_node": "BANANA_PLANTATION",
+  "target_node": "COLLECTION_CENTER",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-108",
+  "carrier": {
+    "carrier_id": "CAR-102",
+    "carrier_name": "MSC"
+  },
+  "estimated_arrival": "2026-05-23T09:58:15.054138",
+  "timestamp": "2026-05-15T09:58:15.054143"
+}
