@@ -31,11 +31,13 @@ CREATE TABLE IF NOT EXISTS dwh.dim_customer (
     customer_name       VARCHAR(100)    NOT NULL,
     city                VARCHAR(50),
     country             VARCHAR(50)     NOT NULL,
+    source_created_at   TIMESTAMP,                         -- event_timestamp aus erp.customers (CustomerCreated)
     etl_loaded_at       TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE  dwh.dim_customer IS 'Kunden-Dimension. Denormalisiert aus erp.customers via ETL. customer_number ist Business Key.';
-COMMENT ON COLUMN dwh.dim_customer.customer_sk IS 'Surrogate Key (DWH-intern). Wird in fact_fulfillment als FK verwendet.';
+COMMENT ON COLUMN dwh.dim_customer.customer_sk        IS 'Surrogate Key (DWH-intern). Wird in fact_fulfillment als FK verwendet.';
+COMMENT ON COLUMN dwh.dim_customer.source_created_at  IS 'Originalzeitstempel aus CustomerCreated-Event. Ermöglicht Analyse: Neukunden pro Zeitraum.';
 
 -- -----------------------------------------------------------------------------
 -- Dimension: Produkt
@@ -64,10 +66,12 @@ CREATE TABLE IF NOT EXISTS dwh.dim_supplier (
     supplier_code       VARCHAR(20)     NOT NULL UNIQUE,    -- Business Key: SUP-101
     supplier_name       VARCHAR(100)    NOT NULL,
     country             VARCHAR(50)     NOT NULL,
+    source_created_at   TIMESTAMP,                         -- event_timestamp aus erp.suppliers (SupplierCreated)
     etl_loaded_at       TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE  dwh.dim_supplier IS 'Lieferanten-Dimension für eigenständige Lieferantenauswertungen (z.B. Lieferzuverlässigkeit pro Lieferant).';
+COMMENT ON COLUMN dwh.dim_supplier.source_created_at IS 'Originalzeitstempel aus SupplierCreated-Event. Ermöglicht Analyse: Lieferantenalter vs. Qualitätskennzahlen.';
 
 -- -----------------------------------------------------------------------------
 -- Dimension: Carrier
@@ -77,10 +81,12 @@ CREATE TABLE IF NOT EXISTS dwh.dim_carrier (
     carrier_sk          SERIAL          PRIMARY KEY,
     carrier_code        VARCHAR(20)     NOT NULL UNIQUE,    -- Business Key: CAR-101
     carrier_name        VARCHAR(100)    NOT NULL,
+    source_created_at   TIMESTAMP,                         -- event_timestamp aus tms.carriers (CarrierCreated)
     etl_loaded_at       TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE  dwh.dim_carrier IS 'Carrier-Dimension für Transportdienstleister-Analysen (z.B. durchschnittliche Verzögerung pro Carrier).';
+COMMENT ON COLUMN dwh.dim_carrier.source_created_at IS 'Originalzeitstempel aus CarrierCreated-Event. Ermöglicht Analyse: Carrier-Performance seit Onboarding.';
 
 -- -----------------------------------------------------------------------------
 -- Dimension: Supply-Chain-Knoten
@@ -188,6 +194,9 @@ CREATE TABLE IF NOT EXISTS dwh.fact_fulfillment (
     num_supply_chain_hops   INT             DEFAULT 6,      -- Anzahl durchlaufener Knoten (Standard: 6)
     delivery_priority_code  VARCHAR(10),                    -- HIGH / NORMAL / LOW
 
+    -- Abgeleitete KPI-Flags (berechnet im ETL, vermeidet redundante CASE-Logik in Analytics)
+    on_time_flag            BOOLEAN,                        -- TRUE = SUCCESSFUL + delay_minutes = 0
+
     -- ETL-Metadaten
     etl_loaded_at           TIMESTAMP       NOT NULL DEFAULT NOW(),
     etl_source              VARCHAR(50)     NOT NULL DEFAULT 'ETL'
@@ -202,6 +211,7 @@ COMMENT ON COLUMN dwh.fact_fulfillment.total_value         IS 'Berechnete Kennza
 COMMENT ON COLUMN dwh.fact_fulfillment.delay_minutes       IS 'Summierte Verzögerungsminuten aller Transporte im Fulfillment-Vorgang.';
 COMMENT ON COLUMN dwh.fact_fulfillment.avg_temperature     IS 'Durchschnittliche Containertemperatur über alle Knotenverarbeitungen. Kühlketten-KPI.';
 COMMENT ON COLUMN dwh.fact_fulfillment.num_supply_chain_hops IS 'Anzahl durchlaufener Knoten. Standard: 6. Abweichungen deuten auf Prozessänderungen hin.';
+COMMENT ON COLUMN dwh.fact_fulfillment.on_time_flag        IS 'TRUE = pünktliche Lieferung (status=SUCCESSFUL und delay_minutes=0). Basisflag für Liefertreue-KPI.';
 
 -- -----------------------------------------------------------------------------
 -- Indizes für Analytics-Performance
@@ -214,7 +224,110 @@ CREATE INDEX IF NOT EXISTS idx_dwh_fact_order_date      ON dwh.fact_fulfillment(
 CREATE INDEX IF NOT EXISTS idx_dwh_fact_delivery_date   ON dwh.fact_fulfillment(delivery_date_sk);
 CREATE INDEX IF NOT EXISTS idx_dwh_fact_status          ON dwh.fact_fulfillment(delivery_status_sk);
 
+-- -----------------------------------------------------------------------------
+-- Upgrade bestehender Installationen: neue Spalten idempotent ergänzen
+-- (harmlos, wenn die Tabelle gerade neu angelegt wurde)
+-- -----------------------------------------------------------------------------
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS on_time_flag BOOLEAN;
+
+-- =============================================================================
+-- ANALYTISCHE VIEWS
+-- Vorberechnete Sichten für PowerBI und Python-Analytics (Teil 2)
+-- Kein eigener Datenbestand – nur Lesezugriff auf fact_fulfillment + Dimensionen
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- View: Carrier-Performance
+-- Grain: 1 Zeile pro Carrier
+-- Verwendung: PowerBI KPI-Card „On-Time-Delivery-Rate", Python-Chart „Verzögerungen nach Carrier"
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW dwh.v_carrier_performance AS
+SELECT
+    ca.carrier_code,
+    ca.carrier_name,
+    COUNT(*)                                                                          AS total_hops,
+    SUM(CASE WHEN f.on_time_flag = TRUE  THEN 1 ELSE 0 END)                          AS on_time_count,
+    SUM(CASE WHEN f.on_time_flag = FALSE THEN 1 ELSE 0 END)                          AS delayed_count,
+    ROUND(
+        100.0 * SUM(CASE WHEN f.on_time_flag = TRUE THEN 1 ELSE 0 END) / COUNT(*), 1
+    )                                                                                 AS otd_rate_pct,
+    ROUND(AVG(f.delay_minutes), 1)                                                    AS avg_delay_minutes,
+    MAX(f.delay_minutes)                                                              AS max_delay_minutes
+FROM  dwh.fact_fulfillment    f
+JOIN  dwh.dim_carrier         ca ON ca.carrier_sk = f.carrier_sk
+GROUP BY ca.carrier_code, ca.carrier_name;
+
+COMMENT ON VIEW dwh.v_carrier_performance IS
+    'Carrier-Performance-Übersicht: OTD-Rate, Ø Verzögerung, Max-Verzögerung pro Transportdienstleister. Quelle: fact_fulfillment + dim_carrier.';
+
+-- -----------------------------------------------------------------------------
+-- View: KPI-Zusammenfassung
+-- Grain: 1 Zeile (Gesamtaggregat über alle Fulfillment-Vorgänge)
+-- Verwendung: PowerBI KPI-Cards (Liefertreue, Ø Bestellwert, Temperaturausreißer)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW dwh.v_kpi_summary AS
+SELECT
+    COUNT(*)                                                                 AS total_fulfillments,
+    -- KPI 1: Liefertreue
+    ROUND(
+        100.0 * SUM(CASE WHEN on_time_flag = TRUE THEN 1 ELSE 0 END) / COUNT(*), 1
+    )                                                                        AS kpi_otd_rate_pct,
+    -- KPI 2: Ø Transportdauer (gemessen als Verzögerung; 0 = planmäßig)
+    ROUND(AVG(delay_minutes) / 60.0, 2)                                      AS kpi_avg_delay_hours,
+    -- KPI 3: Temperaturausreißer-Quote (Kühlkette: 10–15 °C)
+    ROUND(
+        100.0 * SUM(CASE WHEN avg_temperature NOT BETWEEN 10 AND 15 THEN 1 ELSE 0 END)
+              / NULLIF(SUM(CASE WHEN avg_temperature IS NOT NULL THEN 1 ELSE 0 END), 0), 1
+    )                                                                        AS kpi_temp_outlier_pct,
+    -- KPI 4: Ø Bestellwert
+    ROUND(AVG(total_value), 2)                                               AS kpi_avg_order_value_eur,
+    -- KPI 5: Gesamtumsatz
+    ROUND(SUM(total_value), 2)                                               AS kpi_total_revenue_eur
+FROM  dwh.fact_fulfillment;
+
+COMMENT ON VIEW dwh.v_kpi_summary IS
+    'Gesamtaggregat aller 5 Pflicht-KPIs: Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz. Direkte Datenquelle für PowerBI KPI-Cards.';
+
+-- -----------------------------------------------------------------------------
+-- View: Monatliche Umsatz-Zeitreihe (Absatzprognose-Basis)
+-- Grain: 1 Zeile pro Produkt und Monat
+-- Verwendung: Python Absatzprognose (ARIMA/Prophet), PowerBI Zeitreihen-Liniendiagramm
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW dwh.v_monthly_revenue AS
+SELECT
+    d.year,
+    d.month,
+    d.month_name,
+    p.product_code,
+    p.product_name,
+    SUM(f.quantity)      AS total_quantity,
+    SUM(f.total_value)   AS total_revenue_eur,
+    COUNT(*)             AS num_shipments
+FROM  dwh.fact_fulfillment f
+JOIN  dwh.dim_date         d ON d.date_sk    = f.order_date_sk
+JOIN  dwh.dim_product      p ON p.product_sk = f.product_sk
+GROUP BY d.year, d.month, d.month_name, p.product_code, p.product_name
+ORDER BY d.year, d.month, p.product_code;
+
+COMMENT ON VIEW dwh.v_monthly_revenue IS
+    'Monatliche Umsatz- und Mengenzeitreihe pro Produkt. Basis für Absatzprognose (ARIMA/Prophet) und PowerBI Zeitreihen-Visual.';
+
+-- =============================================================================
+-- PRÜFQUERIES – Nachweis der korrekten Befüllung
+-- Nach ETL Phase 2 ausführen; erwartete Werte in Klammern (Stand: Testlauf 2026-05-14)
+-- =============================================================================
+-- SELECT COUNT(*) FROM dwh.dim_customer;           -- erwartet: 10
+-- SELECT COUNT(*) FROM dwh.dim_supplier;           -- erwartet: 10
+-- SELECT COUNT(*) FROM dwh.dim_product;            -- erwartet: 10
+-- SELECT COUNT(*) FROM dwh.dim_carrier;            -- erwartet:  5
+-- SELECT COUNT(*) FROM dwh.dim_supply_chain_node;  -- erwartet:  7
+-- SELECT COUNT(*) FROM dwh.dim_date;               -- erwartet: 1095 (2025-01-01 bis 2027-12-31)
+-- SELECT COUNT(*) FROM dwh.dim_delivery_status;    -- erwartet:  4
+-- SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 10 (1 Endlieferung pro Order/Batch)
+-- SELECT * FROM dwh.v_kpi_summary;                 -- 1 Zeile mit 5 KPI-Werten
+-- SELECT * FROM dwh.v_carrier_performance;         -- 5 Zeilen (1 pro Carrier)
+
 DO $$
 BEGIN
-    RAISE NOTICE 'DWH-Schema erstellt: 7 Dimensionstabellen + 1 Faktentabelle. dim_date mit 3 Jahren befüllt. ETL befüllt fact_fulfillment.';
+    RAISE NOTICE 'DWH-Schema erstellt: 7 Dimensionstabellen + 1 Faktentabelle + 3 analytische Views. dim_date: 1095 Zeilen (2025–2027). on_time_flag ergänzt.';
 END $$;

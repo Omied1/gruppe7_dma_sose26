@@ -25,7 +25,10 @@
 CREATE TABLE IF NOT EXISTS tms.carriers (
     carrier_id      SERIAL          PRIMARY KEY,
     carrier_code    VARCHAR(20)     NOT NULL UNIQUE, -- Business Key, z.B. "CAR-101"
+    -- Achtung: JSON-Feld heißt "carrier_id" (hält Business Key "CAR-101"), nicht "carrier_code"
+    -- ETL-Mapping: ev["carrier_id"] → tms.carriers.carrier_code
     carrier_name    VARCHAR(100)    NOT NULL,
+    event_timestamp TIMESTAMP       NOT NULL,        -- Zeitstempel aus CarrierCreated-Event (JSON: timestamp)
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event    VARCHAR(50)     NOT NULL DEFAULT 'CarrierCreated'
 );
@@ -43,6 +46,7 @@ CREATE TABLE IF NOT EXISTS tms.transport_product_references (
     ref_id                          SERIAL          PRIMARY KEY,
     erp_product_code                VARCHAR(20)     NOT NULL UNIQUE, -- Cross-Ref: "BAN-101"
     transport_product_reference     VARCHAR(20)     NOT NULL UNIQUE, -- TMS-Format: "ban-101"
+    event_timestamp                 TIMESTAMP       NOT NULL,        -- Zeitstempel aus TransportProductReferenceCreated-Event (JSON: timestamp)
     created_at                      TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event                    VARCHAR(50)     NOT NULL DEFAULT 'TransportProductReferenceCreated'
 );
@@ -64,7 +68,8 @@ CREATE TABLE IF NOT EXISTS tms.shipments (
     target_node                 VARCHAR(50)     NOT NULL,        -- z.B. "EUROPE_COLD_STORAGE"
     transport_mode              VARCHAR(20)     NOT NULL CHECK (transport_mode IN ('TRUCK', 'SEA_FREIGHT')),
     cargo_product_reference     VARCHAR(30)     NOT NULL,        -- TMS-Format: "ban-108"
-    carrier_id                  INT             REFERENCES tms.carriers(carrier_id),
+    carrier_id                  INT             NOT NULL REFERENCES tms.carriers(carrier_id),
+    -- NOT NULL: Jedes TransportStarted-Event enthält ein eingebettetes carrier-Objekt (carrier.carrier_id)
     estimated_arrival           TIMESTAMP,
     started_at                  TIMESTAMP       NOT NULL,
     created_at                  TIMESTAMP       NOT NULL DEFAULT NOW(),

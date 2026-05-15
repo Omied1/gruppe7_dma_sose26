@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-cd6505c2-fe62-44b5-af09-446f21d6f5f4",
+  "source_node": "BANANA_PLANTATION",
+  "target_node": "COLLECTION_CENTER",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-106",
+  "carrier": {
+    "carrier_id": "CAR-102",
+    "carrier_name": "DB Schenker"
+  },
+  "estimated_arrival": "2026-05-17T11:39:19.864363",
+  "timestamp": "2026-05-14T15:39:19.864369"
+}

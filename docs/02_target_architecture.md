@@ -168,9 +168,9 @@ flowchart TD
 ### Phase 1: Datenerzeugung
 ```
 test_data_generator.py
-   → shared/erp/  (50 JSON-Dateien: Stammdaten + Orders + Batches)
-   → shared/wms/  (70 JSON-Dateien: SKUs + Knotenverarbeitungen)
-   → shared/tms/  (263 JSON-Dateien: Carrier + Transporte + GPS + Lieferungen)
+   → shared/erp/  (70 JSON-Dateien: Stammdaten + Orders + Batches)
+   → shared/wms/  (130 JSON-Dateien: SKUs + Knotenverarbeitungen)
+   → shared/tms/  (514 JSON-Dateien: Carrier + Transporte + GPS + Lieferungen)
 ```
 
 ### Phase 2: ETL-Verarbeitung (Extract → Transform → Load)

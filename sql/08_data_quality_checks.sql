@@ -57,6 +57,18 @@ FROM tms.deliveries
 WHERE delivery_status = 'SUCCESSFUL'
 AND   received_by IS NULL;
 
+-- 1.5 ERP: Bestellungen ohne Bestellpositionen
+-- Fachlich: Jede Order muss mindestens eine Position haben, sonst kein Rechnungswert berechenbar
+SELECT
+    'VOLLSTÄNDIGKEIT'  AS dimension,
+    'erp.orders'       AS tabelle,
+    'Order ohne Bestellpositionen' AS regel,
+    COUNT(*)           AS verstösse
+FROM erp.orders o
+WHERE NOT EXISTS (
+    SELECT 1 FROM erp.order_items oi WHERE oi.order_id = o.order_id
+);
+
 -- =============================================================================
 -- 2. EINDEUTIGKEIT (Uniqueness)
 -- Duplikate in Business Keys erkennen
@@ -157,6 +169,21 @@ JOIN erp.products p ON p.product_id = b.product_id
 WHERE b.wms_sku IS NOT NULL
 AND   b.wms_sku != REPLACE(p.product_code, '-', '_'); -- Erwartetes WMS-Format
 
+-- 3.4 TMS: Erfolgreiche Lieferung ohne zugehörigen Transportabschluss
+-- Fachlich: Jede Delivery mit Status SUCCESSFUL muss ein TransportCompleted-Event haben;
+-- fehlt es, ist die Delivery-Buchung ohne Nachweis (Konsistenz zwischen DeliveryCompleted und TransportCompleted)
+SELECT
+    'KONSISTENZ'   AS dimension,
+    'tms.deliveries + tms.transport_completions' AS tabelle,
+    'SUCCESSFUL-Delivery ohne TransportCompleted-Eintrag' AS regel,
+    COUNT(*)       AS verstösse
+FROM tms.deliveries d
+WHERE d.delivery_status = 'SUCCESSFUL'
+AND NOT EXISTS (
+    SELECT 1 FROM tms.transport_completions tc
+    WHERE tc.shipment_id = d.shipment_id
+);
+
 -- =============================================================================
 -- 4. PLAUSIBILITÄT (Validity)
 -- Wertebereiche und Format-Prüfungen
@@ -256,7 +283,41 @@ AND   (speed_kmh > 200 OR speed_kmh < 0);
 -- =============================================================================
 -- 5. AKTUALITÄT (Timeliness)
 -- Zeitliche Plausibilität: Events müssen in logischer Reihenfolge liegen
+-- und event_timestamp muss innerhalb der Projektlaufzeit (2026) liegen
 -- =============================================================================
+
+-- 5.0 Stammdaten: event_timestamp ausserhalb der Projektlaufzeit
+SELECT
+    'AKTUALITÄT'        AS dimension,
+    'erp.suppliers'     AS tabelle,
+    'event_timestamp ausserhalb 2026' AS regel,
+    COUNT(*)            AS verstösse
+FROM erp.suppliers
+WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+
+SELECT
+    'AKTUALITÄT'        AS dimension,
+    'erp.customers'     AS tabelle,
+    'event_timestamp ausserhalb 2026' AS regel,
+    COUNT(*)            AS verstösse
+FROM erp.customers
+WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+
+SELECT
+    'AKTUALITÄT'        AS dimension,
+    'erp.products'      AS tabelle,
+    'event_timestamp ausserhalb 2026' AS regel,
+    COUNT(*)            AS verstösse
+FROM erp.products
+WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+
+SELECT
+    'AKTUALITÄT'        AS dimension,
+    'tms.carriers'      AS tabelle,
+    'event_timestamp ausserhalb 2026' AS regel,
+    COUNT(*)            AS verstösse
+FROM tms.carriers
+WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
 
 -- 5.1 TMS: Transportabschluss vor Transportstart
 SELECT
@@ -268,29 +329,35 @@ FROM tms.transport_completions tc
 JOIN tms.shipments             s  ON s.shipment_id = tc.shipment_id
 WHERE tc.completed_at < s.started_at;
 
--- 5.2 ERP: Batch-Ernte vor Bestellungsdatum
+-- 5.2 ERP: Batches mit unrealistischem Erntezeitpunkt
+-- (Hinweis: direkter order_id-FK entfernt, da BatchHarvested kein order_id enthält.
+--  Plausibilitätscheck ersetzt den früheren Reihenfolgecheck.)
 SELECT
     'AKTUALITÄT'   AS dimension,
-    'erp'          AS tabelle,
-    'BatchHarvested vor OrderCreated' AS regel,
+    'erp.batches'  AS tabelle,
+    'harvested_at ausserhalb Projektlaufzeit (2026)' AS regel,
     COUNT(*)       AS verstösse
-FROM erp.batches  b
-JOIN erp.orders   o ON o.order_id = b.order_id
-WHERE b.harvested_at < o.order_timestamp;
+FROM erp.batches
+WHERE harvested_at < '2026-01-01'
+   OR harvested_at > NOW() + INTERVAL '1 day';
 
--- 5.3 Veraltete aktive Orders (älter als 90 Tage ohne Delivery)
+-- 5.3 Veraltete aktive Orders (älter als 90 Tage ohne zugehörige Delivery)
+-- Verknüpfung Batch→Order erfolgt über product_code (kein direkter FK mehr)
 SELECT
-    'AKTUALITÄT'   AS dimension,
+    'AKTUALITÄT'                  AS dimension,
     'erp.orders + tms.deliveries' AS tabelle,
     'Order > 90 Tage ohne Delivery' AS regel,
-    COUNT(*)       AS verstösse
+    COUNT(*)                      AS verstösse
 FROM erp.orders o
 WHERE o.order_timestamp < NOW() - INTERVAL '90 days'
 AND NOT EXISTS (
-    SELECT 1 FROM erp.batches b
+    SELECT 1
+    FROM   erp.order_items  oi
+    JOIN   erp.products     p  ON p.product_id  = oi.product_id
+    JOIN   erp.batches      b  ON b.product_id  = p.product_id
     JOIN   tms.shipments    s  ON s.cargo_product_reference = b.tms_product_reference
     JOIN   tms.deliveries   d  ON d.shipment_id = s.shipment_id
-    WHERE  b.order_id = o.order_id
+    WHERE  oi.order_id = o.order_id
 );
 
 -- =============================================================================
@@ -322,7 +389,9 @@ WHERE NOT EXISTS (
     WHERE r.transport_product_reference = s.cargo_product_reference
 );
 
--- 6.3 TMS Transport_completions: Shipment ohne Carrier
+-- 6.3 TMS Shipments: Shipment ohne Carrier
+-- Hinweis: carrier_id ist NOT NULL im Schema (Constraint verhindert NULL bereits präventiv).
+-- Dieser retrospektive Check verifiziert, dass kein Shipment-Datensatz ohne Carrier vorliegt.
 SELECT
     'REFERENZIELLE INTEGRITÄT' AS dimension,
     'tms.shipments'            AS tabelle,
@@ -334,8 +403,24 @@ WHERE carrier_id IS NULL;
 -- =============================================================================
 -- ZUSAMMENFASSUNG: Qualitäts-Score pro Dimension
 -- Gibt eine kompakte Übersicht aller Verstösse (0 = perfekt)
+-- Gesamt: 28 Regeln über 6 Dimensionen (konsolidierte Übersicht: sql/08b_dq_audit.sql)
 -- =============================================================================
 DO $$
 BEGIN
-    RAISE NOTICE '=== DQ-Check abgeschlossen. Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
+    RAISE NOTICE '=== DQ-Check abgeschlossen (28 Regeln). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
 END $$;
+
+-- Nachweis: Datenbasis für DQ-Checks
+SELECT 'erp.suppliers'              AS tabelle, COUNT(*) AS datensaetze FROM erp.suppliers
+UNION ALL SELECT 'erp.customers',              COUNT(*) FROM erp.customers
+UNION ALL SELECT 'erp.products',               COUNT(*) FROM erp.products
+UNION ALL SELECT 'erp.orders',                 COUNT(*) FROM erp.orders
+UNION ALL SELECT 'erp.order_items',            COUNT(*) FROM erp.order_items
+UNION ALL SELECT 'erp.batches',                COUNT(*) FROM erp.batches
+UNION ALL SELECT 'wms.warehouse_skus',         COUNT(*) FROM wms.warehouse_skus
+UNION ALL SELECT 'wms.node_processings',       COUNT(*) FROM wms.node_processings
+UNION ALL SELECT 'tms.carriers',               COUNT(*) FROM tms.carriers
+UNION ALL SELECT 'tms.shipments',              COUNT(*) FROM tms.shipments
+UNION ALL SELECT 'tms.shipment_positions',     COUNT(*) FROM tms.shipment_positions
+UNION ALL SELECT 'tms.transport_completions',  COUNT(*) FROM tms.transport_completions
+UNION ALL SELECT 'tms.deliveries',             COUNT(*) FROM tms.deliveries;

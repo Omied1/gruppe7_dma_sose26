@@ -2,7 +2,7 @@
   "event_type": "CustomerCreated",
   "customer_number": "CUST-105",
   "customer_name": "METRO",
-  "city": "Munich",
+  "city": "Frankfurt",
   "country": "Germany",
-  "timestamp": "2026-05-12T11:50:40.901781"
+  "timestamp": "2026-05-14T15:39:19.835922"
 }

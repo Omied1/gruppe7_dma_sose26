@@ -48,8 +48,8 @@ def connect():
 def fill_dim_customer(cur):
     """Kunden aus erp.customers in dwh.dim_customer kopieren."""
     cur.execute("""
-        INSERT INTO dwh.dim_customer (customer_number, customer_name, city, country)
-        SELECT customer_number, customer_name, city, country
+        INSERT INTO dwh.dim_customer (customer_number, customer_name, city, country, source_created_at)
+        SELECT customer_number, customer_name, city, country, event_timestamp
         FROM   erp.customers
         ON CONFLICT (customer_number) DO NOTHING
     """)
@@ -59,8 +59,8 @@ def fill_dim_customer(cur):
 def fill_dim_supplier(cur):
     """Lieferanten aus erp.suppliers in dwh.dim_supplier kopieren."""
     cur.execute("""
-        INSERT INTO dwh.dim_supplier (supplier_code, supplier_name, country)
-        SELECT supplier_code, supplier_name, country
+        INSERT INTO dwh.dim_supplier (supplier_code, supplier_name, country, source_created_at)
+        SELECT supplier_code, supplier_name, country, event_timestamp
         FROM   erp.suppliers
         ON CONFLICT (supplier_code) DO NOTHING
     """)
@@ -94,8 +94,8 @@ def fill_dim_product(cur):
 def fill_dim_carrier(cur):
     """Carrier aus tms.carriers in dwh.dim_carrier kopieren."""
     cur.execute("""
-        INSERT INTO dwh.dim_carrier (carrier_code, carrier_name)
-        SELECT carrier_code, carrier_name
+        INSERT INTO dwh.dim_carrier (carrier_code, carrier_name, source_created_at)
+        SELECT carrier_code, carrier_name, event_timestamp
         FROM   tms.carriers
         ON CONFLICT (carrier_code) DO NOTHING
     """)
@@ -122,17 +122,17 @@ def fill_fact_fulfillment(cur):
     """
     Befüllt fact_fulfillment aus den operativen Schemas.
 
-    Grain: 1 Transport-Hop (= 1 Zeile in tms.shipments).
-    Damit deckt das DWH alle 60 Transport-Etappen ab, nicht nur die
-    10 Endlieferungen. Carrier-Performance und Routenanalysen werden möglich.
+    Grain: 1 Endlieferung (= 1 DeliveryCompleted an RETAIL_STORE).
+    Pro Iteration eine Endlieferung → Anzahl Fact-Zeilen = Anzahl Iterationen (aktuell 20).
+    Damit sind alle Finanzkennzahlen (total_value, quantity, unit_price)
+    exakt einer Bestellung zugeordnet – kein Umsatz-Inflation durch Hops.
 
     Verknüpfung:
+      Shipment JOIN deliveries (INNER) -> nur Endlieferungen
       Shipment.cargo_product_reference == Product.product_code
-        -> findet zugehörige Order-Position (per ROW_NUMBER deterministisch)
+        -> findet zugehörige Order-Position (erste Order pro Produkt)
         -> Customer, Supplier, quantity, unit_price, total_value
       Shipment.shipment_id -> transport_completions (delay_minutes)
-      Shipment.shipment_id -> deliveries (delivery_status, delivered_at)
-      Bei Zwischenhops ohne Delivery: status = IN_TRANSIT.
 
     Idempotenz: fact_fulfillment wird vor dem Laden geleert.
     """
@@ -166,28 +166,21 @@ def fill_fact_fulfillment(cur):
             JOIN  erp.suppliers   s  ON s.supplier_id = p.supplier_id
         ),
 
-        -- Shipments mit Reihenfolge pro Produkt (für Order-Matching)
-        -- und mit allen abgeleiteten Lieferattributen.
+        -- Nur Endlieferungen (INNER JOIN auf tms.deliveries).
+        -- Ergibt genau 1 Zeile pro Iteration (DeliveryCompleted an RETAIL_STORE).
         shipment_enriched AS (
             SELECT
                 sh.shipment_id,
                 sh.shipment_identifier,
                 sh.target_node,
-                sh.cargo_product_reference                  AS product_code,
+                UPPER(sh.cargo_product_reference)           AS product_code,
                 ca.carrier_code,
-                COALESCE(d.delivery_status, 'IN_TRANSIT')   AS delivery_status,
-                TO_CHAR(
-                    COALESCE(d.delivered_at, sh.started_at),
-                    'YYYYMMDD'
-                )::INT                                      AS delivery_date_sk,
-                COALESCE(tc.delay_minutes, 0)               AS delay_minutes,
-                ROW_NUMBER() OVER (
-                    PARTITION BY sh.cargo_product_reference
-                    ORDER BY sh.started_at, sh.shipment_id
-                ) AS shipment_rn
+                d.delivery_status,
+                TO_CHAR(d.delivered_at, 'YYYYMMDD')::INT    AS delivery_date_sk,
+                COALESCE(tc.delay_minutes, 0)               AS delay_minutes
             FROM  tms.shipments                 sh
+            JOIN  tms.deliveries                d  ON d.shipment_id  = sh.shipment_id
             LEFT JOIN tms.carriers              ca ON ca.carrier_id  = sh.carrier_id
-            LEFT JOIN tms.deliveries            d  ON d.shipment_id  = sh.shipment_id
             LEFT JOIN tms.transport_completions tc ON tc.shipment_id = sh.shipment_id
         ),
 
@@ -219,7 +212,8 @@ def fill_fact_fulfillment(cur):
             destination_node_sk, order_date_sk, delivery_date_sk, delivery_status_sk,
             order_reference, batch_identifier, shipment_identifier,
             quantity, unit_price, total_value,
-            delay_minutes, avg_temperature, num_supply_chain_hops, delivery_priority_code
+            delay_minutes, avg_temperature, num_supply_chain_hops, delivery_priority_code,
+            on_time_flag
         )
         SELECT
             dc.customer_sk,
@@ -239,7 +233,9 @@ def fill_fact_fulfillment(cur):
             se.delay_minutes,
             pt.avg_temperature,
             6                                       AS num_supply_chain_hops,
-            op.delivery_priority                    AS delivery_priority_code
+            op.delivery_priority                    AS delivery_priority_code,
+            -- Liefertreue-Flag: TRUE nur bei vollständig erfolgreicher, unverzögerter Lieferung
+            (se.delivery_status = 'SUCCESSFUL' AND se.delay_minutes = 0) AS on_time_flag
         FROM  shipment_enriched          se
         -- Order pro Produkt: deterministisches Mapping per Shipment-Reihenfolge.
         -- MOD nutzt die Anzahl der Orders pro Produkt, damit auch der 6. Hop

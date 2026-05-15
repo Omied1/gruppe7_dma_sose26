@@ -395,6 +395,144 @@ def generate_quality_cert(ev_node: dict) -> bytes:
 
 
 # =============================================================================
+# 4. FRACHTBRIEF  (bill of lading) – nur SEA_FREIGHT
+# =============================================================================
+def generate_bill_of_lading(ev_transport: dict) -> bytes:
+    """Erzeugt einen Seefrachtbrief (B/L) für SEA_FREIGHT-TransportStarted-Events."""
+    styles  = base_styles()
+    buf     = io.BytesIO()
+    doc     = SimpleDocTemplate(buf, pagesize=A4,
+                                leftMargin=1.5*cm, rightMargin=1.5*cm,
+                                topMargin=1.5*cm, bottomMargin=2*cm)
+
+    sid     = ev_transport.get("shipment_identifier", "–")
+    carrier = ev_transport.get("carrier", {})
+    mode    = ev_transport.get("transport_mode", "SEA_FREIGHT")
+    src     = ev_transport.get("source_node", "–")
+    tgt     = ev_transport.get("target_node", "–")
+    prod    = normalize_key(ev_transport.get("cargo_product_reference", "–"))
+    ts      = fmt_ts(ev_transport.get("timestamp", ""))
+    eta     = fmt_ts(ev_transport.get("estimated_arrival", ""))
+    bl_nr   = f"BL-{sid[-8:]}" if len(sid) >= 8 else f"BL-{sid}"
+
+    story = []
+    story.append(header_table("SEEFRACHTBRIEF (BILL OF LADING)", bl_nr, ts, styles))
+    story.append(Spacer(1, 0.4*cm))
+
+    story.append(section_bar("VERTRAGSPARTEIEN"))
+    story.append(kv_table([
+        ("Verlader (Shipper)",        "Banana Supply Chain AG, Ghana"),
+        ("Empfänger (Consignee)",     "Banana Supply Chain AG, Europa"),
+        ("Notify Party",              "Banana Supply Chain AG Logistics"),
+        ("Reederei / Carrier",        carrier.get("carrier_name", "–")),
+        ("Carrier-Code",              carrier.get("carrier_id", "–")),
+        ("Konnossementnummer (B/L)",   bl_nr),
+    ]))
+    story.append(Spacer(1, 0.3*cm))
+
+    story.append(section_bar("TRANSPORT-DETAILS"))
+    story.append(kv_table([
+        ("Verschiffungshafen (PoL)",  src),
+        ("Löschhafen (PoD)",          tgt),
+        ("Transportmodus",            mode),
+        ("Verschiffungsdatum",        ts),
+        ("Voraussichtl. Ankunft",     eta),
+        ("Shipment-Referenz",         sid),
+    ]))
+    story.append(Spacer(1, 0.3*cm))
+
+    story.append(section_bar("LADUNGSBESCHREIBUNG"))
+    story.append(data_table(
+        ["Warenbez.", "Produktcode", "Kühlkette", "Temp. Min (°C)", "Temp. Max (°C)", "HS-Code"],
+        [["Frische Bananen", prod, "Ja", "10.0", "15.0", "0803.90"]]
+    ))
+    story.append(Spacer(1, 0.3*cm))
+
+    story.append(section_bar("BESONDERE KLAUSELN"))
+    story.append(kv_table([
+        ("Kühlkettenklausel",         "Temperatur 10–15 °C während des gesamten Transports"),
+        ("Haftungsausschluss",        "Schäden durch Temperaturabweichung außerhalb des Trägers"),
+        ("Anzahl Originale",          "3 (Drei)"),
+        ("Ausstellungsort/-datum",    f"Hamburg, {ts}"),
+    ]))
+    story.append(Spacer(1, 0.5*cm))
+
+    story.append(HRFlowable(width="100%", thickness=0.5, color=HexColor("#E0E0E0")))
+    story.append(Paragraph(
+        f"Banana Supply Chain AG  |  B/L Nr: {bl_nr}  |  Shipment: {sid}  |  Ausgestellt: {ts}  |  "
+        "Dieses Konnossement unterliegt den Haager-Visby-Regeln.",
+        styles["Footer"]
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+# =============================================================================
+# 5. ZOLLFREIGABE  (customs clearance) – nur SEA_FREIGHT Afrika→Europa
+# =============================================================================
+def generate_customs_clearance(ev_transport: dict) -> bytes:
+    """Erzeugt eine EU-Zollfreigabebescheinigung für SEA_FREIGHT-Importe aus Afrika."""
+    styles  = base_styles()
+    buf     = io.BytesIO()
+    doc     = SimpleDocTemplate(buf, pagesize=A4,
+                                leftMargin=1.5*cm, rightMargin=1.5*cm,
+                                topMargin=1.5*cm, bottomMargin=2*cm)
+
+    sid     = ev_transport.get("shipment_identifier", "–")
+    carrier = ev_transport.get("carrier", {})
+    prod    = normalize_key(ev_transport.get("cargo_product_reference", "–"))
+    ts      = fmt_ts(ev_transport.get("timestamp", ""))
+    eta     = fmt_ts(ev_transport.get("estimated_arrival", ""))
+    cc_nr   = f"CC-EU-{sid[-8:]}" if len(sid) >= 8 else f"CC-EU-{sid}"
+
+    story = []
+    story.append(header_table("EU-ZOLLFREIGABEBESCHEINIGUNG", cc_nr, ts, styles))
+    story.append(Spacer(1, 0.4*cm))
+
+    story.append(section_bar("IMPORTEUR UND ZOLLBEHÖRDE"))
+    story.append(kv_table([
+        ("Importeur",                 "Banana Supply Chain AG, Hamburg"),
+        ("Zuständige Zollstelle",     "Hauptzollamt Hamburg-Hafen"),
+        ("Verfahrenscode",            "4000 – Überführung in den freien Verkehr"),
+        ("Einfuhranmeldung (MRN)",    f"DE{sid[-12:].upper().replace('-','')}"),
+        ("Ursprungsland",             "Ghana (GH)"),
+        ("Bestimmungsland",           "Deutschland (DE) / EU"),
+    ]))
+    story.append(Spacer(1, 0.3*cm))
+
+    story.append(section_bar("WARENBESCHREIBUNG"))
+    story.append(data_table(
+        ["Warenbez.", "Produktcode", "HS-Code", "Ursprungsland", "EU-Einfuhrzollsatz"],
+        [["Frische Bananen", prod, "0803.90.10", "Ghana (GH)", "0 % (APS+)"]]
+    ))
+    story.append(Spacer(1, 0.3*cm))
+
+    story.append(section_bar("PHYTOSANITÄRE KONFORMITÄT"))
+    story.append(kv_table([
+        ("Phytosanit. Zertifikat",    f"PHYTO-{sid[-6:].upper()}"),
+        ("Ausstellungsbehörde",       "PPRSD Ghana (Plant Protection)"),
+        ("EU-Einfuhrinspektion",      "Bestanden – konform mit EU 2016/2031"),
+        ("Carrier",                   carrier.get("carrier_name", "–")),
+        ("Schiff / Voyage",           f"{carrier.get('carrier_id', '–')} / {sid[-6:]}"),
+        ("Voraussichtl. Ankunft PoD", eta),
+        ("Shipment-Referenz",         sid),
+        ("Freigabedatum",             ts),
+    ]))
+    story.append(Spacer(1, 0.5*cm))
+
+    story.append(HRFlowable(width="100%", thickness=0.5, color=HexColor("#E0E0E0")))
+    story.append(Paragraph(
+        f"Banana Supply Chain AG  |  Zollfreigabe: {cc_nr}  |  MRN: DE{sid[-12:].upper().replace('-','')}  |  "
+        "Ausgestellt gemäß EU-Zollkodex (UZK) Art. 201.",
+        styles["Footer"]
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+# =============================================================================
 # MAIN – alle Dokumente generieren und hochladen
 # =============================================================================
 def main():
@@ -421,10 +559,10 @@ def main():
         if ev.get("event_type") == "TransportStarted":
             transport_map[ev["shipment_identifier"]] = ev
 
-    count_notes = count_invoices = count_certs = 0
+    count_notes = count_invoices = count_certs = count_bl = count_cc = 0
 
     # ── Lieferscheine ────────────────────────────────────────────────────────
-    print("\n[1/3] Lieferscheine generieren...")
+    print("\n[1/4] Lieferscheine generieren...")
     for ev in tms_events:
         if ev.get("event_type") != "TransportStarted":
             continue
@@ -455,8 +593,70 @@ def main():
 
     print(f"  {count_notes} Lieferscheine hochgeladen")
 
+    # ── Frachtbriefe + Zollfreigaben (nur SEA_FREIGHT) ───────────────────────
+    print("[2/4] Frachtbriefe (Bill of Lading) + Zollfreigaben generieren...")
+    for ev in tms_events:
+        if ev.get("event_type") != "TransportStarted":
+            continue
+        if ev.get("transport_mode") != "SEA_FREIGHT":
+            continue
+        sid     = ev["shipment_identifier"]
+        carrier = ev.get("carrier", {})
+        mode    = ev.get("transport_mode", "")
+
+        # Bill of Lading
+        path_bl = f"shipments/{sid}/bill_of_lading.pdf"
+        pdf_bl  = generate_bill_of_lading(ev)
+        minio.put_object(
+            "transport-docs", path_bl,
+            io.BytesIO(pdf_bl), len(pdf_bl),
+            content_type="application/pdf",
+            metadata={
+                "shipment_identifier": sid,
+                "transport_mode":      mode,
+                "carrier":             carrier.get("carrier_name", ""),
+                "route":               f"{ev.get('source_node','')}->{ev.get('target_node','')}",
+                "document_type":       "bill_of_lading",
+            }
+        )
+        cur.execute("""
+            INSERT INTO erp.document_references
+                (entity_type, entity_key, document_type, bucket, object_path)
+            VALUES ('SHIPMENT', %s, 'bill_of_lading', 'transport-docs', %s)
+            ON CONFLICT (entity_key, document_type) DO UPDATE
+                SET object_path = EXCLUDED.object_path
+        """, (sid, path_bl))
+        count_bl += 1
+
+        # Customs Clearance
+        path_cc = f"shipments/{sid}/customs_clearance.pdf"
+        pdf_cc  = generate_customs_clearance(ev)
+        minio.put_object(
+            "transport-docs", path_cc,
+            io.BytesIO(pdf_cc), len(pdf_cc),
+            content_type="application/pdf",
+            metadata={
+                "shipment_identifier": sid,
+                "transport_mode":      mode,
+                "origin_country":      "Ghana",
+                "destination":         "EU",
+                "document_type":       "customs_clearance",
+            }
+        )
+        cur.execute("""
+            INSERT INTO erp.document_references
+                (entity_type, entity_key, document_type, bucket, object_path)
+            VALUES ('SHIPMENT', %s, 'customs_clearance', 'transport-docs', %s)
+            ON CONFLICT (entity_key, document_type) DO UPDATE
+                SET object_path = EXCLUDED.object_path
+        """, (sid, path_cc))
+        count_cc += 1
+
+    print(f"  {count_bl} Frachtbriefe (B/L) hochgeladen")
+    print(f"  {count_cc} Zollfreigaben hochgeladen")
+
     # ── Rechnungen ───────────────────────────────────────────────────────────
-    print("[2/3] Rechnungen generieren...")
+    print("[3/4] Rechnungen generieren...")
     for ev in tms_events:
         if ev.get("event_type") != "DeliveryCompleted":
             continue
@@ -488,7 +688,7 @@ def main():
     print(f"  {count_invoices} Rechnungen hochgeladen")
 
     # ── Qualitätszertifikate ─────────────────────────────────────────────────
-    print("[3/3] Qualitätszertifikate generieren...")
+    print("[4/4] Qualitätszertifikate generieren...")
     for ev in wms_events:
         if ev.get("event_type") != "NodeProcessed":
             continue
@@ -523,11 +723,13 @@ def main():
     cur.close()
     pg.close()
 
+    total = count_notes + count_bl + count_cc + count_invoices + count_certs
     print("\n" + "=" * 60)
     print(f"Fertig: {count_notes} Lieferscheine  |  "
-          f"{count_invoices} Rechnungen  |  {count_certs} Zertifikate")
-    print(f"Alle Pfade in erp.document_references gespeichert")
-    print(f"Abrufbar unter: http://localhost:9001")
+          f"{count_bl} B/L  |  {count_cc} Zollfreigaben  |  "
+          f"{count_invoices} Rechnungen  |  {count_certs} Qualitätszertifikate")
+    print(f"Gesamt: {total} Dokumente – alle Pfade in erp.document_references gespeichert")
+    print(f"MinIO-Konsole: http://localhost:9001")
     print("=" * 60)
 
 

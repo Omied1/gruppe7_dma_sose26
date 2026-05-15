@@ -1,0 +1,16 @@
+{
+  "event_type": "ShipmentPositionUpdated",
+  "shipment_identifier": "SHIP-b25a4513-03a0-4fa8-8349-a3ebc9307e85",
+  "cargo_product_reference": "ban-109",
+  "current_route": {
+    "source": "CENTRAL_WAREHOUSE",
+    "target": "RETAIL_STORE"
+  },
+  "coordinates": {
+    "latitude": 64.889909,
+    "longitude": 153.222319
+  },
+  "container_temperature": 11.47,
+  "speed_kmh": 37.93,
+  "timestamp": "2026-05-14T15:39:19.889192"
+}

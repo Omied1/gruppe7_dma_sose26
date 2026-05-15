@@ -1,7 +1,7 @@
 # Datenqualitätsmanagement – Banana Supply Chain
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
-**Stand:** 2026-05-12  
+**Stand:** 2026-05-15  
 **SQL-Implementierung:** `sql/08_data_quality_checks.sql`
 
 ---
@@ -53,6 +53,13 @@ Für die Banana Supply Chain werden sechs Qualitätsdimensionen definiert und mi
 -- Erwartung: 0 Verstösse
 ```
 
+#### Regel VQ-05: Bestellungen ohne Positionen
+```sql
+-- Fehler: erp.orders ohne zugehörige erp.order_items
+-- Fachlich: Eine Order ohne Bestellpositionen hat keinen Rechnungswert – kein valider Geschäftsvorfall
+-- Erwartung: 0 Verstösse
+```
+
 ---
 
 ### 2.2 Eindeutigkeit (Uniqueness)
@@ -96,6 +103,14 @@ Grund: Ohne Mapping können TMS-Shipments nicht mit ERP-Produkten verknüpft wer
 Problem: batch.wms_sku = "BAN_108" muss zu batch.product_code = "BAN-108" passen
 Formel:  REPLACE(product_code, '-', '_') = wms_sku
 Grund: Inkonsistenter Batch kann nicht korrekt durch das WMS verfolgt werden
+```
+
+#### Regel KQ-04: Erfolgreiche Delivery muss TransportCompleted haben
+```
+Problem: tms.deliveries.delivery_status = 'SUCCESSFUL' ohne Eintrag in tms.transport_completions
+Prüfung: Für jede SUCCESSFUL-Delivery muss ein korrespondierender TransportCompleted-Datensatz existieren
+Grund: DeliveryCompleted und TransportCompleted sind logisch abhängige Events – ohne Transportabschluss
+       ist die Delivery-Buchung ein Nachweis-Waise
 ```
 
 ---
@@ -160,11 +175,14 @@ Spalten:   erp.orders.delivery_priority → CHECK IN ('HIGH', 'NORMAL', 'LOW')
 
 ### 2.5 Aktualität (Timeliness)
 
-#### Regel AQ-01: Batch-Ernte nach Bestelldatum
+#### Regel AQ-01: Erntezeitpunkt innerhalb der Projektlaufzeit
 ```
-Logik:     erp.batches.harvested_at >= erp.orders.order_timestamp
-Grund:     Eine Plantage kann nicht ernten, bevor die Bestellung eingegangen ist
-Verstoß:   Datumsfehler, möglicherweise Zeitzonenprobleme beim ETL
+Logik:     erp.batches.harvested_at BETWEEN '2026-01-01' AND NOW() + INTERVAL '1 day'
+Grund:     BatchHarvested-Events enthalten keine Bestellreferenz (kein order_id-FK in erp.batches).
+           Der direkte Vergleich harvested_at < order_timestamp ist daher nicht umsetzbar.
+           Stattdessen: Plausibilitätsprüfung des Erntezeitpunkts gegen Projektlaufzeit 2026.
+Verstoß:   Datum vor 2026 → vermutlich fehlerhafter Datengenerator oder Timezone-Problem beim ETL
+           Datum in der Zukunft → unmöglich, Systemuhren-Problem
 ```
 
 #### Regel AQ-02: Transportabschluss nach Transportstart
@@ -203,18 +221,23 @@ Verstoß: Shipment mit unbekanntem Produkt → MDM-Mapping fehlt
 
 ## 3. Datenqualitäts-Dashboard (konzeptuell)
 
-Ein einfaches DQ-Monitoring würde die SQL-Checks regelmäßig ausführen und Ergebnisse speichern:
+Ein einfaches DQ-Monitoring führt die SQL-Checks regelmäßig aus und speichert die Ergebnisse.
+Konsolidierte Ausführung: `docker exec -i postgres psql -U user -d logistics < sql/08b_dq_audit.sql`
 
 ```
-DQ-Dimension     | Regeln | Verstösse (aktuell)
------------------|--------|-----------------
-Vollständigkeit  |   4    | 0
-Eindeutigkeit    |   4    | 0
-Konsistenz       |   3    | X  ← vor MDM-Befüllung
-Plausibilität    |   6    | 0
-Aktualität       |   3    | 0
-Ref. Integrität  |   3    | X  ← vor vollständigem ETL
+DQ-Dimension     | Regeln | Verstösse (nach ETL) | Status
+-----------------|--------|----------------------|--------
+Vollständigkeit  |   5    | 0                    | PASS
+Eindeutigkeit    |   4    | 0                    | PASS
+Konsistenz       |   4    | 0                    | PASS
+Plausibilität    |   9    | 0                    | PASS
+Aktualität       |   3    | 0                    | PASS
+Ref. Integrität  |   3    | 0                    | PASS
+─────────────────────────────────────────────────────────
+Gesamt           |  28    | 0                    | 100 %
 ```
+
+Detailanzeige mit FAIL-Hervorhebung und fachlicher Interpretation: `docs/13_data_quality_results.md`
 
 ---
 

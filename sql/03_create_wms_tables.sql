@@ -23,7 +23,8 @@
 CREATE TABLE IF NOT EXISTS wms.warehouse_skus (
     sku_id              SERIAL          PRIMARY KEY,
     erp_product_code    VARCHAR(20)     NOT NULL UNIQUE, -- Cross-Reference: "BAN-101"
-    sku                 VARCHAR(20)     NOT NULL UNIQUE, -- WMS-Format: "BAN_101"
+    sku                 VARCHAR(20)     NOT NULL UNIQUE, -- WMS-Format: "BAN_101" (Unterstriche)
+    event_timestamp     TIMESTAMP       NOT NULL,        -- Zeitstempel aus WarehouseSKUCreated-Event (JSON: timestamp)
     created_at          TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event        VARCHAR(50)     NOT NULL DEFAULT 'WarehouseSKUCreated'
 );
@@ -77,12 +78,14 @@ CREATE TABLE IF NOT EXISTS wms.node_processings (
     processing_id   SERIAL          PRIMARY KEY,
     node_id         INT             NOT NULL REFERENCES wms.supply_chain_nodes(node_id),
     batch_reference VARCHAR(60)     NOT NULL,   -- FK-Referenz auf erp.batches.batch_identifier
-    sku             VARCHAR(20)     NOT NULL,    -- WMS-Format: BAN_108
+    sku             VARCHAR(20)     NOT NULL,    -- WMS-Format: BAN_108 (unverändertes Quellformat, kein normalize_key())
     temperature     NUMERIC(5,2),               -- Lagertemperatur in °C (Kühlkette: 10-15°C)
     status          VARCHAR(20)     NOT NULL CHECK (status IN ('COMPLETED', 'PENDING', 'FAILED')),
     processed_at    TIMESTAMP       NOT NULL,
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
-    source_event    VARCHAR(50)     NOT NULL DEFAULT 'NodeProcessed'
+    source_event    VARCHAR(50)     NOT NULL DEFAULT 'NodeProcessed',
+    -- Idempotenz: Jeder Batch durchläuft jeden Knoten genau einmal
+    CONSTRAINT uq_wms_nodeprocessing_batch_node UNIQUE (batch_reference, node_id)
 );
 
 COMMENT ON TABLE  wms.node_processings IS 'Protokoll der Knotenverarbeitungen. Jeder Batch durchläuft alle 7 Knoten. temperature dokumentiert die Kühlkette (Soll: 10-15°C).';

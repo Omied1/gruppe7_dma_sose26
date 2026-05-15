@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-e90c7fe0-de18-4122-883f-6d43aecd6cbd",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-109",
+    "customer_name": "AUCHAN",
+    "city": "Frankfurt",
+    "country": "Germany",
+    "timestamp": "2026-05-14T15:39:19.835930"
+  },
+  "items": [
+    {
+      "product_code": "BAN-106",
+      "description": "Export Banana",
+      "quantity": 600,
+      "unit_price": 1.86
+    }
+  ],
+  "delivery_priority": "LOW",
+  "timestamp": "2026-05-14T15:39:19.856997"
+}

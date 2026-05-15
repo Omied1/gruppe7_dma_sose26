@@ -17,7 +17,7 @@
 | I-1 | Gruppe gebildet und Projektsrepo eingerichtet | ✅ Erfüllt | GitLab-Repo: `gruppe7_dma_sose26` |
 | I-2 | Vorgegebene Folderstruktur hochgeladen | ✅ Erfüllt | `bananasupplychain/`, `databasemodels_logistics_playground/` |
 | I-3 | Docker Container startbar | ✅ Erfüllt | `bananasupplychain/container/docker-compose.yml` (5 Services: PostgreSQL, MongoDB, Redis, Neo4j, MinIO) |
-| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (263) JSON-Dateien erzeugt |
+| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (70), `shared/wms/` (130), `shared/tms/` (514) JSON-Dateien erzeugt (10 operative Iterationen) |
 
 ---
 
@@ -122,8 +122,9 @@
 |---|---|---|---|
 | Q-1 | Konkrete Datenqualitätsregeln definiert | ✅ Erfüllt | `docs/06_data_quality.md` – 6 Dimensionen mit je 2-4 Regeln |
 | Q-2 | Bezug auf konkrete Supply-Chain-Beispiele | ✅ Erfüllt | Kühlkette (PQ-03), Produktcode-Harmonisierung (KQ-01), Zeitlogik (AQ-01/02) |
-| Q-3 | SQL-Checks implementiert | ✅ Erfüllt | `sql/08_data_quality_checks.sql` – 20+ Checks über alle 6 Dimensionen |
+| Q-3 | SQL-Checks implementiert | ✅ Erfüllt | `sql/08_data_quality_checks.sql` – 28 Checks über alle 6 Dimensionen; `sql/08b_dq_audit.sql` – konsolidiertes Ergebnis |
 | Q-4 | Python-Validierungsfunktionen | ✅ Erfüllt | `docs/06_data_quality.md` Kap. 4 + `docs/12_etl_concept.md` |
+| Q-5 | Technische Nachweise alle Systeme | ✅ Erfüllt | `sql/09_verification_queries.sql` (PostgreSQL+DWH), `cypher/02_verification_queries.cypher` (Neo4j), `bananasupplychain/verify_all_systems.py` (MongoDB/Redis/MinIO/Neo4j) |
 
 ---
 
@@ -142,9 +143,9 @@
 
 | Ordner | Dateien | Status |
 |---|---|---|
-| `shared/erp/` | 50 JSON-Dateien | ✅ Erzeugt |
-| `shared/wms/` | 70 JSON-Dateien | ✅ Erzeugt |
-| `shared/tms/` | 263 JSON-Dateien | ✅ Erzeugt |
+| `shared/erp/` | 70 JSON-Dateien | ✅ Erzeugt |
+| `shared/wms/` | 130 JSON-Dateien | ✅ Erzeugt |
+| `shared/tms/` | 514 JSON-Dateien | ✅ Erzeugt |
 | `docs/` | 13 Markdown-Dokumente | ✅ Vollständig |
 | `sql/` | 8 SQL-Dateien | ✅ Vollständig |
 | `cypher/` | 1 Cypher-Datei | ✅ Vollständig |
@@ -174,10 +175,16 @@
 - `05_create_mdm_tables.sql` – 3 MDM-Tabellen + Hilfsfunktion
 - `06_create_metadata_tables.sql` – 3 Metadaten-Tabellen + exemplarische Einträge
 - `07_create_dwh_schema.sql` – 7 Dimensionen + 1 Faktentabelle + Date Spine 2025-2027
-- `08_data_quality_checks.sql` – 20+ SQL-Qualitätsprüfungen
+- `08_data_quality_checks.sql` – 28 SQL-Qualitätsprüfungen (6 Dimensionen)
+- `08b_dq_audit.sql` – konsolidierter DQ-Audit (ein Ergebnis-Set)
+- `09_verification_queries.sql` – Befüllungsnachweise alle Schemas + DWH + FK-Checks
 
 **Cypher (`cypher/`):**
 - `01_create_graph_model.cypher` – Constraints, Stammdaten, Supply-Chain-Topologie, Beispiel-Fulfillment
+- `02_verification_queries.cypher` – aktive Verifikationsqueries (Node/Rel-Counts, Topologie, Kühlkette)
+
+**Python (`bananasupplychain/`):**
+- `verify_all_systems.py` – Technische Nachweise MongoDB / Redis / Neo4j / MinIO
 
 ---
 
@@ -193,18 +200,19 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | MongoDB: Collections | ✅ 4 Collections | shipment_events (500), node_events (121), batch_tracking (11), order_events (11) |
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
 | Neo4j: Graphmodell | ✅ 125 Nodes, 47+ Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
-| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 66 Dokument-Referenzen in PostgreSQL |
-| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 383 Events in alle 5 Systeme |
+| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 116 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
+| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 714 Events in alle 5 Systeme |
 
-### ETL-Ergebnis (383 JSON-Events → alle 5 Systeme)
+### ETL-Ergebnis (714 JSON-Events → alle 5 Systeme)
 
 | System | Einträge geladen |
 |---|---|
-| PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 10 Orders, 10 Batches, 60 Shipments, 118 Positions, 60 Completions, 10 Deliveries |
-| MongoDB | 500 shipment_events, 121 node_events, 11 batch_tracking, 11 order_events |
-| Redis | 60 Shipment-Status, 118 Position-Updates, 10 Delivery-Status |
-| Neo4j | 61 Shipments, 11 Orders, 11 Batches + Stammdaten |
-| MinIO | 60 Lieferscheine, 6 Rechnungen (66 Referenzen in PostgreSQL) |
+| PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 20 Orders, 20 Batches, 120 Shipments, 239 Positions, 120 Completions, 20 Deliveries |
+| MongoDB | 120 shipment_events (Lifecycle-Dokumente), 120 node_events, ≥ 20 batch_tracking, ≥ 20 order_events |
+| Redis | 120 Shipment-Status, 239 Position-Updates, 20 Delivery-Status |
+| Neo4j | ≥ 121 Shipments, ≥ 21 Orders, ≥ 21 Batches + Stammdaten |
+| MinIO (ETL-Stub) | 120 Lieferscheine, 6 Rechnungen |
+| MinIO (generate_documents.py) | +20 Bill of Lading, +20 Customs Clearance, +10 Qualitätszertifikate → 116 Referenzen gesamt |
 
 ---
 

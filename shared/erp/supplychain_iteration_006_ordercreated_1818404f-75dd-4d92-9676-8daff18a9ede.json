@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-1c6c3494-79a8-4710-b69c-0263c31c43cf",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-104",
+    "customer_name": "EDEKA",
+    "city": "Cologne",
+    "country": "Germany",
+    "timestamp": "2026-05-14T15:39:19.835921"
+  },
+  "items": [
+    {
+      "product_code": "BAN-107",
+      "description": "Sweet Banana",
+      "quantity": 544,
+      "unit_price": 2.56
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-14T15:39:19.878835"
+}

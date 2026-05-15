@@ -2,7 +2,7 @@
   "event_type": "CustomerCreated",
   "customer_number": "CUST-103",
   "customer_name": "REWE",
-  "city": "Berlin",
+  "city": "Munich",
   "country": "Germany",
-  "timestamp": "2026-05-12T11:50:40.901778"
+  "timestamp": "2026-05-14T15:39:19.835919"
 }

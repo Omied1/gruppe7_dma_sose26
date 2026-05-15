@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-637240c6-5930-4368-bc5e-155c65cf49e5",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-107",
+    "customer_name": "TESCO",
+    "city": "Hamburg",
+    "country": "Germany",
+    "timestamp": "2026-05-14T15:39:19.835926"
+  },
+  "items": [
+    {
+      "product_code": "BAN-109",
+      "description": "Yellow Banana",
+      "quantity": 683,
+      "unit_price": 2.84
+    }
+  ],
+  "delivery_priority": "LOW",
+  "timestamp": "2026-05-14T15:39:19.873546"
+}

@@ -1,0 +1,22 @@
+{
+  "event_type": "OrderCreated",
+  "order_reference": "ORD-c211bf7f-a6bf-4979-9c61-519a444748ba",
+  "customer": {
+    "event_type": "CustomerCreated",
+    "customer_number": "CUST-106",
+    "customer_name": "KAUFLAND",
+    "city": "Frankfurt",
+    "country": "Germany",
+    "timestamp": "2026-05-14T15:39:19.835924"
+  },
+  "items": [
+    {
+      "product_code": "BAN-109",
+      "description": "Yellow Banana",
+      "quantity": 831,
+      "unit_price": 4.37
+    }
+  ],
+  "delivery_priority": "HIGH",
+  "timestamp": "2026-05-14T15:39:19.889069"
+}

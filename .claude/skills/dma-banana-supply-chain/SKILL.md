@@ -36,18 +36,19 @@ Niveau „gut bis sehr gut".
 
 ## 2. Kontextübersicht
 
-| Dimension        | Wert |
-|------------------|------|
-| Modul            | Datenmanagement und Analytics (M.Sc.), SoSe 26 |
-| Hochschule       | TH Lübeck |
-| Deadline         | 01.07.2026 |
-| Use Case         | Banana Supply Chain |
-| Quellsysteme     | ERP (`shared/erp/`), WMS (`shared/wms/`), TMS (`shared/tms/`) |
-| Infrastruktur    | PostgreSQL, MongoDB, Redis, Neo4j, MinIO, Docker |
-| Teil 1           | Datenmanagement |
-| Teil 2           | Analytics |
+| Dimension     | Wert                                                          |
+| ------------- | ------------------------------------------------------------- |
+| Modul         | Datenmanagement und Analytics (M.Sc.), SoSe 26                |
+| Hochschule    | TH Lübeck                                                     |
+| Deadline      | 01.07.2026                                                    |
+| Use Case      | Banana Supply Chain                                           |
+| Quellsysteme  | ERP (`shared/erp/`), WMS (`shared/wms/`), TMS (`shared/tms/`) |
+| Infrastruktur | PostgreSQL, MongoDB, Redis, Neo4j, MinIO, Docker              |
+| Teil 1        | Datenmanagement                                               |
+| Teil 2        | Analytics                                                     |
 
 **Eventmengen (aktuell generiert):**
+
 - ERP: 50 JSON-Dateien (Supplier, Customer, Product, Order, Batch)
 - WMS: 70 JSON-Dateien (WarehouseSKU, NodeProcessed)
 - TMS: 263 JSON-Dateien (Carrier, TransportRef, Shipment, Position, Delivery)
@@ -59,12 +60,14 @@ Niveau „gut bis sehr gut".
 Wenn der Nutzer „Teil 1" sagt: **ausschließlich Datenmanagement**, kein Analytics.
 
 ### 3.1 Datenklassifikation
+
 - Jeden Eventtyp klassifizieren: Stammdaten / Bewegungsdaten / Ereignisdaten
 - Für jeden Eventtyp: Primär-Zielsystem und Begründung angeben
 - Vorlage: `docs/01_data_classification.md`
 - Alle 13 Eventtypen müssen abgedeckt sein
 
 ### 3.2 ERP / WMS / TMS – Datenmodelle
+
 - ERP: suppliers, customers, products, orders, order_items, batches
 - WMS: warehouse_skus, supply_chain_nodes, node_processings
 - TMS: carriers, transport_product_refs, shipments, positions, completions, deliveries
@@ -73,30 +76,35 @@ Wenn der Nutzer „Teil 1" sagt: **ausschließlich Datenmanagement**, kein Analy
 - Constraints (NOT NULL, UNIQUE, CHECK) wo fachlich sinnvoll
 
 ### 3.3 ER-Modell
+
 - Mermaid-Syntax verwenden (für `docs/03_er_model.md`)
 - PKs, FKs und Kardinalitäten (1:1, 1:N, M:N) explizit darstellen
 - Begründung der Beziehungen aus dem Supply-Chain-Kontext herleiten
 - Beispiel: Eine `Order` hat genau einen `Customer`, aber mehrere `OrderItems`
 
 ### 3.4 Masterdatenmanagement (MDM)
+
 - Bekannte Inkonsistenz: `BAN-101` (ERP) = `BAN_101` (WMS) = `ban-101` (TMS)
 - Schema: `sql/05_create_mdm_tables.sql` (entity_types, golden_records, source_mappings)
 - Funktion `mdm.resolve_canonical_key()` muss alle drei Formate auflösen
 - Test: `SELECT mdm.resolve_canonical_key('BAN_101', 'WMS');` → muss `BAN-101` zurückgeben
 
 ### 3.5 Metadatenmanagement
+
 - Schema: `sql/06_create_metadata_tables.sql` (systems, tables, columns)
 - Für alle relevanten Spalten: Skalenniveau bestimmen (NOMINAL / ORDINAL / INTERVAL / RATIO)
 - Pflicht: temperature → INTERVAL, delay_minutes → RATIO, delivery_priority → ORDINAL
 - Qualitätsregeln in `meta.columns.quality_rule` eintragen
 
 ### 3.6 Datenqualitätsmanagement
+
 - 6 Dimensionen: Vollständigkeit, Eindeutigkeit, Konsistenz, Plausibilität, Aktualität, Referenzielle Integrität
 - Je Dimension: mindestens 2 konkrete Regeln mit Supply-Chain-Bezug
 - SQL-Checks in `sql/08_data_quality_checks.sql` müssen ausführbar sein
 - Beispiel: Temperatur außerhalb 10–15 °C = Kühlkettenbruch (Plausibilität)
 
 ### 3.7 Data Warehouse (DWH)
+
 - Sternschema: 1 Faktentabelle + mindestens 7 Dimensionen
 - Schema: `sql/07_create_dwh_schema.sql`
 - Measures: quantity, unit_price, total_value, delay_minutes, avg_temperature, num_hops
@@ -104,18 +112,21 @@ Wenn der Nutzer „Teil 1" sagt: **ausschließlich Datenmanagement**, kein Analy
 - dim_date muss als Date Spine vorliegen (2025–2027 = 1095 Zeilen)
 
 ### 3.8 MongoDB – Eventmodell
+
 - 4 Collections: shipment_events, node_events, batch_tracking, order_events
 - Eingebettete Dokumente bevorzugen (Shipment-Lifecycle als 1 Dokument)
 - TTL-Index auf GPS-Events definieren
 - Begründung: Warum MongoDB statt PostgreSQL für Eventdaten?
 
 ### 3.9 Redis – Echtzeitmodell
+
 - Key-Taxonomie vollständig: STRING, HASH, LIST, SORTED SET, COUNTER
 - TTL für alle Keys definieren
 - Konfiguration beachten: `maxmemory 256mb`, `allkeys-lru`, `appendonly no`
 - Anwendungsfälle: Shipment-Tracking, GPS-Updates, Kühlketten-Alerts
 
 ### 3.10 Neo4j – Graphmodell
+
 - 8 Node-Typen: Supplier, Customer, Product, Batch, Carrier, Shipment, Order, SupplyChainNode
 - 12 Relationship-Typen dokumentieren
 - Cypher-Skript: `cypher/01_create_graph_model.cypher`
@@ -123,12 +134,14 @@ Wenn der Nutzer „Teil 1" sagt: **ausschließlich Datenmanagement**, kein Analy
 - Begründung: Warum Graph statt SQL für Pfad-Abfragen?
 
 ### 3.11 MinIO – Dokumentmodell
+
 - 4 Buckets: invoices, delivery-notes, transport-docs, batch-certificates
 - PostgreSQL speichert nur Referenz (Bucket + Objektpfad), nicht das Dokument selbst
 - Begründung: Warum Object Store statt BLOB in Datenbank?
 - Bucket Versioning und Object-Tags beschreiben
 
 ### 3.12 ETL – Konzept und Implementierung
+
 - Strikte Phasentrennung: Extract → Transform → Load
 - Extract: JSON-Datei lesen, Struktur validieren
 - Transform: MDM-Auflösung, Typkonvertierung, Qualitätsprüfung
@@ -137,12 +150,15 @@ Wenn der Nutzer „Teil 1" sagt: **ausschließlich Datenmanagement**, kein Analy
 - Implementierung: `bananasupplychain/etl_load.py`
 
 ### 3.13 Technische Nachweise und Prüfqueries
+
 Am Ende jedes SQL-Blocks immer eine Prüfquery ergänzen:
+
 ```sql
 -- Nachweis: Anzahl geladener Datensätze
 SELECT COUNT(*) FROM erp.suppliers;
 SELECT COUNT(*) FROM erp.orders;
 ```
+
 Bei ETL-Skripten: Logging-Ausgabe mit Anzahl verarbeiteter Records je System.
 
 ---
@@ -152,19 +168,23 @@ Bei ETL-Skripten: Logging-Ausgabe mit Anzahl verarbeiteter Records je System.
 Wenn der Nutzer „Analytics" sagt: **ausschließlich Teil 2**, kein Datenmanagement.
 
 ### 4.1 KPIs
+
 - Mindestens 5 Business-KPIs definieren
 - Je KPI: Name, Formel, Datenquelle (Tabelle/Spalte), Zielwert/Benchmark
 - Pflicht-KPIs: Liefertreue (%), Ø Transportdauer (Tage), Temperaturausreißer-Quote (%), Ø Bestellwert (€), Batchqualitätsrate (%)
 - SQL-Abfragen aus dem DWH-Schema ableiten
 
 ### 4.2 Deskriptive Statistik
+
 - Minimum, Maximum, Mittelwert, Median, Standardabweichung, Quartile
 - Pflichtfelder: delay_minutes, avg_temperature, quantity, unit_price
 - Python: `pandas.describe()` als Ausgangspunkt, dann vertiefen
 - Ausreißer identifizieren (IQR-Methode)
 
 ### 4.3 Python-Charts (5 Stück)
+
 Jeder Chart muss wirtschaftlich getrieben sein – kein Chart ohne Aussage:
+
 1. **Lieferverzögerungen** – Histogramm `delay_minutes` nach Carrier
 2. **Temperaturverlauf** – Zeitreihe `avg_temperature` je Route
 3. **Bestellwert-Verteilung** – Boxplot `total_value` nach Kundentyp
@@ -174,17 +194,20 @@ Jeder Chart muss wirtschaftlich getrieben sein – kein Chart ohne Aussage:
 Bibliotheken: `matplotlib`, `seaborn`, `pandas`. Jeder Chart: Titel, Achsenbeschriftung, fachliche Interpretation als Kommentar.
 
 ### 4.4 PowerBI
+
 - Konzept beschreiben: welche Measures, welche Visuals, welcher Filter
 - Datenquelle: PostgreSQL DWH-Schema via DirectQuery oder Import
 - Pflicht-Visuals: KPI-Cards, Zeitreihen-Liniendiagramm, Geokarte (wenn Koordinaten vorhanden), Slicer auf Datum/Carrier/Route
 
 ### 4.5 Clustering
+
 - Ziel: Kundensegmentierung oder Lieferanten-Cluster
 - Algorithmus: k-Means, Optimalanzahl mit Elbow-Methode bestimmen
 - Features: Bestellhäufigkeit, Ø Bestellwert, Ø Verzögerung
 - Ergebnis: Cluster-Label + fachliche Interpretation je Segment
 
 ### 4.6 Absatzprognose
+
 - Zeitreihe: Bestellvolumen pro Woche/Monat aus `fact_fulfillment`
 - Methode: ARIMA oder Facebook Prophet
 - Ausgabe: Prognose für 4–8 Wochen + Konfidenzintervall
@@ -192,14 +215,45 @@ Bibliotheken: `matplotlib`, `seaborn`, `pandas`. Jeder Chart: Titel, Achsenbesch
 
 ---
 
-## 5. Code-Regeln
+## 5.1 Code-Regeln
 
 - **Bestehende Dateien nicht ohne Rückfrage überschreiben.** Immer fragen, bevor eine existierende Datei ersetzt wird.
 - **SQL muss ausführbar und konsistent sein.** Tabellennamen, Schemas und Spalten müssen mit den tatsächlich vorhandenen DDL-Dateien übereinstimmen.
-- **Python-Code kommentieren.** Jede Funktion bekommt einen einzeiligen Kommentar, der erklärt *warum* – nicht was – sie tut.
+- **Python-Code kommentieren.** Jede Funktion bekommt einen einzeiligen Kommentar, der erklärt _warum_ – nicht was – sie tut.
 - **ETL-Phasen klar trennen.** Keine gemischten Extract/Load-Blöcke. Jede Phase als eigene Funktion oder Sektion.
 - **Idempotenz:** ETL-Skripte müssen mehrfach ausführbar sein (ON CONFLICT DO NOTHING oder Existenz-Check).
 - **Am Ende jedes Code-Blocks:** Prüfquery oder Testanweisung ergänzen.
+
+## 5.2 Abhängigkeits- und Impact-Analyse
+
+Bevor Änderungen an Code, SQL, ETL-Logik, Datenmodellen, Dokumentation oder Konfiguration vorgenommen werden, muss zuerst geprüft werden, welche Abhängigkeiten betroffen sind.
+
+Vor jeder relevanten Änderung prüfen:
+
+- Welche Dateien hängen von dieser Änderung ab?
+- Welche vor- oder nachgelagerten Prozesse sind betroffen?
+- Welche Tabellen, Spalten, Keys, Collections, Buckets oder Relationships werden beeinflusst?
+- Betrifft die Änderung ETL-Mappings, MDM-Auflösung, DQ-Checks, DWH-Strukturen oder Analytics?
+- Müssen Dokumentation, Prüfqueries oder PROJECT_STATUS.md angepasst werden?
+- Entstehen Seiteneffekte in PostgreSQL, MongoDB, Redis, Neo4j, MinIO oder PowerBI?
+
+Änderungen dürfen nicht isoliert durchgeführt werden.
+
+Wenn eine Änderung Auswirkungen auf andere Artefakte hat, müssen die betroffenen Stellen identifiziert und konsistent mit angepasst werden.
+
+Vor größeren Änderungen immer kurz ausgeben:
+
+Impact-Analyse:
+
+- Geplante Änderung:
+- Betroffene Dateien:
+- Betroffene Systeme:
+- Vorgelagerte Abhängigkeiten:
+- Nachgelagerte Abhängigkeiten:
+- Risiken:
+- Notwendige Folgeanpassungen:
+
+Erst danach die Änderung durchführen.
 
 ---
 
@@ -254,13 +308,13 @@ projektbezogenen Auftrag automatisch befüllt werden. Die initiale Struktur enth
 
 In `PROJECT_STATUS.md` immer einen dieser vier Begriffe verwenden – keinen anderen:
 
-| Begriff | Bedeutung |
-|---|---|
-| **erstellt** | Datei oder Konzept existiert, wurde aber noch nicht ausgeführt |
-| **getestet** | Wurde technisch ausgeführt oder gegen Docker-Container geprüft |
+| Begriff         | Bedeutung                                                          |
+| --------------- | ------------------------------------------------------------------ |
+| **erstellt**    | Datei oder Konzept existiert, wurde aber noch nicht ausgeführt     |
+| **getestet**    | Wurde technisch ausgeführt oder gegen Docker-Container geprüft     |
 | **abgabefähig** | Fachlich geprüft, technisch plausibel und vollständig dokumentiert |
-| **offen** | Noch nicht erledigt |
-| **Risiko** | Könnte später Probleme verursachen – muss beobachtet werden |
+| **offen**       | Noch nicht erledigt                                                |
+| **Risiko**      | Könnte später Probleme verursachen – muss beobachtet werden        |
 
 ### 8.3 Wann muss `PROJECT_STATUS.md` aktualisiert werden?
 
@@ -295,16 +349,16 @@ kurz ausgeben:
 
 ## 9. Wichtige Dateipfade
 
-| Datei / Ordner | Inhalt |
-|---|---|
-| `Aufgabenstellung.pdf` | Prüfungsrelevante Aufgabenstellung – immer zuerst lesen |
-| `docs/00_part1_checklist.md` | Checkliste aller Anforderungen Teil 1 |
-| `docs/01_data_classification.md` | Klassifikation aller 13 Eventtypen |
-| `docs/12_etl_concept.md` | ETL-Konzept mit Mapping-Tabelle |
-| `sql/` | Alle PostgreSQL DDL-Skripte (01–08) |
-| `cypher/01_create_graph_model.cypher` | Neo4j Constraints, Stammdaten, Topologie |
-| `bananasupplychain/etl_load.py` | ETL-Hauptskript (383 Events → 5 Systeme) |
-| `bananasupplychain/container/docker-compose.yml` | Docker-Setup aller 5 Datenbanken |
-| `shared/erp/` | 50 ERP-JSON-Events |
-| `shared/wms/` | 70 WMS-JSON-Events |
-| `shared/tms/` | 263 TMS-JSON-Events |
+| Datei / Ordner                                   | Inhalt                                                  |
+| ------------------------------------------------ | ------------------------------------------------------- |
+| `Aufgabenstellung.pdf`                           | Prüfungsrelevante Aufgabenstellung – immer zuerst lesen |
+| `docs/00_part1_checklist.md`                     | Checkliste aller Anforderungen Teil 1                   |
+| `docs/01_data_classification.md`                 | Klassifikation aller 13 Eventtypen                      |
+| `docs/12_etl_concept.md`                         | ETL-Konzept mit Mapping-Tabelle                         |
+| `sql/`                                           | Alle PostgreSQL DDL-Skripte (01–08)                     |
+| `cypher/01_create_graph_model.cypher`            | Neo4j Constraints, Stammdaten, Topologie                |
+| `bananasupplychain/etl_load.py`                  | ETL-Hauptskript (383 Events → 5 Systeme)                |
+| `bananasupplychain/container/docker-compose.yml` | Docker-Setup aller 5 Datenbanken                        |
+| `shared/erp/`                                    | 50 ERP-JSON-Events                                      |
+| `shared/wms/`                                    | 70 WMS-JSON-Events                                      |
+| `shared/tms/`                                    | 263 TMS-JSON-Events                                     |

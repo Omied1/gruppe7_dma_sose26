@@ -113,6 +113,8 @@ services:
 
   # =========================
   # CLEANUP JOB (POSTGRES)
+  # Loescht tms.shipment_positions aelter als 90 Tage (GPS-Archivbereinigung).
+  # Tabellen: tms.shipment_positions (recorded_at < NOW() - 90 days)
   # =========================
   cleanup:
     image: postgres:15
@@ -124,18 +126,11 @@ services:
     entrypoint: >
       bash -c "
       while true; do
-        echo 'Running cleanup...';
-
+        echo 'Cleanup: GPS-Positionen aelter als 90 Tage loeschen...';
         psql -h postgres -U user -d logistics -c \"
-          DELETE FROM OrderDetails
-          WHERE OrderID IN (
-            SELECT OrderID FROM Orders
-            WHERE OrderDate < NOW() - INTERVAL '30 days'
-          );
-          DELETE FROM Orders
-          WHERE OrderDate < NOW() - INTERVAL '30 days';
+          DELETE FROM tms.shipment_positions
+          WHERE recorded_at < NOW() - INTERVAL '90 days';
         \";
-
         sleep 86400;
       done
       "

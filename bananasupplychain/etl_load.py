@@ -1,13 +1,14 @@
 """
-ETL-Skript: JSON-Events → PostgreSQL / MongoDB / Redis / Neo4j / MinIO
+ETL-Skript: JSON-Events → PostgreSQL / MongoDB / Redis / Neo4j
 Banana Supply Chain – Datenmanagement und Analytics, SoSe 26
 
 Ausführung:
     cd bananasupplychain
     python3 etl_load.py
+    python3 generate_documents.py   # MinIO-Dokumente (PDFs) separat
 
 Voraussetzungen:
-    pip install psycopg2-binary pymongo redis neo4j minio
+    pip install psycopg2-binary pymongo redis neo4j
     Docker-Container müssen laufen (docker-compose up -d)
 """
 
@@ -15,20 +16,17 @@ import json
 import glob
 import os
 import sys
-import io
 from datetime import datetime
 
 # ── Abhängigkeiten ────────────────────────────────────────────────────────────
 try:
     import psycopg2
-    import psycopg2.extras
     from pymongo import MongoClient
     import redis as redis_lib
     from neo4j import GraphDatabase
-    from minio import Minio
 except ImportError as e:
     print(f"Fehlende Abhängigkeit: {e}")
-    print("Installieren mit: pip install psycopg2-binary pymongo redis neo4j minio")
+    print("Installieren mit: pip install psycopg2-binary pymongo redis neo4j")
     sys.exit(1)
 
 # ── Verbindungs-Konfiguration ────────────────────────────────────────────────
@@ -39,7 +37,6 @@ PG_DSN    = "host=localhost port=5432 dbname=logistics user=user password=passwo
 MONGO_URI = "mongodb://localhost:27017"
 REDIS_HOST, REDIS_PORT = "localhost", 6379
 NEO4J_URI, NEO4J_USER, NEO4J_PASS = "bolt://localhost:7687", "neo4j", "password"
-MINIO_EP, MINIO_KEY, MINIO_SEC = "localhost:9000", "admin", "password"
 
 # ── MDM-Schlüsselharmonisierung ──────────────────────────────────────────────
 def normalize_key(key: str) -> str:
@@ -67,7 +64,7 @@ def extract_events(system: str) -> list:
     events  = []
     for f in files:
         try:
-            events.append(json.load(open(f)))
+            events.append(json.load(open(f, encoding='utf-8')))
         except Exception as exc:
             print(f"  WARNUNG: {f} konnte nicht gelesen werden: {exc}")
     return events
@@ -89,19 +86,20 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
 
         if et == "SupplierCreated":
             cur.execute("""
-                INSERT INTO erp.suppliers (supplier_code, supplier_name, country)
-                VALUES (%s, %s, %s)
+                INSERT INTO erp.suppliers (supplier_code, supplier_name, country, event_timestamp)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (supplier_code) DO NOTHING
-            """, (ev["supplier_code"], ev["supplier_name"], ev.get("country")))
+            """, (ev["supplier_code"], ev["supplier_name"], ev.get("country"),
+                  ev.get("timestamp")))
             count("pg.suppliers")
 
         elif et == "CustomerCreated":
             cur.execute("""
-                INSERT INTO erp.customers (customer_number, customer_name, city, country)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO erp.customers (customer_number, customer_name, city, country, event_timestamp)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (customer_number) DO NOTHING
             """, (ev["customer_number"], ev["customer_name"],
-                  ev.get("city"), ev.get("country")))
+                  ev.get("city"), ev.get("country"), ev.get("timestamp")))
             count("pg.customers")
 
         elif et == "ProductCreated":
@@ -112,22 +110,24 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             row = cur.fetchone()
             supplier_id = row[0] if row else None
             cur.execute("""
-                INSERT INTO erp.products (product_code, product_name, category, supplier_id)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO erp.products (product_code, product_name, category, supplier_id, event_timestamp)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (product_code) DO NOTHING
-            """, (canonical, ev["product_name"], ev.get("category"), supplier_id))
+            """, (canonical, ev["product_name"], ev.get("category"), supplier_id,
+                  ev.get("timestamp")))
             count("pg.products")
 
     # ── Schritt 2: WMS-Stammdaten ─────────────────────────────────────────────
     for ev in wms_events:
         if ev.get("event_type") == "WarehouseSKUCreated":
-            canonical = normalize_key(ev["sku"])
-            erp_code  = normalize_key(ev["erp_product_code"])
+            # sku bleibt im WMS-Format (BAN_101), erp_product_code wird normalisiert (BAN-101)
+            raw_sku  = ev["sku"]
+            erp_code = normalize_key(ev["erp_product_code"])
             cur.execute("""
-                INSERT INTO wms.warehouse_skus (sku, erp_product_code)
-                VALUES (%s, %s)
+                INSERT INTO wms.warehouse_skus (sku, erp_product_code, event_timestamp)
+                VALUES (%s, %s, %s)
                 ON CONFLICT (sku) DO NOTHING
-            """, (canonical, erp_code))
+            """, (raw_sku, erp_code, ev.get("timestamp")))
             count("pg.warehouse_skus")
 
     # ── Schritt 3: TMS-Stammdaten ─────────────────────────────────────────────
@@ -135,22 +135,23 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
         et = ev.get("event_type")
 
         if et == "CarrierCreated":
+            # JSON-Feld "carrier_id" hält den Business Key (z.B. "CAR-101") → carrier_code
             cur.execute("""
-                INSERT INTO tms.carriers (carrier_code, carrier_name)
-                VALUES (%s, %s)
+                INSERT INTO tms.carriers (carrier_code, carrier_name, event_timestamp)
+                VALUES (%s, %s, %s)
                 ON CONFLICT (carrier_code) DO NOTHING
-            """, (ev["carrier_id"], ev["carrier_name"]))
+            """, (ev["carrier_id"], ev["carrier_name"], ev.get("timestamp")))
             count("pg.carriers")
 
         elif et == "TransportProductReferenceCreated":
             erp_code  = normalize_key(ev["erp_product_code"])
-            tms_ref   = normalize_key(ev["transport_product_reference"])
+            tms_ref   = ev["transport_product_reference"]  # TMS-Format beibehalten: ban-101
             cur.execute("""
                 INSERT INTO tms.transport_product_references
-                    (transport_product_reference, erp_product_code)
-                VALUES (%s, %s)
+                    (transport_product_reference, erp_product_code, event_timestamp)
+                VALUES (%s, %s, %s)
                 ON CONFLICT (transport_product_reference) DO NOTHING
-            """, (tms_ref, erp_code))
+            """, (tms_ref, erp_code, ev.get("timestamp")))
             count("pg.transport_refs")
 
     pg.commit()
@@ -223,12 +224,14 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             cur.execute("""
                 INSERT INTO erp.batches
                     (batch_identifier, product_id, quantity, origin_country,
-                     supply_chain_node, harvested_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                     supply_chain_node, harvested_at, wms_sku, tms_product_reference)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (batch_identifier) DO NOTHING
             """, (ev["batch_identifier"], product_id,
                   safe_int(ev.get("quantity")), ev.get("origin_country"),
-                  ev.get("supply_chain_node"), ev.get("timestamp")))
+                  ev.get("supply_chain_node"), ev.get("timestamp"),
+                  canonical.replace("-", "_"),
+                  canonical.lower()))
             count("pg.batches")
 
     # ── Schritt 5: WMS-Eventdaten ─────────────────────────────────────────────
@@ -242,19 +245,16 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             if not nrow:
                 count("pg.nodeprocessings_skipped")
                 continue
+            # sku bleibt im WMS-Format (z.B. BAN_108); Harmonisierung via mdm.source_mappings
             cur.execute("""
                 INSERT INTO wms.node_processings
                     (node_id, batch_reference, sku, temperature, status, processed_at)
-                SELECT %s, %s, %s, %s, %s, %s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM wms.node_processings
-                    WHERE node_id = %s AND batch_reference = %s
-                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (batch_reference, node_id) DO NOTHING
             """, (nrow[0], ev["batch_reference"],
-                  normalize_key(ev["sku"]),
+                  ev["sku"],
                   safe_float(ev.get("temperature")),
-                  ev.get("status"), ev.get("timestamp"),
-                  nrow[0], ev["batch_reference"]))
+                  ev.get("status"), ev.get("timestamp")))
             count("pg.node_processings")
 
     # ── Schritt 6: TMS-Eventdaten ─────────────────────────────────────────────
@@ -274,7 +274,7 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                         (carrier_code,))
             crow = cur.fetchone()
             carrier_id = crow[0] if crow else None
-            tms_ref = normalize_key(ev["cargo_product_reference"])
+            tms_ref = ev["cargo_product_reference"]  # TMS-Format beibehalten: ban-101
             cur.execute("""
                 INSERT INTO tms.shipments
                     (shipment_identifier, carrier_id, cargo_product_reference,
@@ -452,15 +452,25 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
     bt  = mongo_db["batch_tracking"]
     oe  = mongo_db["order_events"]
 
-    # Unique-Indizes als Idempotenz-Sicherheitsnetz auf DB-Ebene.
-    # Verhindert Duplikate auch bei Mehrfach-ETL-Läufen.
-    oe.create_index("order_reference", unique=True)
-    ne.create_index([("batch_reference", 1), ("supply_chain_node", 1), ("timestamp", 1)],
-                    unique=True, name="uq_node_event")
-    se.create_index([("event_type", 1), ("shipment_identifier", 1), ("timestamp", 1)],
-                    unique=True, name="uq_shipment_event")
-    bt.create_index("batch_identifier", unique=True)
+    # Idempotentes Index-Setup: bestehende benannte Indizes erst droppen, dann neu anlegen.
+    def _safe_create_index(coll, keys, **kwargs):
+        name = kwargs.get("name")
+        if name:
+            try:
+                coll.drop_index(name)
+            except Exception:
+                pass
+        coll.create_index(keys, **kwargs)
 
+    _safe_create_index(oe, "order_reference", unique=True)
+    _safe_create_index(ne, [("batch_reference", 1), ("supply_chain_node", 1)],
+                       unique=True, name="uq_node_event")
+    _safe_create_index(se, "shipment_identifier", unique=True)
+    _safe_create_index(bt, "batch_identifier", unique=True)
+    _safe_create_index(se, "created_at", expireAfterSeconds=7_776_000,
+                       name="ttl_shipment_lifecycle")
+
+    # ── order_events: OrderCreated als Basis-Dokument ─────────────────────────
     for ev in erp_events:
         if ev.get("event_type") == "OrderCreated":
             res = oe.update_one(
@@ -471,92 +481,289 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
             if res.upserted_id is not None:
                 count("mongo.order_events")
 
+    # ── node_events: 1 Dokument pro batch+node mit Quality-Flags ─────────────
     for ev in wms_events:
         if ev.get("event_type") == "NodeProcessed":
-            doc = ev.copy()
-            doc["node_code"] = doc.get("supply_chain_node", "")
+            temp    = safe_float(ev.get("temperature"))
+            temp_ok = temp is not None and 10.0 <= temp <= 15.0
+            doc = {
+                "batch_reference":        ev["batch_reference"],
+                "supply_chain_node":      ev["supply_chain_node"],
+                "sku":                    ev.get("sku"),
+                "canonical_product_code": normalize_key(ev.get("sku", "")),
+                "temperature":            temp,
+                "temperature_within_range": temp_ok,
+                "status":                 ev.get("status"),
+                "processed_at":           ev.get("timestamp"),
+                "quality_flags": {
+                    "temperature_ok": temp_ok,
+                    "min_allowed":    10.0,
+                    "max_allowed":    15.0
+                }
+            }
             res = ne.update_one(
-                {"batch_reference": ev["batch_reference"],
-                 "supply_chain_node": ev["supply_chain_node"],
-                 "timestamp": ev["timestamp"]},
+                {"batch_reference":   ev["batch_reference"],
+                 "supply_chain_node": ev["supply_chain_node"]},
                 {"$setOnInsert": doc},
                 upsert=True
             )
             if res.upserted_id is not None:
                 count("mongo.node_events")
-            # Batch-Tracking aktualisieren
-            bt.update_one(
-                {"batch_identifier": ev["batch_reference"]},
-                {"$addToSet": {"nodes_processed": ev["supply_chain_node"]},
-                 "$set":      {"current_node": ev["supply_chain_node"],
-                               "last_temperature": ev.get("temperature")}},
-                upsert=True
-            )
-            count("mongo.batch_tracking")
 
+    # ── batch_tracking: BatchHarvested als Basis-Dokument ────────────────────
+    # Muss vor dem NodeProcessed-Pass laufen, damit das Basis-Dokument existiert.
     for ev in erp_events:
         if ev.get("event_type") == "BatchHarvested":
             bt.update_one(
                 {"batch_identifier": ev["batch_identifier"]},
                 {"$setOnInsert": {
-                    "batch_identifier": ev["batch_identifier"],
-                    "product_code": normalize_key(ev["product_code"]),
-                    "quantity": ev.get("quantity"),
-                    "origin_country": ev.get("origin_country"),
-                    "nodes_processed": []
+                    "batch_identifier":       ev["batch_identifier"],
+                    "erp_product_code":       normalize_key(ev["product_code"]),
+                    "wms_sku":                ev.get("wms_sku"),
+                    "tms_product_reference":  ev.get("tms_product_reference"),
+                    "origin_country":         ev.get("origin_country"),
+                    "quantity":               safe_int(ev.get("quantity")),
+                    "harvested_at":           ev.get("timestamp"),
+                    "current_node":           ev.get("supply_chain_node"),
+                    "nodes_processed":        []
                 }},
                 upsert=True
             )
 
-    for ev in tms_events:
-        et = ev.get("event_type")
-        if et in ("TransportStarted", "ShipmentPositionUpdated",
-                  "TransportCompleted", "DeliveryCompleted"):
+    # ── batch_tracking: vollständige Node-Objekte einbetten ──────────────────
+    for ev in wms_events:
+        if ev.get("event_type") == "NodeProcessed":
+            temp = safe_float(ev.get("temperature"))
+            node_entry = {
+                "node":         ev["supply_chain_node"],
+                "temperature":  temp,
+                "status":       ev.get("status"),
+                "processed_at": ev.get("timestamp")
+            }
+            # $addToSet verhindert Duplikate bei idempotenten Mehrfach-Läufen
+            bt.update_one(
+                {"batch_identifier": ev["batch_reference"]},
+                {
+                    "$addToSet": {"nodes_processed": node_entry},
+                    "$set":      {"current_node": ev["supply_chain_node"],
+                                  "updated_at":   ev.get("timestamp")}
+                },
+                upsert=True
+            )
+            count("mongo.batch_tracking")
+
+    # ── shipment_events: Lifecycle-Modell, TransportStarted zuerst ───────────
+    # TransportStarted erzeugt das Basis-Dokument; alle Folge-Events werden
+    # per $push in das events[]-Array des bestehenden Dokuments eingebettet.
+    tms_sorted = sorted(
+        tms_events,
+        key=lambda e: 0 if e.get("event_type") == "TransportStarted" else 1
+    )
+    for ev in tms_sorted:
+        et  = ev.get("event_type")
+        sid = ev.get("shipment_identifier")
+        if not sid:
+            continue
+
+        if et == "TransportStarted":
+            doc = {
+                "shipment_identifier":      sid,
+                "cargo_product_reference":  normalize_key(ev.get("cargo_product_reference", "")),
+                "source_node":              ev.get("source_node"),
+                "target_node":              ev.get("target_node"),
+                "transport_mode":           ev.get("transport_mode"),
+                "carrier":                  ev.get("carrier"),
+                "estimated_arrival":        ev.get("estimated_arrival"),
+                "started_at":               ev.get("timestamp"),
+                "delivery_status":          "IN_TRANSIT",
+                "events": [{"event_type": "TransportStarted",
+                            "timestamp":  ev.get("timestamp")}],
+                "created_at": ev.get("timestamp"),
+                "updated_at": ev.get("timestamp")
+            }
             res = se.update_one(
-                {"event_type": et,
-                 "shipment_identifier": ev.get("shipment_identifier"),
-                 "timestamp": ev.get("timestamp")},
-                {"$setOnInsert": ev.copy()},
+                {"shipment_identifier": sid},
+                {"$setOnInsert": doc},
                 upsert=True
             )
             if res.upserted_id is not None:
                 count("mongo.shipment_events")
 
+        elif et == "ShipmentPositionUpdated":
+            event_entry = {
+                "event_type":            "ShipmentPositionUpdated",
+                "coordinates":           ev.get("coordinates"),
+                "container_temperature": safe_float(ev.get("container_temperature")),
+                "speed_kmh":             safe_float(ev.get("speed_kmh")),
+                "timestamp":             ev.get("timestamp")
+            }
+            # Idempotenz: nur einfügen wenn dieser GPS-Zeitstempel noch nicht existiert
+            se.update_one(
+                {"shipment_identifier": sid,
+                 "events": {"$not": {"$elemMatch": {
+                     "event_type": "ShipmentPositionUpdated",
+                     "timestamp":  ev.get("timestamp")}}}},
+                {
+                    "$push": {"events": event_entry},
+                    "$set":  {"updated_at": ev.get("timestamp")}
+                }
+            )
+            count("mongo.shipment_positions")
+
+        elif et == "TransportCompleted":
+            event_entry = {
+                "event_type":    "TransportCompleted",
+                "arrival_node":  ev.get("arrival_node"),
+                "delay_minutes": safe_int(ev.get("delay_minutes")),
+                "timestamp":     ev.get("timestamp")
+            }
+            se.update_one(
+                {"shipment_identifier": sid,
+                 "events": {"$not": {"$elemMatch": {"event_type": "TransportCompleted"}}}},
+                {
+                    "$push": {"events": event_entry},
+                    "$set": {
+                        "delay_minutes": safe_int(ev.get("delay_minutes")),
+                        "completed_at":  ev.get("timestamp"),
+                        "updated_at":    ev.get("timestamp")
+                    }
+                }
+            )
+            count("mongo.shipment_completions")
+
+        elif et == "DeliveryCompleted":
+            event_entry = {
+                "event_type":      "DeliveryCompleted",
+                "delivery_status": ev.get("delivery_status"),
+                "received_by":     ev.get("received_by"),
+                "timestamp":       ev.get("timestamp")
+            }
+            se.update_one(
+                {"shipment_identifier": sid,
+                 "events": {"$not": {"$elemMatch": {"event_type": "DeliveryCompleted"}}}},
+                {
+                    "$push": {"events": event_entry},
+                    "$set": {
+                        "delivery_status": ev.get("delivery_status"),
+                        "updated_at":      ev.get("timestamp")
+                    }
+                }
+            )
+            count("mongo.shipment_deliveries")
+
 
 # =============================================================================
 # LOAD – Redis
 # =============================================================================
-def load_redis(tms_events, r):
+def load_redis(erp_events, tms_events, r):
+    """Befüllt Redis mit Echtzeitstatus, GPS-Verlauf, Alerts und Countern."""
+
+    # ── ERP: ProductCreated → Produktcache (alle 10 Produkte, unabhängig von Orders) ──
+    for ev in erp_events:
+        if ev.get("event_type") != "ProductCreated":
+            continue
+        pcode = normalize_key(ev.get("product_code", ""))
+        if pcode and not r.exists(f"cache:product:{pcode}"):
+            r.hset(f"cache:product:{pcode}", mapping={
+                "description": ev.get("product_name", ""),
+                "unit_price":  str(ev.get("unit_price", "")),
+            })
+            r.expire(f"cache:product:{pcode}", 3600)
+
+    # ── ERP: OrderCreated → Order-Status, Metadaten, Timeline, Produktcache ───
+    for ev in erp_events:
+        if ev.get("event_type") != "OrderCreated":
+            continue
+        ref      = ev.get("order_reference", "")
+        customer = ev.get("customer", {})
+        ts       = ev.get("timestamp", "")
+        priority = ev.get("delivery_priority", "NORMAL")
+        TTL_ORDER = 86400 * 30  # 30 Tage: Orders bleiben bis Abschluss relevant
+
+        r.set(f"order:status:{ref}", "CREATED", ex=TTL_ORDER)
+
+        r.hset(f"order:meta:{ref}", mapping={
+            "customer_number": customer.get("customer_number", ""),
+            "customer_name":   customer.get("customer_name", ""),
+            "priority":        priority,
+            "created_at":      ts,
+        })
+        r.expire(f"order:meta:{ref}", TTL_ORDER)
+
+        r.rpush(f"order:timeline:{ref}", f"{ts} – CREATED")
+        r.expire(f"order:timeline:{ref}", TTL_ORDER)
+
+        # Tages-Counter mit automatischem Ablauf um Mitternacht
+        r.incr("system:counter:orders_today")
+        midnight = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0)
+        r.expireat("system:counter:orders_today",
+                   int(midnight.timestamp()))
+
+        # Produktstammdaten aus OrderItems cachen (vermeidet PostgreSQL-Roundtrip)
+        for item in ev.get("items", []):
+            pcode = normalize_key(item.get("product_code", ""))
+            if pcode and not r.exists(f"cache:product:{pcode}"):
+                r.hset(f"cache:product:{pcode}", mapping={
+                    "description": item.get("description", ""),
+                    "unit_price":  str(item.get("unit_price", "")),
+                })
+                r.expire(f"cache:product:{pcode}", 3600)  # 1 Stunde
+        count("redis.orders")
+
+    # ── TMS-Events ────────────────────────────────────────────────────────────
     for ev in tms_events:
         et  = ev.get("event_type")
         sid = ev.get("shipment_identifier", "")
 
         if et == "TransportStarted":
-            r.set(f"shipment:status:{sid}", "IN_TRANSIT", ex=86400)
+            carrier = ev.get("carrier", {})
+            r.set(f"shipment:status:{sid}", "IN_TRANSIT", ex=86400 * 7)
             r.hset(f"shipment:info:{sid}", mapping={
                 "transport_mode": ev.get("transport_mode", ""),
                 "source_node":    ev.get("source_node", ""),
                 "target_node":    ev.get("target_node", ""),
                 "started_at":     ev.get("timestamp", ""),
-                "carrier_id":     ev["carrier"]["carrier_id"]
+                "carrier_id":     carrier.get("carrier_id", ""),
             })
-            r.expire(f"shipment:info:{sid}", 86400)
+            r.expire(f"shipment:info:{sid}", 86400 * 7)
+            # Aktive Transporte für Dashboard-Counter hochzählen
+            r.incr("system:counter:active_shipments")
             count("redis.status_set")
 
         elif et == "ShipmentPositionUpdated":
             coords = ev.get("coordinates", {})
+            lat    = coords.get("latitude", "")
+            lon    = coords.get("longitude", "")
+            temp   = safe_float(ev.get("container_temperature"))
+            ts     = ev.get("timestamp", "")
+
+            # Aktuellste Position (wird bei jedem Update überschrieben)
             r.hset(f"shipment:position:{sid}", mapping={
-                "latitude":    str(coords.get("latitude", "")),
-                "longitude":   str(coords.get("longitude", "")),
-                "temperature": str(ev.get("container_temperature", "")),
+                "latitude":    str(lat),
+                "longitude":   str(lon),
+                "temperature": str(temp) if temp is not None else "",
                 "speed_kmh":   str(ev.get("speed_kmh", "")),
-                "updated_at":  ev.get("timestamp", "")
+                "updated_at":  ts,
             })
-            r.expire(f"shipment:position:{sid}", 3600)
-            temp = safe_float(ev.get("container_temperature"))
+            r.expire(f"shipment:position:{sid}", 3600)  # 1 Stunde: GPS veraltet schnell
+
+            # Kurzer Positionsverlauf für Live-Map (letzten 3 Tage reichen)
+            import json as _json
+            score = int(datetime.fromisoformat(ts).timestamp()) if ts else 0
+            r.zadd(f"shipment:route:{sid}",
+                   {_json.dumps({"lat": lat, "lon": lon, "temp": temp, "ts": ts}): score})
+            r.expire(f"shipment:route:{sid}", 86400 * 3)
+
+            # Kühlketten-Alert: Bananen müssen zwischen 10 °C und 15 °C bleiben
             if temp is not None and not (10.0 <= temp <= 15.0):
-                r.zadd("monitoring:temp_violations",
-                       {f"{sid}:{ev.get('timestamp','')}:temp={temp}": temp})
+                r.set(f"shipment:alert:temperature:{sid}", "ALERT", ex=86400)
+                r.incr("system:counter:temperature_alerts_active")
+
+                # Tages-Verletzungsliste sortiert nach Temperaturwert für Priorisierung
+                date_key = datetime.now().strftime("%Y%m%d")
+                member   = f"{sid}:{ts}:temp={temp}"
+                r.zadd(f"monitoring:temp_violations:{date_key}", {member: temp})
+                r.expire(f"monitoring:temp_violations:{date_key}", 86400 * 7)
                 count("redis.temp_violations")
             count("redis.positions")
 
@@ -564,6 +771,10 @@ def load_redis(tms_events, r):
             status = ev.get("delivery_status", "UNKNOWN")
             r.set(f"shipment:status:{sid}", status, ex=86400 * 30)
             r.incr(f"system:counter:deliveries_{status.lower()}")
+            # Aktiven Transport abmelden; nicht unter 0 fallen
+            current = r.get("system:counter:active_shipments")
+            if current and int(current) > 0:
+                r.decr("system:counter:active_shipments")
             count("redis.delivery_status")
 
     r.incr("system:counter:etl_runs")
@@ -601,7 +812,7 @@ def load_neo4j(erp_events, tms_events, driver):
             elif ev.get("event_type") == "BatchHarvested":
                 session.run("""
                     MERGE (b:Batch {batch_identifier: $bid})
-                      SET b.quantity = $qty, b.origin_country = $oc
+                      SET b.quantity = $qty, b.origin_country = $oc, b.product_code = $pc
                     WITH b
                     OPTIONAL MATCH (o:Order)
                     WHERE EXISTS { MATCH (o)-[:CONTAINS]->(p:Product {product_code: $pc}) }
@@ -618,9 +829,11 @@ def load_neo4j(erp_events, tms_events, driver):
             et = ev.get("event_type")
             if et == "TransportStarted":
                 sid = ev["shipment_identifier"]
+                prod_code = normalize_key(ev.get("cargo_product_reference", ""))
                 session.run("""
                     MERGE (s:Shipment {shipment_identifier: $sid})
-                      SET s.transport_mode = $mode, s.started_at = $ts
+                      SET s.transport_mode = $mode, s.started_at = $ts,
+                          s.cargo_product_reference = $prod
                     WITH s
                     MATCH (from:SupplyChainNode {node_code: $src})
                     MATCH (to:SupplyChainNode   {node_code: $tgt})
@@ -630,9 +843,15 @@ def load_neo4j(erp_events, tms_events, driver):
                     MATCH (c:Carrier {carrier_code: $cid})
                     MERGE (s)-[:TRANSPORTED_BY]->(c)
                 """, sid=sid, mode=ev.get("transport_mode"),
-                     ts=ev.get("timestamp"),
+                     ts=ev.get("timestamp"), prod=prod_code,
                      src=ev.get("source_node"), tgt=ev.get("target_node"),
                      cid=ev["carrier"]["carrier_id"])
+                # TRANSPORTED_VIA: Batch → Shipment (ermöglicht DeliveryCompleted-Pfad)
+                session.run("""
+                    MATCH (b:Batch {product_code: $prod})
+                    MATCH (s:Shipment {shipment_identifier: $sid})
+                    MERGE (b)-[:TRANSPORTED_VIA]->(s)
+                """, prod=prod_code, sid=sid)
                 count("neo4j.shipments")
 
             elif et == "DeliveryCompleted":
@@ -656,73 +875,6 @@ def load_neo4j(erp_events, tms_events, driver):
 
 
 # =============================================================================
-# LOAD – MinIO (Dokument-Trigger)
-# =============================================================================
-MINIMAL_PDF = b"""%PDF-1.4
-1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
-2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
-3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj
-xref
-0 4
-0000000000 65535 f
-0000000009 00000 n
-0000000058 00000 n
-0000000115 00000 n
-trailer<</Size 4/Root 1 0 R>>
-startxref
-190
-%%EOF"""
-
-def load_minio(erp_events, tms_events, minio_client, pg):
-    cur = pg.cursor()
-    for ev in tms_events:
-        et  = ev.get("event_type")
-        sid = ev.get("shipment_identifier", "")
-
-        if et == "TransportStarted":
-            path = f"shipments/{sid}/delivery_note.pdf"
-            minio_client.put_object(
-                "delivery-notes", path,
-                io.BytesIO(MINIMAL_PDF), len(MINIMAL_PDF),
-                content_type="application/pdf",
-                metadata={"shipment_identifier": sid,
-                          "transport_mode": ev.get("transport_mode", ""),
-                          "document_type": "delivery_note"}
-            )
-            cur.execute("""
-                INSERT INTO erp.document_references
-                    (entity_type, entity_key, document_type, bucket, object_path)
-                VALUES ('SHIPMENT', %s, 'delivery_note', 'delivery-notes', %s)
-                ON CONFLICT (entity_key, document_type) DO NOTHING
-            """, (sid, path))
-            count("minio.delivery_notes")
-
-        elif et == "DeliveryCompleted":
-            if ev.get("delivery_status") == "SUCCESSFUL":
-                # Rechnung suchen (via cargo_product_reference)
-                # Wir nutzen shipment_identifier als Proxy für order_reference
-                path = f"shipments/{sid}/invoice.pdf"
-                minio_client.put_object(
-                    "invoices", path,
-                    io.BytesIO(MINIMAL_PDF), len(MINIMAL_PDF),
-                    content_type="application/pdf",
-                    metadata={"shipment_identifier": sid,
-                              "delivery_status": "SUCCESSFUL",
-                              "document_type": "invoice"}
-                )
-                cur.execute("""
-                    INSERT INTO erp.document_references
-                        (entity_type, entity_key, document_type, bucket, object_path)
-                    VALUES ('SHIPMENT', %s, 'invoice', 'invoices', %s)
-                    ON CONFLICT (entity_key, document_type) DO NOTHING
-                """, (sid, path))
-                count("minio.invoices")
-
-    pg.commit()
-    cur.close()
-
-
-# =============================================================================
 # MAIN
 # =============================================================================
 def main():
@@ -737,8 +889,7 @@ def main():
     mongo = MongoClient(MONGO_URI)["logistics"]
     r     = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     neo4j_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-    minio = Minio(MINIO_EP, access_key=MINIO_KEY, secret_key=MINIO_SEC, secure=False)
-    print("  PostgreSQL, MongoDB, Redis, Neo4j, MinIO – OK")
+    print("  PostgreSQL, MongoDB, Redis, Neo4j – OK")
 
     # ── Extract ───────────────────────────────────────────────────────────────
     print("\n[2/7] Events laden (Extract)...")
@@ -750,28 +901,24 @@ def main():
     print(f"  TMS: {len(tms_events)} Events")
 
     # ── Load: PostgreSQL ──────────────────────────────────────────────────────
-    print("\n[3/8] PostgreSQL laden...")
+    print("\n[3/7] PostgreSQL laden...")
     load_postgres(erp_events, wms_events, tms_events, pg)
 
     # ── Load: MDM ─────────────────────────────────────────────────────────────
-    print("[4/8] MDM Golden Records + Source Mappings laden...")
+    print("[4/7] MDM Golden Records + Source Mappings laden...")
     load_mdm(pg)
 
     # ── Load: MongoDB ─────────────────────────────────────────────────────────
-    print("[5/8] MongoDB laden...")
+    print("[5/7] MongoDB laden...")
     load_mongodb(erp_events, wms_events, tms_events, mongo)
 
     # ── Load: Redis ───────────────────────────────────────────────────────────
-    print("[6/8] Redis laden...")
-    load_redis(tms_events, r)
+    print("[6/7] Redis laden...")
+    load_redis(erp_events, tms_events, r)
 
     # ── Load: Neo4j ───────────────────────────────────────────────────────────
-    print("[7/8] Neo4j laden...")
+    print("[7/7] Neo4j laden...")
     load_neo4j(erp_events, tms_events, neo4j_driver)
-
-    # ── Load: MinIO ───────────────────────────────────────────────────────────
-    print("[8/8] MinIO laden (Dokument-Trigger)...")
-    load_minio(erp_events, tms_events, minio, pg)
 
     # ── Verbindungen schließen ─────────────────────────────────────────────────
     pg.close()

@@ -1,0 +1,14 @@
+{
+  "event_type": "TransportStarted",
+  "shipment_identifier": "SHIP-a099859c-2490-4109-b6fe-9fe1340190fd",
+  "source_node": "BANANA_PLANTATION",
+  "target_node": "COLLECTION_CENTER",
+  "transport_mode": "TRUCK",
+  "cargo_product_reference": "ban-109",
+  "carrier": {
+    "carrier_id": "CAR-105",
+    "carrier_name": "Maersk"
+  },
+  "estimated_arrival": "2026-05-18T19:39:19.873569",
+  "timestamp": "2026-05-14T15:39:19.873574"
+}

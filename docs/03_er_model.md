@@ -63,13 +63,22 @@ erDiagram
         int     batch_id            PK
         varchar batch_identifier    UK  "BATCH-<uuid>"
         int     product_id          FK
-        int     order_id            FK
         varchar origin_country
         int     quantity
         varchar supply_chain_node
         varchar wms_sku                 "BAN_108 (WMS-Format)"
         varchar tms_product_reference   "ban-108 (TMS-Format)"
         ts      harvested_at
+    }
+
+    ERP_DOCUMENT_REFERENCES {
+        int     ref_id          PK
+        varchar entity_type         "orders / deliveries / batches"
+        varchar entity_key      UK  "Referenzierter Business Key"
+        varchar document_type       "INVOICE / DELIVERY_NOTE etc."
+        varchar bucket              "MinIO-Bucket-Name"
+        varchar object_path         "MinIO-Objektpfad"
+        ts      created_at
     }
 
     %% =========================================
@@ -170,7 +179,9 @@ erDiagram
     ERP_ORDERS       ||--o{ ERP_ORDER_ITEMS   : "enthält"
     ERP_PRODUCTS     ||--o{ ERP_ORDER_ITEMS   : "enthalten in"
     ERP_PRODUCTS     ||--o{ ERP_BATCHES       : "wird geerntet als"
-    ERP_ORDERS       ||--o{ ERP_BATCHES       : "erzeugt"
+
+    ERP_ORDERS       ||--o{ ERP_DOCUMENT_REFERENCES  : "hat Dokumente"
+    ERP_BATCHES      ||--o{ ERP_DOCUMENT_REFERENCES  : "hat Dokumente"
 
     %% =========================================
     %% BEZIEHUNGEN – WMS
@@ -216,11 +227,11 @@ Eine Bestellung (`erp.orders`) kann mehrere Produkte enthalten. Ein Produkt kann
 
 ---
 
-### 2.4 ERP: Produkt + Bestellung → Batch (N:1 und N:1)
+### 2.4 ERP: Produkt → Batch (1:N)
 
-Ein `erp.batch` entsteht aus einem Produkt und einer Bestellung. Der Batch ist das physische Objekt, das die gesamte Supply Chain durchläuft. Er trägt sowohl den ERP-Produktcode als auch die WMS-SKU und TMS-Produktreferenz – er ist damit das **verbindende Masterdaten-Element**.
+Ein `erp.batch` entsteht aus einem Ernte-Event (`BatchHarvested`) und ist einem `erp.product` zugeordnet. **Kein Fremdschlüssel zu `erp.orders`:** Das `BatchHarvested`-Event enthält keine Bestellreferenz; die Verbindung zwischen Batch und Bestellung wird indirekt über `erp.order_items` (product_id) hergestellt, nicht als DB-FK. Der Batch trägt sowohl den ERP-Produktcode als auch WMS-SKU und TMS-Produktreferenz – er ist damit das **verbindende Masterdaten-Element** der gesamten Supply Chain.
 
-**Kardinalität:** `1 Order : N Batches`, `1 Product : N Batches`
+**Kardinalität:** `1 Product : N Batches`
 
 ---
 
@@ -256,6 +267,16 @@ Ein Shipment (`tms.shipments`) hat einen vollständigen Lifecycle:
 
 ---
 
+### 2.8 ERP: Document References (polymorphe MinIO-Verknüpfung)
+
+`erp.document_references` speichert keine Dokumente selbst, sondern nur die MinIO-Pfade (Bucket + Objektpfad). Die Tabelle ist **polymorph**: `entity_type` gibt an, auf welchen Entitätstyp sich der Eintrag bezieht (`orders`, `deliveries`, `batches`), `entity_key` enthält den jeweiligen Business Key (z. B. `ORD-<uuid>` oder `BATCH-<uuid>`).
+
+**Kardinalität:** `1 Order/Batch : 0–N DocumentReferences`
+
+> Diese polymorphe Verknüpfung ist in Mermaid nur mit logischen Beziehungen darstellbar, da PostgreSQL selbst keinen FK auf `entity_key` definiert.
+
+---
+
 ## 3. Cross-Schema-Beziehungen (logisch, kein DB-FK)
 
 Diese Beziehungen bestehen fachlich, sind aber aus Architekturgrün­den nicht als PostgreSQL-Fremdschlüssel deklariert (Cross-Schema-Referenzen würden Schema-Abhängigkeiten erzeugen, die Deployments erschweren):
@@ -267,6 +288,7 @@ Diese Beziehungen bestehen fachlich, sind aber aus Architekturgrün­den nicht a
 | `tms.transport_product_references` | `erp_product_code` | `erp.products.product_code` | Logische Referenz |
 | `tms.shipments` | `cargo_product_reference` | `tms.transport_product_references` | Logische Referenz |
 | `erp.batches` | `wms_sku` | `wms.warehouse_skus.sku` | Redundant via MDM |
+| `erp.document_references` | `entity_key` | `erp.orders.order_reference` / `erp.batches.batch_identifier` | polymorphe Referenz (kein FK) |
 
 Diese Cross-Referenzen werden durch das **MDM-Schema** harmonisiert (siehe `docs/04_masterdata_management.md`).
 

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS erp.suppliers (
     supplier_code   VARCHAR(20)     NOT NULL UNIQUE,    -- Business Key, z.B. "SUP-101"
     supplier_name   VARCHAR(100)    NOT NULL,
     country         VARCHAR(50)     NOT NULL,
+    event_timestamp TIMESTAMP       NOT NULL,           -- Zeitstempel aus SupplierCreated-Event (JSON: timestamp)
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event    VARCHAR(50)     NOT NULL DEFAULT 'SupplierCreated'
 );
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS erp.customers (
     customer_name   VARCHAR(100)    NOT NULL,
     city            VARCHAR(50),
     country         VARCHAR(50)     NOT NULL,
+    event_timestamp TIMESTAMP       NOT NULL,           -- Zeitstempel aus CustomerCreated-Event (JSON: timestamp)
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event    VARCHAR(50)     NOT NULL DEFAULT 'CustomerCreated'
 );
@@ -61,6 +63,8 @@ CREATE TABLE IF NOT EXISTS erp.products (
     product_name    VARCHAR(100)    NOT NULL,
     category        VARCHAR(50)     NOT NULL,
     supplier_id     INT             REFERENCES erp.suppliers(supplier_id),
+    -- Nullable wegen ETL-Zweiphasen-Lade: erst product_code, dann supplier_id per UPDATE-Pass
+    event_timestamp TIMESTAMP       NOT NULL,           -- Zeitstempel aus ProductCreated-Event (JSON: timestamp)
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event    VARCHAR(50)     NOT NULL DEFAULT 'ProductCreated'
 );
@@ -116,22 +120,24 @@ CREATE TABLE IF NOT EXISTS erp.batches (
     batch_id                    SERIAL          PRIMARY KEY,
     batch_identifier            VARCHAR(60)     NOT NULL UNIQUE, -- z.B. "BATCH-<uuid>"
     product_id                  INT             NOT NULL REFERENCES erp.products(product_id),
-    order_id                    INT             REFERENCES erp.orders(order_id),
+    -- Kein order_id FK: BatchHarvested-Events enthalten keine Bestellreferenz.
+    -- Produkt-Order-Verknüpfung erfolgt über product_code via erp.order_items.
     origin_country              VARCHAR(50)     NOT NULL,
     quantity                    INT             NOT NULL CHECK (quantity > 0),
     supply_chain_node           VARCHAR(50)     NOT NULL DEFAULT 'BANANA_PLANTATION',
     -- Cross-System-Referenzen (werden auch im MDM geführt)
     wms_sku                     VARCHAR(30),    -- WMS-Format: BAN_108
     tms_product_reference       VARCHAR(30),    -- TMS-Format: ban-108
-    harvested_at                TIMESTAMP       NOT NULL,
+    harvested_at                TIMESTAMP       NOT NULL, -- = event_timestamp (JSON: timestamp)
     created_at                  TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event                VARCHAR(50)     NOT NULL DEFAULT 'BatchHarvested'
 );
 
-COMMENT ON TABLE  erp.batches IS 'Ernte-Batches aus ERP. Verbindet ERP-Produktcode mit WMS-SKU und TMS-Referenz. Zentrales Tracking-Objekt der Supply Chain.';
+COMMENT ON TABLE  erp.batches IS 'Ernte-Batches aus ERP. Verbindet ERP-Produktcode mit WMS-SKU und TMS-Referenz. Zentrales Tracking-Objekt der Supply Chain. Kein FK zu orders – BatchHarvested enthält keine Bestellreferenz.';
 COMMENT ON COLUMN erp.batches.batch_identifier        IS 'Eindeutiger Batch-Identifier im Format BATCH-<uuid>.';
 COMMENT ON COLUMN erp.batches.wms_sku                 IS 'WMS-spezifische SKU (Unterstriche statt Bindestriche). Redundant mit mdm.source_mappings.';
 COMMENT ON COLUMN erp.batches.tms_product_reference   IS 'TMS-spezifische Produktreferenz (Kleinbuchstaben). Redundant mit mdm.source_mappings.';
+COMMENT ON COLUMN erp.batches.harvested_at            IS 'Erntezeitpunkt = event.timestamp aus BatchHarvested. Entspricht dem event_timestamp-Muster der Stammdatentabellen.';
 
 -- -----------------------------------------------------------------------------
 -- Tabelle: erp.document_references
@@ -157,7 +163,7 @@ CREATE INDEX IF NOT EXISTS idx_erp_orders_timestamp     ON erp.orders(order_time
 CREATE INDEX IF NOT EXISTS idx_erp_order_items_order    ON erp.order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_erp_order_items_product  ON erp.order_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_erp_batches_product      ON erp.batches(product_id);
-CREATE INDEX IF NOT EXISTS idx_erp_batches_order        ON erp.batches(order_id);
+CREATE INDEX IF NOT EXISTS idx_erp_batches_harvested    ON erp.batches(harvested_at);
 CREATE INDEX IF NOT EXISTS idx_erp_docrefs_entity       ON erp.document_references(entity_key, document_type);
 
 DO $$

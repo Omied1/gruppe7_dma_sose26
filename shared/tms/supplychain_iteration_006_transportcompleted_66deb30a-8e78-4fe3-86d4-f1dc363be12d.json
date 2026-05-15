@@ -1,0 +1,8 @@
+{
+  "event_type": "TransportCompleted",
+  "shipment_identifier": "SHIP-b75f4117-9f5e-4a11-9219-0d9283afd5d2",
+  "cargo_product_reference": "ban-107",
+  "arrival_node": "COLLECTION_CENTER",
+  "delay_minutes": 151,
+  "timestamp": "2026-05-14T15:39:19.878877"
+}

@@ -190,19 +190,147 @@ Dadurch sind alle Produktschlüssel bereits bei der Ankunft in PostgreSQL, Mongo
 
 ### 5.2 Rolle der MDM-Tabellen
 
-Die MDM-Tabellen (`mdm.golden_records`, `mdm.source_mappings`) erfüllen in dieser Implementierung zwei Aufgaben:
+Die MDM-Tabellen (`mdm.golden_records`, `mdm.source_mappings`) erfüllen in dieser Implementierung drei Aufgaben:
 
 1. **Referenzmodell:** Sie dokumentieren formal, welche Systemschlüssel zu welchem Golden Record gehören. Das ermöglicht nachvollziehbare systemübergreifende JOINs über `mdm.source_mappings` (siehe Abschnitt 3.3).
 
-2. **SQL-Funktion als Schnittstelle:** `mdm.resolve_canonical_key()` steht als aufrufbare Funktion bereit für Abfragen, die zur Laufzeit systemfremde Schlüssel auflösen müssen — ohne das ETL-Skript einzubeziehen.
+2. **SQL-Funktion als Schnittstelle:** `mdm.resolve_canonical_key()` steht als aufrufbare Funktion für exakte Auflösungen bereit, `mdm.resolve_canonical_key_fuzzy()` als robuste Variante ohne Systemangabe (Fallback über `normalized_key`).
 
-### 5.3 Aktueller Stand der MDM-Tabellen
+3. **Integritätsnachweis:** Der Partial Unique Index `uq_mdm_one_canonical_per_entity` erzwingt auf Datenbankebene, dass pro Golden Record genau ein Mapping `is_canonical = TRUE` gesetzt ist.
 
-In der Datenbank ist aktuell ein exemplarischer Golden Record vollständig befüllt:
+### 5.3 Befüllungsstand der MDM-Tabellen
 
-| Tabelle | Inhalt |
-|---|---|
-| `mdm.golden_records` | 1 Eintrag: `BAN-101` (Cavendish Banana) |
-| `mdm.source_mappings` | 3 Einträge: ERP `BAN-101`, WMS `BAN_101`, TMS `ban-101` |
+Nach Ausführung von `sql/05_create_mdm_tables.sql` oder `etl_load.py` ist die MDM vollständig befüllt:
 
-Die Einträge für BAN-102 bis BAN-110 sind konzeptuell identisch aufgebaut (vgl. Abschnitt 2.2) und können bei Bedarf per ETL nachgefüllt werden. Für den Nachweis der MDM-Logik genügt das vollständige BAN-101-Beispiel, da der Normalisierungsalgorithmus für alle Produktcodes identisch ist.
+| Tabelle | Inhalt | Anzahl |
+|---|---|---|
+| `mdm.entity_types` | 5 Entity-Typen | 5 |
+| `mdm.golden_records` | Alle Stammdaten-Entitäten | 42 |
+| `mdm.source_mappings` | Alle Quellsystem-Schlüssel | 69 |
+
+**Golden Records aufgeschlüsselt:**
+
+| Entity-Typ | Anzahl | Systeme mit Mapping | Inkonsistenz? |
+|---|---|---|---|
+| PRODUCT | 10 | ERP + WMS + TMS | Ja: `BAN-NNN` / `BAN_NNN` / `ban-nnn` |
+| CUSTOMER | 10 | ERP | Nein |
+| SUPPLIER | 10 | ERP | Nein |
+| CARRIER | 5 | TMS | Nein |
+| SUPPLY_CHAIN_NODE | 7 | WMS + TMS | Nein (identische Codes) |
+
+**Source Mappings aufgeschlüsselt:** ERP=30 (10 Prod + 10 Cust + 10 Sup), WMS=17 (10 Prod + 7 Node), TMS=22 (10 Prod + 5 Car + 7 Node).
+
+---
+
+## 6. Übersichts-View: `mdm.v_golden_overview`
+
+Für Audits und DWH-Abfragen steht eine View bereit, die alle drei Systemschlüssel einer Entität in einer Zeile zusammenführt – ohne manuellen JOIN auf `source_mappings`:
+
+```sql
+-- Alle Produkte mit ERP-, WMS- und TMS-Schlüssel in einer Zeile
+SELECT entity_type, canonical_key, canonical_name, erp_key, wms_key, tms_key
+FROM   mdm.v_golden_overview
+WHERE  entity_type = 'PRODUCT'
+ORDER  BY canonical_key;
+```
+
+**Beispielausgabe:**
+
+```
+entity_type | canonical_key | canonical_name   | erp_key | wms_key | tms_key
+------------+---------------+------------------+---------+---------+---------
+PRODUCT     | BAN-101       | Cavendish Banana | BAN-101 | BAN_101 | ban-101
+PRODUCT     | BAN-102       | Organic Banana   | BAN-102 | BAN_102 | ban-102
+...
+```
+
+Die View ist besonders nützlich um auf einen Blick zu prüfen, ob alle drei Systemschlüssel für jedes Produkt vorhanden sind.
+
+---
+
+## 7. Edge Cases und NULL-Handling
+
+### 7.1 Unbekannter Schlüssel
+
+`resolve_canonical_key()` gibt `NULL` zurück, wenn kein Mapping gefunden wird:
+
+```sql
+SELECT mdm.resolve_canonical_key('BAN_999', 'WMS');
+-- Ergebnis: NULL (kein Golden Record für BAN_999)
+```
+
+Im ETL-Skript wird `normalize_key()` vor dem DB-Insert angewendet, sodass unbekannte Schlüssel nicht als falsches Format gespeichert werden. Wenn ein neues Produkt im WMS auftaucht (z. B. `BAN_111`), muss zuerst ein Golden Record in `mdm.golden_records` angelegt und das Source Mapping in `mdm.source_mappings` registriert werden.
+
+### 7.2 ETL-Ausführungsreihenfolge (Abhängigkeitskette)
+
+`load_mdm()` muss nach `load_postgres()` ausgeführt werden, da die Funktion direkt aus den operativen Tabellen liest:
+
+| Abhängigkeit | Tabelle | Genutzt von |
+|---|---|---|
+| ERP-Produkte | `erp.products` | PRODUCT-Golden-Records |
+| ERP-Kunden | `erp.customers` | CUSTOMER-Golden-Records |
+| ERP-Lieferanten | `erp.suppliers` | SUPPLIER-Golden-Records |
+| TMS-Carrier | `tms.carriers` | CARRIER-Golden-Records |
+| WMS-Knoten | `wms.supply_chain_nodes` | SUPPLY_CHAIN_NODE-Golden-Records |
+
+ETL-Reihenfolge in `etl_load.py`:
+```
+[3/8] load_postgres()   ← befüllt erp.*, wms.*, tms.*
+[4/8] load_mdm()        ← liest daraus und erzeugt Golden Records
+```
+
+### 7.3 Diagnose: nicht-harmonisierte Schlüssel
+
+Nach jedem ETL-Lauf sollten beide Queries **0 Zeilen** zurückgeben. Wenn nicht, fehlen Golden Records für neue Produkte:
+
+```sql
+-- WMS-SKUs ohne MDM-Mapping (sollte 0 Zeilen ergeben)
+SELECT ws.sku AS nicht_harmonisierte_wms_sku
+FROM   wms.warehouse_skus ws
+WHERE  NOT EXISTS (
+    SELECT 1 FROM mdm.source_mappings sm
+    WHERE  sm.source_system = 'WMS' AND sm.source_key = ws.sku
+);
+
+-- TMS-Cargo-Referenzen ohne MDM-Mapping (sollte 0 Zeilen ergeben)
+SELECT DISTINCT s.cargo_product_reference AS nicht_harmonisierte_tms_ref
+FROM   tms.shipments s
+WHERE  NOT EXISTS (
+    SELECT 1 FROM mdm.source_mappings sm
+    WHERE  sm.source_system = 'TMS' AND sm.source_key = s.cargo_product_reference
+);
+```
+
+---
+
+## 8. Technische Nachweise (Prüfqueries)
+
+```sql
+-- Nachweis 1: Vollständigkeit aller Golden Records
+SELECT et.entity_type_code, COUNT(gr.golden_id) AS golden_records
+FROM mdm.entity_types et
+LEFT JOIN mdm.golden_records gr ON gr.entity_type_id = et.entity_type_id AND gr.status = 'ACTIVE'
+GROUP BY et.entity_type_code ORDER BY et.entity_type_code;
+-- Erwartet: CARRIER=5, CUSTOMER=10, PRODUCT=10, SUPPLIER=10, SUPPLY_CHAIN_NODE=7
+
+-- Nachweis 2: Schlüsselauflösung aller drei Formate
+SELECT
+    mdm.resolve_canonical_key('BAN-101', 'ERP') AS erp,  -- → BAN-101
+    mdm.resolve_canonical_key('BAN_101', 'WMS') AS wms,  -- → BAN-101
+    mdm.resolve_canonical_key('ban-101', 'TMS') AS tms;  -- → BAN-101
+
+-- Nachweis 3: Fuzzy-Auflösung ohne Systemangabe
+SELECT mdm.resolve_canonical_key_fuzzy('BAN_108') AS fuzzy;  -- → BAN-108
+
+-- Nachweis 4: Integritätsprüfung (muss 0 zurückgeben)
+SELECT COUNT(*) AS verletzungen FROM (
+    SELECT golden_id FROM mdm.source_mappings
+    GROUP BY golden_id HAVING COUNT(*) FILTER (WHERE is_canonical) != 1
+) t;
+
+-- Nachweis 5: Übersichts-View für alle Produkte
+SELECT entity_type, canonical_key, canonical_name, erp_key, wms_key, tms_key
+FROM   mdm.v_golden_overview
+WHERE  entity_type = 'PRODUCT'
+ORDER  BY canonical_key;
+```

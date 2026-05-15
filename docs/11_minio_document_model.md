@@ -216,3 +216,104 @@ for bucket in ["invoices", "delivery-notes", "transport-docs", "batch-certificat
         client.make_bucket(bucket)
         print(f"Bucket '{bucket}' erstellt")
 ```
+
+---
+
+## 6. Bucket Versioning
+
+MinIO unterstützt S3-kompatibles Object Versioning. Für Produktivumgebungen wird Versioning auf den Buckets `invoices` und `batch-certificates` empfohlen, da diese rechtlich relevante Dokumente enthalten.
+
+**Konfiguration per Python (MinIO-SDK ≥ 7.1):**
+
+```python
+from minio import Minio
+from minio.versioningconfig import VersioningConfig, ENABLED
+
+client = Minio("localhost:9000", access_key="admin", secret_key="password", secure=False)
+
+# Versioning für rechtlich relevante Buckets aktivieren
+for bucket in ["invoices", "batch-certificates"]:
+    client.set_bucket_versioning(bucket, VersioningConfig(ENABLED))
+    print(f"Versioning aktiviert: {bucket}")
+```
+
+**Warum Versioning nur für invoices und batch-certificates?**
+
+| Bucket              | Versioning | Begründung                                                         |
+|---------------------|------------|--------------------------------------------------------------------|
+| `invoices`          | Ja         | Rechnungen sind steuerrechtlich aufbewahrungspflichtig (10 Jahre)  |
+| `batch-certificates`| Ja         | Phytosanitäre Zertifikate unterliegen EU-Importvorschriften        |
+| `delivery-notes`    | Nein       | Operative Dokumente, kein Versionierungsbedarf                    |
+| `transport-docs`    | Nein       | B/L und Zollfreigaben werden je Shipment einmalig ausgestellt      |
+
+**Verhalten:** Wird ein Objekt überschrieben, bleibt die Vorversion unter einer automatisch generierten `VersionId` erhalten. Gelöschte Objekte erhalten einen Delete Marker – das Original bleibt abrufbar.
+
+---
+
+## 7. Zwei-Phasen-Ansatz: ETL vs. generate_documents.py
+
+Das Projekt trennt bewusst zwei Ausführungspfade:
+
+| Phase | Skript | Zweck | Dokumente |
+|---|---|---|---|
+| ETL (Pflichtlauf) | `bananasupplychain/etl_load.py` | Alle 714 Events in alle 5 Systeme laden | Stub-PDFs (minimal-valid) für delivery-notes + invoices |
+| Dokument-Generator (optional) | `bananasupplychain/generate_documents.py` | Echte, inhaltlich korrekte PDFs erzeugen | Alle 4 Buckets mit vollständigen PDFs |
+
+**Reihenfolge für die Abgabe:**
+```bash
+# Schritt 1 – ETL (lädt PostgreSQL, MongoDB, Redis, Neo4j, MinIO-Stubs)
+cd bananasupplychain
+python3 etl_load.py
+
+# Schritt 2 – echte PDFs (ersetzt Stubs durch vollständige Dokumente)
+python3 generate_documents.py
+```
+
+Der zweite Schritt ist idempotent: `ON CONFLICT (entity_key, document_type) DO UPDATE` überschreibt den Stub-Pfad mit dem identischen Pfad, das MinIO-Objekt wird ersetzt.
+
+---
+
+## 8. Prüfqueries – Verifikationsnachweis
+
+```sql
+-- 8.1 Gesamtanzahl Dokumentreferenzen in PostgreSQL
+SELECT COUNT(*) AS gesamt FROM erp.document_references;
+-- Erwarteter Wert nach generate_documents.py:
+--   60 delivery_notes + 20 bill_of_lading + 20 customs_clearance
+--   + 6 invoices + 10 quality_certificate = 116 Einträge
+
+-- 8.2 Aufschlüsselung nach document_type
+SELECT document_type, bucket, COUNT(*) AS anzahl
+FROM   erp.document_references
+GROUP  BY document_type, bucket
+ORDER  BY bucket, document_type;
+
+-- 8.3 Aufschlüsselung nach entity_type
+SELECT entity_type, COUNT(*) AS anzahl
+FROM   erp.document_references
+GROUP  BY entity_type
+ORDER  BY entity_type;
+
+-- 8.4 Referenzpfad für ein konkretes Shipment abrufen
+SELECT entity_type, document_type, bucket || '/' || object_path AS full_path
+FROM   erp.document_references
+WHERE  entity_type = 'SHIPMENT'
+ORDER  BY document_type;
+LIMIT  5;
+
+-- 8.5 Prüfung: Kein Shipment ohne Lieferschein (alle TransportStarted haben delivery_note)
+SELECT s.shipment_identifier
+FROM   tms.shipments s
+LEFT   JOIN erp.document_references dr
+       ON dr.entity_key = s.shipment_identifier
+       AND dr.document_type = 'delivery_note'
+WHERE  dr.ref_id IS NULL;
+-- Erwartetes Ergebnis: 0 Zeilen (jedes Shipment hat einen Lieferschein)
+
+-- 8.6 Nur SEA_FREIGHT-Shipments haben bill_of_lading
+SELECT dr.entity_key, dr.document_type
+FROM   erp.document_references dr
+WHERE  dr.document_type = 'bill_of_lading'
+ORDER  BY dr.entity_key;
+-- Erwartetes Ergebnis: genau 20 Einträge (20 SEA_FREIGHT-Transporte)
+```

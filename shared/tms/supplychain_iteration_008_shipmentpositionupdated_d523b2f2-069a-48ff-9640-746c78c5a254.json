@@ -1,0 +1,16 @@
+{
+  "event_type": "ShipmentPositionUpdated",
+  "shipment_identifier": "SHIP-6a1e9640-361b-43a4-aa4e-bd1e7d25690a",
+  "cargo_product_reference": "ban-109",
+  "current_route": {
+    "source": "EUROPE_COLD_STORAGE",
+    "target": "CENTRAL_WAREHOUSE"
+  },
+  "coordinates": {
+    "latitude": 9.866787,
+    "longitude": -17.706308
+  },
+  "container_temperature": 10.1,
+  "speed_kmh": 67.38,
+  "timestamp": "2026-05-14T15:39:19.889171"
+}

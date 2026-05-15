@@ -219,9 +219,100 @@ INSERT INTO meta.columns (table_id, column_name, data_type, description, source,
 SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
 FROM meta.tables t
 CROSS JOIN (VALUES
-    ('delay_minutes', 'INT', 'Tatsächliche Verzögerung in Minuten', 'delay_minutes', 'EVENTDATEN', 'RATIO', 'Wertebereich: 0 – 180 Min laut Datengenerator. Nicht negativ.', FALSE, FALSE, FALSE)
+    ('completion_id',  'SERIAL',      'Technischer Primärschlüssel',                     NULL,             'METADATEN',  'NOMINAL', 'Eindeutig, auto-generiert',                                                                             FALSE, TRUE,  FALSE),
+    ('shipment_id',    'INT',         'FK zum Transportvorgang',                          'shipment_id',    'EVENTDATEN', 'NOMINAL', 'Muss auf gültigen tms.shipments.shipment_id verweisen. Eindeutig (1 Abschluss pro Shipment).',           FALSE, FALSE, TRUE),
+    ('arrival_node',   'VARCHAR(50)', 'Ankunftsknoten des Transports',                   'arrival_node',   'EVENTDATEN', 'NOMINAL', 'Erlaubt: Gültige node_codes aus wms.supply_chain_nodes (z.B. RETAIL_STORE).',                           FALSE, FALSE, FALSE),
+    ('delay_minutes',  'INT',         'Tatsächliche Verzögerung in Minuten',             'delay_minutes',  'EVENTDATEN', 'RATIO',   '>= 0 (CHECK-Constraint). > 30 min = SLA-Verletzung. 0 = pünktlich. Skalentyp RATIO: 0 bedeutet ''keine Verzögerung'', Verhältnisse sinnvoll (60/30 = doppelte Verzögerung).', FALSE, FALSE, FALSE),
+    ('completed_at',   'TIMESTAMP',   'Zeitpunkt des Transportabschlusses',              'timestamp',      'EVENTDATEN', 'INTERVAL','Nicht in der Zukunft. Muss nach tms.shipments.started_at liegen. INTERVAL: kein nat. Nullpunkt.',       FALSE, FALSE, FALSE)
 ) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
 WHERE t.schema_name = 'tms' AND t.table_name = 'transport_completions'
+ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- ERP.CUSTOMERS
+INSERT INTO meta.columns (table_id, column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
+FROM meta.tables t
+CROSS JOIN (VALUES
+    ('customer_id',     'SERIAL',      'Technischer Primärschlüssel',              NULL,              'METADATEN',    'NOMINAL',  'Eindeutig, auto-generiert',                                                                  FALSE, TRUE,  FALSE),
+    ('customer_number', 'VARCHAR(20)', 'Kanonischer Business Key des Kunden',      'customer_number', 'STAMMDATEN',   'NOMINAL',  'Format: CUST-NNN. Eindeutig. Pflichtfeld. Keine inhärente Reihenfolge (NOMINAL).',            FALSE, FALSE, FALSE),
+    ('customer_name',   'VARCHAR(100)','Name der Einzelhandelskette',              'customer_name',   'STAMMDATEN',   'NOMINAL',  'Nicht leer. Bekannte Werte: ALDI, LIDL, REWE, Carrefour, Tesco.',                            FALSE, FALSE, FALSE),
+    ('city',            'VARCHAR(50)', 'Standortstadt des Kunden',                 'city',            'STAMMDATEN',   'NOMINAL',  'Nullable. Stadtname ohne feste Reihenfolge (NOMINAL). ISO-Stadtname empfohlen.',              TRUE,  FALSE, FALSE),
+    ('country',         'VARCHAR(50)', 'Herkunftsland des Kunden',                 'country',         'STAMMDATEN',   'NOMINAL',  'ISO-Ländername (z.B. "Germany"). Nicht leer. Europäische Märkte.',                           FALSE, FALSE, FALSE),
+    ('event_timestamp', 'TIMESTAMP',   'Zeitpunkt des CustomerCreated-Events',     'timestamp',       'METADATEN',    'INTERVAL', 'Nicht in der Zukunft. INTERVAL: Zeitstempel ohne natürlichen Nullpunkt.',                    FALSE, FALSE, FALSE)
+) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+WHERE t.schema_name = 'erp' AND t.table_name = 'customers'
+ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- ERP.BATCHES
+INSERT INTO meta.columns (table_id, column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
+FROM meta.tables t
+CROSS JOIN (VALUES
+    ('batch_id',               'SERIAL',      'Technischer Primärschlüssel',                    NULL,                   'METADATEN',    'NOMINAL',  'Eindeutig, auto-generiert',                                                                             FALSE, TRUE,  FALSE),
+    ('batch_identifier',       'VARCHAR(60)', 'Eindeutiger Batch-Tracking-Key',                 'batch_identifier',     'BEWEGUNGSDATEN','NOMINAL',  'Format: BATCH-<uuid>. Eindeutig. Verbindet ERP-Batch mit WMS NodeProcessed-Events.',                    FALSE, FALSE, FALSE),
+    ('product_id',             'INT',         'FK zum Produkt (erp.products)',                  'product_code',         'BEWEGUNGSDATEN','NOMINAL',  'Muss auf gültigen erp.products.product_id verweisen. Pflichtfeld.',                                     FALSE, FALSE, TRUE),
+    ('origin_country',         'VARCHAR(50)', 'Ernteherkunftsland (z.B. Ghana)',                'origin_country',       'BEWEGUNGSDATEN','NOMINAL',  'ISO-Ländername. Typisch: Ghana, Ecuador, Colombia. NOMINAL: keine Reihenfolge.',                        FALSE, FALSE, FALSE),
+    ('quantity',               'INT',         'Erntevolumen in Einheiten',                      'quantity',             'BEWEGUNGSDATEN','RATIO',    '> 0 (CHECK-Constraint). RATIO: 0 = kein Batch, Verhältnisse sinnvoll (400 = doppelt so viel wie 200).', FALSE, FALSE, FALSE),
+    ('supply_chain_node',      'VARCHAR(50)', 'Startknotencode des Batches',                    'supply_chain_node',    'BEWEGUNGSDATEN','NOMINAL',  'Wert: BANANA_PLANTATION (Standardwert, Ernteort). NOMINAL: Bezeichner.',                                FALSE, FALSE, FALSE),
+    ('wms_sku',                'VARCHAR(30)', 'WMS-spezifische SKU-Referenz',                   'wms_sku',              'BEWEGUNGSDATEN','NOMINAL',  'Format: BAN_NNN (Unterstriche). Nullable. Redundant mit mdm.source_mappings.',                          TRUE,  FALSE, FALSE),
+    ('tms_product_reference',  'VARCHAR(30)', 'TMS-spezifische Produktreferenz',                'tms_product_reference','BEWEGUNGSDATEN','NOMINAL',  'Format: ban-nnn (Kleinbuchstaben). Nullable. Redundant mit mdm.source_mappings.',                       TRUE,  FALSE, FALSE),
+    ('harvested_at',           'TIMESTAMP',   'Erntezeitpunkt (= event_timestamp)',             'timestamp',            'BEWEGUNGSDATEN','INTERVAL', 'Nicht in der Zukunft. INTERVAL: Zeitstempel ohne natürlichen Nullpunkt.',                               FALSE, FALSE, FALSE)
+) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+WHERE t.schema_name = 'erp' AND t.table_name = 'batches'
+ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- WMS.WAREHOUSE_SKUS
+INSERT INTO meta.columns (table_id, column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
+FROM meta.tables t
+CROSS JOIN (VALUES
+    ('sku_id',           'SERIAL',      'Technischer Primärschlüssel',             NULL,               'METADATEN',  'NOMINAL',  'Eindeutig, auto-generiert',                                                         FALSE, TRUE,  FALSE),
+    ('erp_product_code', 'VARCHAR(20)', 'Cross-Referenz zum ERP-Produktcode',      'erp_product_code', 'STAMMDATEN', 'NOMINAL',  'Format: BAN-101 (Bindestriche). Eindeutig. FK-Auflösung via erp.products.product_code.',FALSE, FALSE, FALSE),
+    ('sku',              'VARCHAR(20)', 'WMS-spezifische SKU (Unterstriche)',       'sku',              'STAMMDATEN', 'NOMINAL',  'Format: BAN_101 (Unterstriche). Eindeutig. MDM-Inkonsistenz zu ERP und TMS.',        FALSE, FALSE, FALSE),
+    ('event_timestamp',  'TIMESTAMP',   'Zeitpunkt des WarehouseSKUCreated-Events','timestamp',        'METADATEN',  'INTERVAL', 'Nicht in der Zukunft. INTERVAL: Zeitstempel ohne natürlichen Nullpunkt.',           FALSE, FALSE, FALSE)
+) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+WHERE t.schema_name = 'wms' AND t.table_name = 'warehouse_skus'
+ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- WMS.SUPPLY_CHAIN_NODES
+INSERT INTO meta.columns (table_id, column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
+FROM meta.tables t
+CROSS JOIN (VALUES
+    ('node_id',       'SERIAL',      'Technischer Primärschlüssel',                  NULL,           'METADATEN',  'NOMINAL',  'Eindeutig, auto-generiert',                                                                                                 FALSE, TRUE,  FALSE),
+    ('node_code',     'VARCHAR(50)', 'Interner Knotenbezeichner',                     NULL,           'STAMMDATEN', 'NOMINAL',  'Erlaubt: BANANA_PLANTATION, COLLECTION_CENTER, QUALITY_CONTROL, AFRICA_COLD_STORAGE, EUROPE_COLD_STORAGE, CENTRAL_WAREHOUSE, RETAIL_STORE. NOMINAL: keine numerische Bedeutung.', FALSE, FALSE, FALSE),
+    ('node_name',     'VARCHAR(100)','Lesbarer Name des Supply-Chain-Knotens',        NULL,           'STAMMDATEN', 'NOMINAL',  'Nicht leer. Beschreibender Name für Reports und Visualisierungen.',                                                         FALSE, FALSE, FALSE),
+    ('node_type',     'VARCHAR(30)', 'Funktionstyp des Knotens',                      NULL,           'STAMMDATEN', 'NOMINAL',  'Erlaubt: PLANTATION, COLLECTION_CENTER, QUALITY_CONTROL, COLD_STORAGE, WAREHOUSE, RETAIL. CHECK-Constraint. NOMINAL.',      FALSE, FALSE, FALSE),
+    ('region',        'VARCHAR(50)', 'Geografische Region des Knotens',               NULL,           'STAMMDATEN', 'NOMINAL',  'Erlaubt: Africa, Europe. Nullable. NOMINAL: Bezeichner ohne Reihenfolge.',                                                  TRUE,  FALSE, FALSE),
+    ('sequence_order','INT',         'Position im Supply-Chain-Flow (1–7)',           NULL,           'STAMMDATEN', 'RATIO',    'Wertebereich: 1 (Plantation) – 7 (Retail). RATIO: 0 = kein Knoten, Abstände gleichmäßig. NOT NULL.',                         FALSE, FALSE, FALSE)
+) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+WHERE t.schema_name = 'wms' AND t.table_name = 'supply_chain_nodes'
+ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- TMS.CARRIERS
+INSERT INTO meta.columns (table_id, column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
+FROM meta.tables t
+CROSS JOIN (VALUES
+    ('carrier_id',      'SERIAL',      'Technischer Primärschlüssel',                 NULL,              'METADATEN',  'NOMINAL',  'Eindeutig, auto-generiert',                                                         FALSE, TRUE,  FALSE),
+    ('carrier_code',    'VARCHAR(20)', 'Kanonischer Business Key des Carriers',        'carrier_id',      'STAMMDATEN', 'NOMINAL',  'Format: CAR-NNN. Eindeutig. JSON-Feld heißt "carrier_id" (ETL-Mapping beachten!).',  FALSE, FALSE, FALSE),
+    ('carrier_name',    'VARCHAR(100)','Name des Transportdienstleisters',             'carrier_name',    'STAMMDATEN', 'NOMINAL',  'Bekannte Werte: DHL, Maersk, MSC, DB Schenker, Hapag Lloyd. Nicht leer.',            FALSE, FALSE, FALSE),
+    ('event_timestamp', 'TIMESTAMP',   'Zeitpunkt des CarrierCreated-Events',          'timestamp',       'METADATEN',  'INTERVAL', 'Nicht in der Zukunft. INTERVAL: Zeitstempel ohne natürlichen Nullpunkt.',           FALSE, FALSE, FALSE)
+) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+WHERE t.schema_name = 'tms' AND t.table_name = 'carriers'
+ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- TMS.TRANSPORT_PRODUCT_REFERENCES
+INSERT INTO meta.columns (table_id, column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
+FROM meta.tables t
+CROSS JOIN (VALUES
+    ('ref_id',                       'SERIAL',      'Technischer Primärschlüssel',               NULL,                          'METADATEN',  'NOMINAL',  'Eindeutig, auto-generiert',                                                                   FALSE, TRUE,  FALSE),
+    ('erp_product_code',             'VARCHAR(20)', 'Cross-Referenz zum ERP-Produktcode',         'erp_product_code',            'STAMMDATEN', 'NOMINAL',  'Format: BAN-101 (Großbuchstaben, Bindestrich). Eindeutig. MDM-kanonischer Schlüssel.',          FALSE, FALSE, FALSE),
+    ('transport_product_reference',  'VARCHAR(20)', 'TMS-spezifische Produktreferenz',            'transport_product_reference', 'STAMMDATEN', 'NOMINAL',  'Format: ban-101 (Kleinbuchstaben, Bindestrich). Eindeutig. MDM-Inkonsistenz zu ERP/WMS.',      FALSE, FALSE, FALSE),
+    ('event_timestamp',              'TIMESTAMP',   'Zeitpunkt des TransportProductReferenceCreated-Events','timestamp',        'METADATEN',  'INTERVAL', 'Nicht in der Zukunft. INTERVAL: Zeitstempel ohne natürlichen Nullpunkt.',                      FALSE, FALSE, FALSE)
+) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
+WHERE t.schema_name = 'tms' AND t.table_name = 'transport_product_references'
 ON CONFLICT (table_id, column_name) DO NOTHING;
 
 -- TMS.DELIVERIES
@@ -229,8 +320,13 @@ INSERT INTO meta.columns (table_id, column_name, data_type, description, source,
 SELECT t.table_id, c.column_name, c.data_type, c.description, c.source, c.data_category, c.scale_level, c.quality_rule, c.is_nullable, c.is_pk, c.is_fk
 FROM meta.tables t
 CROSS JOIN (VALUES
-    ('delivery_status', 'VARCHAR(20)', 'Finaler Lieferstatus', 'delivery_status', 'EVENTDATEN', 'NOMINAL', 'Erlaubt: SUCCESSFUL, DELAYED, FAILED. Häufigkeit: ~2/3 SUCCESSFUL, ~1/3 DELAYED.', FALSE, FALSE, FALSE),
-    ('received_by',     'VARCHAR(20)', 'Empfänger-Mitarbeiter-ID', 'received_by', 'EVENTDATEN', 'NOMINAL', 'Format: EMP-NNN (1-99). Nicht leer bei SUCCESSFUL.',                              TRUE,  FALSE, FALSE)
+    ('delivery_id',              'SERIAL',      'Technischer Primärschlüssel',                  NULL,                      'METADATEN',  'NOMINAL',  'Eindeutig, auto-generiert',                                                                                                             FALSE, TRUE,  FALSE),
+    ('shipment_id',              'INT',         'FK zum Transportvorgang',                       'shipment_id',             'EVENTDATEN', 'NOMINAL',  'Muss auf gültigen tms.shipments.shipment_id verweisen. Eindeutig (1 Delivery pro Shipment).',                                           FALSE, FALSE, TRUE),
+    ('supply_chain_node',        'VARCHAR(50)', 'Zielknoten der Lieferung',                      'supply_chain_node',       'EVENTDATEN', 'NOMINAL',  'Wert: RETAIL_STORE (Standardwert, Standardfall). NOMINAL: Knotenbezeichner ohne Reihenfolge.',                                          FALSE, FALSE, FALSE),
+    ('delivery_status',          'VARCHAR(20)', 'Finaler Lieferstatus (Haupt-KPI)',               'delivery_status',         'EVENTDATEN', 'NOMINAL',  'Erlaubt: SUCCESSFUL, DELAYED, FAILED. CHECK-Constraint. ~2/3 SUCCESSFUL, ~1/3 DELAYED laut Datengenerator. NOMINAL: Kategorie.',        FALSE, FALSE, FALSE),
+    ('received_by',              'VARCHAR(20)', 'Mitarbeiter-ID des Empfängers am Retail Store', 'received_by',             'EVENTDATEN', 'NOMINAL',  'Format: EMP-NNN (1-99). Nullable. Nicht leer bei SUCCESSFUL-Lieferung. NOMINAL: Bezeichner.',                                           TRUE,  FALSE, FALSE),
+    ('cargo_product_reference',  'VARCHAR(30)', 'TMS-Produktreferenz in Lieferung',              'cargo_product_reference', 'EVENTDATEN', 'NOMINAL',  'Format: ban-nnn (Kleinbuchstaben). Nullable. MDM-Mapping zu ERP-Code erforderlich.',                                                     TRUE,  FALSE, FALSE),
+    ('delivered_at',             'TIMESTAMP',   'Tatsächlicher Lieferzeitpunkt',                 'timestamp',               'EVENTDATEN', 'INTERVAL', 'Nicht in der Zukunft. Muss nach tms.shipments.started_at liegen. INTERVAL: kein natürlicher Nullpunkt.',                                FALSE, FALSE, FALSE)
 ) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
 WHERE t.schema_name = 'tms' AND t.table_name = 'deliveries'
 ON CONFLICT (table_id, column_name) DO NOTHING;
@@ -243,6 +339,8 @@ CREATE INDEX IF NOT EXISTS idx_meta_columns_table   ON meta.columns(table_id);
 CREATE INDEX IF NOT EXISTS idx_meta_columns_scale   ON meta.columns(scale_level);
 
 DO $$
+DECLARE v_col_count INT;
 BEGIN
-    RAISE NOTICE 'Metadaten-Tabellen erstellt: systems, tables, columns (mit exemplarischen Einträgen für alle wichtigen Spalten)';
+    SELECT COUNT(*) INTO v_col_count FROM meta.columns;
+    RAISE NOTICE 'Metadaten-Tabellen erstellt: systems (6), tables (18+), columns (% Einträge). Abdeckung: ERP (suppliers, customers, products, orders, order_items, batches), WMS (warehouse_skus, supply_chain_nodes, node_processings), TMS (carriers, transport_product_references, shipments, shipment_positions, transport_completions, deliveries). Vollabdeckung via 06b_metadata_complete.sql.', v_col_count;
 END $$;
