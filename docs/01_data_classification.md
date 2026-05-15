@@ -29,6 +29,8 @@ Für die Klassifikation gelten folgende Definitionen, angewendet auf den Banana-
 | **Echtzeitdaten** | Hochfrequente, kurzlebige Sensor- oder Positionsdaten. Zeitkritisch, benötigen schnellen Schreibzugriff und automatischen Ablauf. | GPS-Position `ShipmentPositionUpdated` mit Containertemperatur 13,39 °C |
 | **Dokumentdaten** | Strukturierte Dokumente, die durch Ereignisse ausgelöst werden. Nicht direkt als JSON-Event vorhanden, sondern als abgeleitetes Artefakt. | Lieferschein aus `DeliveryCompleted`, Chargenzertifikat aus `BatchHarvested` |
 
+**Abgrenzung:** Klassische **Bestandsdaten** werden vom Datengenerator nicht als eigener JSON-Eventtyp erzeugt. Mengen erscheinen zwar in `OrderCreated` und `BatchHarvested`, beschreiben dort aber konkrete Geschäftsvorfälle und werden deshalb als Bewegungsdaten klassifiziert. **Metadaten** werden im Projekt separat im Schema `meta` modelliert (`sql/06_create_metadata_tables.sql`) und in `docs/05_metadata_management.md` dokumentiert. Die generierten JSON-Dateien enthalten nur technische Event-Metadaten wie `event_type` und `timestamp`, aber keine eigenständigen Metadaten-Events.
+
 ---
 
 ## 3. Vollständige Eventtyp-Klassifikation
