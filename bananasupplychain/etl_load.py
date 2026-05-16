@@ -490,13 +490,34 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
                 pass
         coll.create_index(keys, **kwargs)
 
-    _safe_create_index(oe, "order_reference", unique=True)
-    _safe_create_index(ne, [("batch_reference", 1), ("supply_chain_node", 1)],
-                       unique=True, name="uq_node_event")
+    # shipment_events
     _safe_create_index(se, "shipment_identifier", unique=True)
-    _safe_create_index(bt, "batch_identifier", unique=True)
     _safe_create_index(se, "created_at", expireAfterSeconds=7_776_000,
                        name="ttl_shipment_lifecycle")
+    _safe_create_index(se, "cargo_product_reference")
+    _safe_create_index(se, [("source_node", 1), ("target_node", 1)])
+    _safe_create_index(se, "transport_mode")
+    _safe_create_index(se, "delivery_status")
+
+    # node_events
+    _safe_create_index(ne, [("batch_reference", 1), ("supply_chain_node", 1)],
+                       unique=True, name="uq_node_event")
+    _safe_create_index(ne, "batch_reference")
+    _safe_create_index(ne, "supply_chain_node")
+    _safe_create_index(ne, "temperature")
+    _safe_create_index(ne, "temperature_within_range")
+    _safe_create_index(ne, [("processed_at", -1)])
+
+    # batch_tracking
+    _safe_create_index(bt, "batch_identifier", unique=True)
+    _safe_create_index(bt, "erp_product_code")
+    _safe_create_index(bt, "nodes_processed.node")
+
+    # order_events
+    _safe_create_index(oe, "order_reference", unique=True)
+    _safe_create_index(oe, "customer.customer_number")
+    _safe_create_index(oe, "items.product_code")
+    _safe_create_index(oe, "delivery_priority")
 
     # ── order_events: OrderCreated als Basis-Dokument ─────────────────────────
     for ev in erp_events:
@@ -656,6 +677,12 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
                         "updated_at":    ev.get("timestamp")
                     }
                 }
+            )
+            # Zwischentransporte: IN_TRANSIT → TRANSPORT_COMPLETED
+            # Finale Lieferungen (SUCCESSFUL/DELAYED) werden nicht überschrieben
+            se.update_one(
+                {"shipment_identifier": sid, "delivery_status": "IN_TRANSIT"},
+                {"$set": {"delivery_status": "TRANSPORT_COMPLETED"}}
             )
             count("mongo.shipment_completions")
 

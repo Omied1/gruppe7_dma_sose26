@@ -26,7 +26,60 @@ Der ETL-Prozess (Extract, Transform, Load) verbindet die JSON-basierten Quellsys
 
 ---
 
-## 2. ETL-Phase 1: JSON → Operative Systeme
+## 2. Skript-Ausführungsreihenfolge
+
+Die folgende Reihenfolge ist verbindlich. Jeder Schritt hat konkrete Abhängigkeiten zu seinem Vorgänger.
+
+```bash
+# Schritt 1: PostgreSQL-Schemas und Tabellen anlegen (nur bei Neu-Aufbau)
+for f in sql/01_create_schemas.sql \
+          sql/02_create_erp_tables.sql \
+          sql/03_create_wms_tables.sql \
+          sql/04_create_tms_tables.sql \
+          sql/05_create_mdm_tables.sql \
+          sql/06_create_metadata_tables.sql \
+          sql/06b_metadata_complete.sql \
+          sql/07_create_dwh_schema.sql; do
+  docker exec -i postgres psql -U user -d logistics < "$f"
+done
+
+# Schritt 2: Testdaten generieren (optional – nur wenn neue JSONs gewünscht)
+python3 bananasupplychain/test_data_generator.py
+
+# Schritt 3: Operative Systeme befüllen (PostgreSQL, MongoDB, Redis, Neo4j)
+python3 bananasupplychain/etl_load.py
+
+# Schritt 4: PDFs erzeugen, in MinIO hochladen, Referenzen in PostgreSQL speichern
+python3 bananasupplychain/generate_documents.py
+
+# Schritt 5: DWH-Sternschema aus operativen Schemas befüllen
+python3 bananasupplychain/etl_dwh.py
+
+# Schritt 6: Alle Systeme prüfen
+python3 bananasupplychain/verify_all_systems.py
+```
+
+**Abhängigkeiten:**
+
+| Skript | Braucht zwingend |
+|---|---|
+| `etl_load.py` | SQL-Schemas aus Schritt 1 müssen existieren |
+| `generate_documents.py` | `erp.document_references`-Tabelle (aus Schritt 1) |
+| `etl_dwh.py` | `erp/wms/tms`-Tabellen befüllt (aus `etl_load.py`) |
+| `verify_all_systems.py` | alle vorherigen Schritte |
+
+**Wichtig – Redis ist nicht idempotent:** Die `INCR`-Zähler in Redis akkumulieren bei jedem ETL-Lauf. Bei einem Neu-Aufbau immer zuerst leeren:
+
+```bash
+docker exec redis redis-cli FLUSHALL
+docker exec mongodb mongosh logistics --eval 'db.dropDatabase()' --quiet
+docker exec neo4j cypher-shell -u neo4j -p password "MATCH (n) DETACH DELETE n;"
+# PostgreSQL: Schemas droppen, dann SQL-Skripte neu einspielen
+```
+
+---
+
+## 3. ETL-Phase 1: JSON → Operative Systeme
 
 ### 2.1 Extract (E)
 
