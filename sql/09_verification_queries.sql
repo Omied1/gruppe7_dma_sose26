@@ -288,14 +288,14 @@ SELECT 'dwh.dim_delivery_status', COUNT(*),
 FROM dwh.dim_delivery_status
 UNION ALL
 SELECT 'dwh.fact_fulfillment',    COUNT(*),
-       '≥ 60 Fulfillment-Fakten (10 Endlieferungen × 6 Hops)'
+       '10 Fulfillment-Fakten (1 pro Endlieferung)'
 FROM dwh.fact_fulfillment;
 
 -- DWH Date Spine: Bereich und Vollständigkeit prüfen
 SELECT
-    MIN(date_actual) AS von,
-    MAX(date_actual) AS bis,
-    COUNT(*)         AS tage_gesamt,
+    MIN(full_date) AS von,
+    MAX(full_date) AS bis,
+    COUNT(*)       AS tage_gesamt,
     CASE WHEN COUNT(*) = 1095 THEN 'PASS – 1095 Tage (2025-2027)'
          ELSE 'FAIL – erwartet 1095, gefunden: ' || COUNT(*)
     END AS date_spine_check
