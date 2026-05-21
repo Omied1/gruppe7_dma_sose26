@@ -20,7 +20,7 @@
 
 ## 1. Datenkonsistenz-Fehler
 
-### 🔴 FEHLER 1: `erp.document_references` ist leer — MinIO hat aber 98 Dokumente
+### 🔴 FEHLER 1: `erp.document_references` ist leer — MinIO hat jedoch 98 Dokumente
 
 **Problem:**  
 `generate_documents.py` wurde zu einem früheren Zeitpunkt ausgeführt (MinIO hat 98 PDF-Objekte in den Buckets), aber die Tabelle `erp.document_references` hat **0 Zeilen**.
