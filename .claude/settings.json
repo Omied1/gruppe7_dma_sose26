@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Skill(dma-banana-supply-chain)",
-      "Skill(dma-banana-supply-chain:*)"
-    ]
-  }
-}

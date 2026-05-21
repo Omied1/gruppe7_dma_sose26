@@ -1,8 +1,0 @@
-{
-  "event_type": "CustomerCreated",
-  "customer_number": "CUST-110",
-  "customer_name": "SPAR",
-  "city": "Berlin",
-  "country": "Germany",
-  "timestamp": "2026-05-15T09:58:15.045958"
-}

@@ -1,8 +1,0 @@
-{
-  "event_type": "CustomerCreated",
-  "customer_number": "CUST-102",
-  "customer_name": "LIDL",
-  "city": "Berlin",
-  "country": "Germany",
-  "timestamp": "2026-05-15T09:58:15.045945"
-}

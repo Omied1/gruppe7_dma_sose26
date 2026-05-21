@@ -1,8 +1,0 @@
-{
-  "event_type": "CustomerCreated",
-  "customer_number": "CUST-105",
-  "customer_name": "METRO",
-  "city": "Hamburg",
-  "country": "Germany",
-  "timestamp": "2026-05-15T09:58:15.045951"
-}

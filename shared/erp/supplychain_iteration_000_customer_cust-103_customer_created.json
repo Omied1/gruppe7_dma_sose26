@@ -1,8 +1,0 @@
-{
-  "event_type": "CustomerCreated",
-  "customer_number": "CUST-103",
-  "customer_name": "REWE",
-  "city": "Frankfurt",
-  "country": "Germany",
-  "timestamp": "2026-05-15T09:58:15.045947"
-}
