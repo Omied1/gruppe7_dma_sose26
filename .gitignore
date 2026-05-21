@@ -3,6 +3,7 @@ __pycache__/
 .DS_Store
 .claude/
 claude-code-tips/
+.vscode/
 
 # Simulator-Output (generierte JSON-Dateien)
 shared/

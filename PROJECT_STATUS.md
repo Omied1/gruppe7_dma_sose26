@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Deadline:** 01.07.2026  
-**Zuletzt aktualisiert:** 2026-05-15 (Review-Fixes F-1 + F-2)
+**Zuletzt aktualisiert:** 2026-05-21 (Projektüberblick + Review-Doku erstellt, Fixes F-10 + F-11)
 
 ---
 
@@ -36,6 +36,8 @@ und getestet.
 | `docs/11_minio_document_model.md` | 4 Buckets, Referenzierungsmuster PostgreSQL <-> MinIO; Bucket Versioning (Kap. 6); Zwei-Phasen-Ansatz (Kap. 7); 6 Prüfqueries (Kap. 8) | abgabefähig |
 | `docs/12_etl_concept.md` | ETL-Konzept mit Mapping-Tabelle für alle 13 Eventtypen; Feld-Ebene-Mapping ergänzt (6 Tabellen); Load-Reihenfolge bereinigt; Idempotenz-Abschnitt auf MongoDB/Redis/Neo4j ausgeweitet; ETL-Nachweis mit Prüfqueries hinzugefügt; **Bug-Fix 2026-05-15:** Phase-2-SQL-Beispiel korrigiert (JOIN auf erp.batches.order_id entfernt, der nicht existiert); BatchHarvested-Mapping-Eintrag korrigiert; ETL-Nachweis-Zahlen auf 60 korrigiert | abgabefähig |
 | `docs/13_data_quality_results.md` | Live-Audit-Ergebnisse (28/28 PASS); Check 5.2 korrigiert; neue Checks 1.5 + 3.4 dokumentiert; Abschnitt 7 ergänzt: systemübergreifende Befüllungsnachweise für alle 5 Systeme (PostgreSQL/MDM/DWH/MongoDB/Redis/Neo4j/MinIO) | abgabefähig |
+| `docs/Projekt_Gesamtueberblick_Teil1.md` | Vollständige statische Projektanalyse (2026-05-21): Architektur, alle Dateien, Widersprüche, Empfehlungen, Reproduzierbarkeit, Abgabebereitschaft | erstellt |
+| `docs/review_fehler_risiken_teil1.md` | Unabhängiges Review mit priorisierten Fehlern, Risiken und Lücken; enthält Prioritätsliste und Gesamtbewertung für Abgabe | erstellt |
 
 ### SQL (`sql/`)
 
@@ -150,6 +152,8 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | F-7 | `docs/12_etl_concept.md` Phase-2-SQL-Beispiel verwendete `JOIN erp.batches b ON b.order_id = o.order_id` – diese Spalte existiert nicht (F-4-Fix entfernte `order_id` aus `erp.batches`). Mapping-Tabelle BatchHarvested-Zeile beschrieb falschen FK. ETL-Nachweis-Zahlen waren veraltet (121/500 statt 60/60). | `docs/12_etl_concept.md`, `docs/00_part1_checklist.md`, `docs/06_data_quality.md` | behoben 2026-05-15 (SQL korrigiert; BatchHarvested-Mapping-Eintrag korrigiert; Counts auf 60 aktualisiert) |
 | F-8 | `docker-compose.yml` cleanup-Service referenzierte nicht-existente Tabellen `OrderDetails`/`Orders` – PostgreSQL-Fehler bei jedem Container-Start, sofort sichtbar in Logs | `bananasupplychain/container/docker-compose.yml` | **behoben 2026-05-15** (SQL auf `tms.shipment_positions WHERE recorded_at < NOW() - 90 days` korrigiert) |
 | F-9 | `etl_dwh.py` Grain-Fehler: LEFT JOIN auf tms.deliveries ergab 60 Fact-Zeilen (6 Hops × 10 Iterationen); `SUM(total_value)` war 6-fach inflationiert; alle Revenue-KPIs in `v_kpi_summary` und `v_carrier_performance` falsch | `bananasupplychain/etl_dwh.py`, `sql/07_create_dwh_schema.sql`, `docs/07_dwh_model.md` | **behoben 2026-05-15** (INNER JOIN auf tms.deliveries; Grain = 10 Endlieferungen; Grain-Doku aktualisiert) |
+| F-10 | `sql/09_verification_queries.sql` referenzierte `date_actual` – Spalte heißt `full_date` in `dwh.dim_date` → SQL-Fehler bei Ausführung | `sql/09_verification_queries.sql` | **behoben 2026-05-21** (Spaltenname korrigiert) |
+| F-11 | `docs/00_part1_checklist.md` Zeilen 200+211: `batch_tracking (60)` falsch – ETL lädt 1 Dokument pro Batch (10 Batches = 10 Dokumente) | `docs/00_part1_checklist.md` | **behoben 2026-05-21** (beide Stellen auf 10 korrigiert) |
 
 ---
 

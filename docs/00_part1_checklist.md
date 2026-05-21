@@ -197,7 +197,7 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | PostgreSQL: SQL 01–08 | ✅ Alle ausgeführt | 6 Schemas, 26 Tabellen (inkl. `erp.document_references`) |
 | PostgreSQL: MDM-Funktion | ✅ Funktioniert | `BAN_101`/`ban-101`/`BAN-101` → alle → `BAN-101` |
 | PostgreSQL: DWH dim_date | ✅ 1095 Zeilen | 2025-01-01 bis 2027-12-31 |
-| MongoDB: Collections | ✅ 4 Collections | shipment_events (60), node_events (60), batch_tracking (60), order_events (10) |
+| MongoDB: Collections | ✅ 4 Collections | shipment_events (60), node_events (60), batch_tracking (10), order_events (10) |
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
 | Neo4j: Graphmodell | ✅ Nodes + Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
 | MinIO: Buckets + Dokumente | ✅ 4 Buckets | 98 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
@@ -208,7 +208,7 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | System | Einträge geladen |
 |---|---|
 | PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 10 Orders, 10 Batches, 60 Shipments, 112 Positions, 60 Completions, 10 Deliveries |
-| MongoDB | 60 shipment_events (Lifecycle-Dokumente), 60 node_events, 60 batch_tracking, 10 order_events |
+| MongoDB | 60 shipment_events (Lifecycle-Dokumente), 60 node_events, 10 batch_tracking, 10 order_events |
 | Redis | 60 Shipment-Status, 112 Position-Updates, 10 Delivery-Status |
 | Neo4j | 60 Shipments, 10 Orders, 10 Batches + Stammdaten |
 | MinIO (generate_documents.py) | 60 Lieferscheine, 8 Rechnungen, 10 B/L, 10 Zollfreigaben, 10 Qualitätszertifikate → 98 Referenzen gesamt |

@@ -144,8 +144,8 @@ Docker stellt die Datenbank- und Speicherinfrastruktur bereit. Python erzeugt Da
 | `Projektanleitung_Gruppe7_DMA_SoSe26.pdf` | Projektanleitung/Statusbericht mit Befehlen und Zahlen. | Doku | Hoch, aber teils stale | Enthalt Widersprueche zu aktuellen Dateien. |
 | `README.md` | Aktuell generische GitLab-Vorlage. | Doku | Hoch als Risiko | Sollte vor Abgabe projektspezifisch ersetzt werden. |
 | `PROJECT_STATUS.md` | Statusuebersicht mit vielen Nachweisen. | Doku | Hoch | Gute Basis, aber Zaehler/Pruefaussagen teils widerspruechlich. |
-| `dashboard_plausibility.py` | Erzeugt Plausibilitaets-Dashboard aus PostgreSQL-Daten. | Analytics/Hilfe | Mittel | Nutzt PostgreSQL-Queries; eher Teil 2/Reporting. |
-| `dashboard_plausibility.png` | Gerendertes Dashboard-Bild. | Output | Mittel | Ergebnis von `dashboard_plausibility.py`. |
+| `dashboard_plausibility.py` | ~~Erzeugt Plausibilitaets-Dashboard aus PostgreSQL-Daten.~~ **Entfernt 2026-05-21.** | Analytics/Hilfe | — | Datei wurde aus dem Repo geloescht; war kein Teil-1-Kern-Artefakt. |
+| `dashboard_plausibility.png` | ~~Gerendertes Dashboard-Bild.~~ **Entfernt 2026-05-21.** | Output | — | Ergebnis von `dashboard_plausibility.py`; zusammen mit der py-Datei entfernt. |
 | `create_status_report.py` | Erzeugt Statusbericht per ReportLab. | Hilfsdatei/Doku | Mittel | Dokumentationshilfe, nicht Kern-ETL. |
 | `create_guide_pdf.py` | Erzeugt PDF-Guide. | Hilfsdatei/Doku | Mittel | Dokumentationshilfe. |
 | `.claude/skills/dma-banana-supply-chain/SKILL.md` | Projektbezogene Arbeitsregeln fuer KI-Unterstuetzung. | Hilfsdatei | Niedrig bis mittel | Enthalt nuetzliche Projektkonventionen, ist aber kein Datenplattform-Artefakt. |
@@ -932,29 +932,9 @@ Empfehlung:
 - Vor Abgabe nicht unkontrolliert nutzen.
 - Besser ein klares Reset-Skript mit Rueckfrage oder dokumentierter Sicherung erstellen.
 
-### 6.7 `dashboard_plausibility.py`
+### 6.7 `dashboard_plausibility.py` *(entfernt 2026-05-21)*
 
-Zweck:
-
-- Erzeugt ein Plausibilitaets-Dashboard aus PostgreSQL-Daten.
-
-Kategorie:
-
-- Eher Analytics/Reporting, nicht Kern von Teil 1.
-
-Output:
-
-- `dashboard_plausibility.png`
-
-Pruefung:
-
-```bash
-python3 dashboard_plausibility.py
-```
-
-Erwartung:
-
-- Bilddatei wird erzeugt/aktualisiert, sofern PostgreSQL erreichbar ist und Daten vorhanden sind.
+Diese Datei und ihr Output `dashboard_plausibility.png` wurden am 2026-05-21 aus dem Repo geloescht. Sie waren kein Pflichtartefakt von Teil 1, sondern ein fruehes Reporting-Hilfsskript. Die offiziellen Plausibilitaetsnachweise liegen in `sql/08_data_quality_checks.sql` und `sql/09_verification_queries.sql`.
 
 ### 6.8 `create_status_report.py` und `create_guide_pdf.py`
 
