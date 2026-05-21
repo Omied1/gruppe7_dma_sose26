@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.claude/
+claude-code-tips/
+
+# Simulator-Output (generierte JSON-Dateien)
+shared/
+bananasupplychain/shared/
+{database_file}
