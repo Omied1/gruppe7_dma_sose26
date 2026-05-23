@@ -389,16 +389,19 @@ WHERE NOT EXISTS (
     WHERE r.transport_product_reference = s.cargo_product_reference
 );
 
--- 6.3 TMS Shipments: Shipment ohne Carrier
--- Hinweis: carrier_id ist NOT NULL im Schema (Constraint verhindert NULL bereits präventiv).
--- Dieser retrospektive Check verifiziert, dass kein Shipment-Datensatz ohne Carrier vorliegt.
+-- 6.3 TMS Deliveries: SUCCESSFUL-Status trotz delay_minutes > 0 (Konsistenzprüfung)
+-- Der Datengenerator würfelt delivery_status und delay_minutes unabhängig voneinander.
+-- Eine Lieferung mit Status SUCCESSFUL sollte fachlich keine Verzögerung aufweisen.
+-- Verstösse sind ein bekannter Datengenerator-Bug und werden hier dokumentiert.
 SELECT
-    'REFERENZIELLE INTEGRITÄT' AS dimension,
-    'tms.shipments'            AS tabelle,
-    'Shipment ohne Carrier (carrier_id NULL)' AS regel,
+    'KONSISTENZ'               AS dimension,
+    'tms.deliveries'           AS tabelle,
+    'SUCCESSFUL-Delivery mit delay_minutes > 0 (Status-Delay-Inkonsistenz)' AS regel,
     COUNT(*)                   AS verstösse
-FROM tms.shipments
-WHERE carrier_id IS NULL;
+FROM tms.deliveries d
+JOIN tms.transport_completions tc ON tc.shipment_id = d.shipment_id
+WHERE d.delivery_status = 'SUCCESSFUL'
+  AND tc.delay_minutes > 0;
 
 -- =============================================================================
 -- ZUSAMMENFASSUNG: Qualitäts-Score pro Dimension

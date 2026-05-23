@@ -5,7 +5,7 @@
 
 ---
 
-## 1. Architekturüberblick test
+## 1. Architekturüberblick
 
 Die Datenplattform der Banana Supply Chain besteht aus fünf Datenspeichersystemen, die jeweils für eine spezifische Datenkategorie und Nutzungscharakteristik ausgewählt wurden. Die Daten fließen vom Datengenerator (simuliert ERP, WMS, TMS) über JSON-Dateien in die jeweiligen Zielsysteme. Ein späterer ETL-Prozess überführt ausgewählte operative Daten in das Data Warehouse.
 

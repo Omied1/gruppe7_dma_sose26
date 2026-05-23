@@ -168,6 +168,13 @@ def fill_fact_fulfillment(cur):
 
         -- Nur Endlieferungen (INNER JOIN auf tms.deliveries).
         -- Ergibt genau 1 Zeile pro Iteration (DeliveryCompleted an RETAIL_STORE).
+        --
+        -- ETL-Transform: delivery_status wird NICHT aus dem Quellsystem übernommen,
+        -- da der Datengenerator delivery_status und delay_minutes unabhängig würfelt
+        -- (bekannte Inkonsistenz: SUCCESSFUL trotz hoher Verspätung möglich).
+        -- Stattdessen wird der Status im DWH anhand des SLA-Schwellenwerts neu abgeleitet:
+        --   delay_minutes <= 60  →  SUCCESSFUL  (innerhalb SLA)
+        --   delay_minutes >  60  →  DELAYED     (SLA überschritten)
         shipment_enriched AS (
             SELECT
                 sh.shipment_id,
@@ -175,7 +182,11 @@ def fill_fact_fulfillment(cur):
                 sh.target_node,
                 UPPER(sh.cargo_product_reference)           AS product_code,
                 ca.carrier_code,
-                d.delivery_status,
+                -- SLA-Schwellenwert: 60 Minuten (definiert durch Projektteam)
+                CASE WHEN COALESCE(tc.delay_minutes, 0) <= 60
+                     THEN 'SUCCESSFUL'
+                     ELSE 'DELAYED'
+                END                                         AS delivery_status,
                 TO_CHAR(d.delivered_at, 'YYYYMMDD')::INT    AS delivery_date_sk,
                 COALESCE(tc.delay_minutes, 0)               AS delay_minutes
             FROM  tms.shipments                 sh
@@ -234,8 +245,10 @@ def fill_fact_fulfillment(cur):
             pt.avg_temperature,
             6                                       AS num_supply_chain_hops,
             op.delivery_priority                    AS delivery_priority_code,
-            -- Liefertreue-Flag: TRUE nur bei vollständig erfolgreicher, unverzögerter Lieferung
-            (se.delivery_status = 'SUCCESSFUL' AND se.delay_minutes = 0) AS on_time_flag
+            -- Liefertreue-Flag: TRUE wenn delay_minutes <= 60 (SLA-Schwellenwert).
+            -- Einheitliche Logik mit delivery_status-Ableitung oben:
+            -- beide Felder basieren auf demselben Schwellenwert → kein Widerspruch.
+            (se.delay_minutes <= 60) AS on_time_flag
         FROM  shipment_enriched          se
         -- Order pro Produkt: deterministisches Mapping per Shipment-Reihenfolge.
         -- MOD nutzt die Anzahl der Orders pro Produkt, damit auch der 6. Hop

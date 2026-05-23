@@ -13,18 +13,20 @@
 
 In der Banana Supply Chain arbeiten drei unabhängige IT-Systeme zusammen – ERP, WMS und TMS. Jedes System verwaltet dieselben Stammdaten (Produkte, Carrier) unter eigenen, systemspezifischen Schlüsselformaten:
 
-| Entität | ERP (kanonisch) | WMS | TMS |
-|---|---|---|---|
-| Produkt | `BAN-101` | `BAN_101` | `ban-101` |
-| Produkt | `BAN-108` | `BAN_108` | `ban-108` |
+| Entität | ERP (kanonisch) | WMS       | TMS       |
+| ------- | --------------- | --------- | --------- |
+| Produkt | `BAN-101`       | `BAN_101` | `ban-101` |
+| Produkt | `BAN-108`       | `BAN_108` | `ban-108` |
 
 Diese Inkonsistenz ist **im Datengenerator bewusst implementiert** (`MASTERDATA_INCONSISTENCY_MODE = "targeted"`):
+
 - WMS ersetzt Bindestriche durch Unterstriche
 - TMS schreibt alles in Kleinbuchstaben
 
 **Folge ohne MDM:** Eine Frage wie „Welche Transporte betreffen das Produkt BAN-101?" kann nicht systemübergreifend beantwortet werden, weil TMS nur `ban-101` kennt und WMS nur `BAN_101`. Ein direkter String-Vergleich würde alle Verknüpfungen zwischen ERP-Orders und TMS-Shipments zerstören.
 
 **Lösung durch MDM:**
+
 - Ein **Golden Record** pro Entität enthält den kanonischen Schlüssel (ERP-Format)
 - **Source Mappings** verknüpfen systemspezifische Schlüssel mit dem Golden Record
 - Eine **Hilfsfunktion** (`mdm.resolve_canonical_key()`) löst beliebige Quellschlüssel auf den kanonischen Wert auf
@@ -37,13 +39,13 @@ Diese Inkonsistenz ist **im Datengenerator bewusst implementiert** (`MASTERDATA_
 
 Definiert, welche Stammdatenentitäten im MDM verwaltet werden:
 
-| Entitätstyp | Beschreibung | Primäres Quellsystem |
-|---|---|---|
-| `PRODUCT` | Bananensorten (BAN-101 bis BAN-110) | ERP |
-| `SUPPLIER` | Ghanaische Bananenlieferanten (SUP-101 bis SUP-110) | ERP |
-| `CUSTOMER` | Einzelhandelsunternehmen (CUST-101 bis CUST-110) | ERP |
-| `CARRIER` | Transportdienstleister (CAR-101 bis CAR-105) | TMS |
-| `SUPPLY_CHAIN_NODE` | Physische Stationen der Lieferkette | WMS |
+| Entitätstyp         | Beschreibung                                        | Primäres Quellsystem |
+| ------------------- | --------------------------------------------------- | -------------------- |
+| `PRODUCT`           | Bananensorten (BAN-101 bis BAN-110)                 | ERP                  |
+| `SUPPLIER`          | Ghanaische Bananenlieferanten (SUP-101 bis SUP-110) | ERP                  |
+| `CUSTOMER`          | Einzelhandelsunternehmen (CUST-101 bis CUST-110)    | ERP                  |
+| `CARRIER`           | Transportdienstleister (CAR-101 bis CAR-105)        | TMS                  |
+| `SUPPLY_CHAIN_NODE` | Physische Stationen der Lieferkette                 | WMS                  |
 
 ### 2.2 Golden Records (`mdm.golden_records`)
 
@@ -91,6 +93,7 @@ mapping_id | golden_id | source_system | source_key | normalized_key | is_canoni
 ### 3.1 Normalisierungsalgorithmus
 
 Zur systemübergreifenden Suche wird ein normalisierter Schlüssel verwendet:
+
 ```python
 def normalize_key(value: str) -> str:
     return value.strip().lower().replace("_", "-")
@@ -202,21 +205,21 @@ Die MDM-Tabellen (`mdm.golden_records`, `mdm.source_mappings`) erfüllen in dies
 
 Nach Ausführung von `sql/05_create_mdm_tables.sql` oder `etl_load.py` ist die MDM vollständig befüllt:
 
-| Tabelle | Inhalt | Anzahl |
-|---|---|---|
-| `mdm.entity_types` | 5 Entity-Typen | 5 |
-| `mdm.golden_records` | Alle Stammdaten-Entitäten | 42 |
-| `mdm.source_mappings` | Alle Quellsystem-Schlüssel | 69 |
+| Tabelle               | Inhalt                     | Anzahl |
+| --------------------- | -------------------------- | ------ |
+| `mdm.entity_types`    | 5 Entity-Typen             | 5      |
+| `mdm.golden_records`  | Alle Stammdaten-Entitäten  | 42     |
+| `mdm.source_mappings` | Alle Quellsystem-Schlüssel | 69     |
 
 **Golden Records aufgeschlüsselt:**
 
-| Entity-Typ | Anzahl | Systeme mit Mapping | Inkonsistenz? |
-|---|---|---|---|
-| PRODUCT | 10 | ERP + WMS + TMS | Ja: `BAN-NNN` / `BAN_NNN` / `ban-nnn` |
-| CUSTOMER | 10 | ERP | Nein |
-| SUPPLIER | 10 | ERP | Nein |
-| CARRIER | 5 | TMS | Nein |
-| SUPPLY_CHAIN_NODE | 7 | WMS + TMS | Nein (identische Codes) |
+| Entity-Typ        | Anzahl | Systeme mit Mapping | Inkonsistenz?                         |
+| ----------------- | ------ | ------------------- | ------------------------------------- |
+| PRODUCT           | 10     | ERP + WMS + TMS     | Ja: `BAN-NNN` / `BAN_NNN` / `ban-nnn` |
+| CUSTOMER          | 10     | ERP                 | Nein                                  |
+| SUPPLIER          | 10     | ERP                 | Nein                                  |
+| CARRIER           | 5      | TMS                 | Nein                                  |
+| SUPPLY_CHAIN_NODE | 7      | WMS + TMS           | Nein (identische Codes)               |
 
 **Source Mappings aufgeschlüsselt:** ERP=30 (10 Prod + 10 Cust + 10 Sup), WMS=17 (10 Prod + 7 Node), TMS=22 (10 Prod + 5 Car + 7 Node).
 
@@ -265,15 +268,16 @@ Im ETL-Skript wird `normalize_key()` vor dem DB-Insert angewendet, sodass unbeka
 
 `load_mdm()` muss nach `load_postgres()` ausgeführt werden, da die Funktion direkt aus den operativen Tabellen liest:
 
-| Abhängigkeit | Tabelle | Genutzt von |
-|---|---|---|
-| ERP-Produkte | `erp.products` | PRODUCT-Golden-Records |
-| ERP-Kunden | `erp.customers` | CUSTOMER-Golden-Records |
-| ERP-Lieferanten | `erp.suppliers` | SUPPLIER-Golden-Records |
-| TMS-Carrier | `tms.carriers` | CARRIER-Golden-Records |
-| WMS-Knoten | `wms.supply_chain_nodes` | SUPPLY_CHAIN_NODE-Golden-Records |
+| Abhängigkeit    | Tabelle                  | Genutzt von                      |
+| --------------- | ------------------------ | -------------------------------- |
+| ERP-Produkte    | `erp.products`           | PRODUCT-Golden-Records           |
+| ERP-Kunden      | `erp.customers`          | CUSTOMER-Golden-Records          |
+| ERP-Lieferanten | `erp.suppliers`          | SUPPLIER-Golden-Records          |
+| TMS-Carrier     | `tms.carriers`           | CARRIER-Golden-Records           |
+| WMS-Knoten      | `wms.supply_chain_nodes` | SUPPLY_CHAIN_NODE-Golden-Records |
 
 ETL-Reihenfolge in `etl_load.py`:
+
 ```
 [3/8] load_postgres()   ← befüllt erp.*, wms.*, tms.*
 [4/8] load_mdm()        ← liest daraus und erzeugt Golden Records

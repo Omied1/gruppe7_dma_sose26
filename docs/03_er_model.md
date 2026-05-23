@@ -256,11 +256,13 @@ Ein Carrier (`tms.carriers`) führt viele Transporte (`tms.shipments`) durch. Je
 ### 2.7 TMS: Shipment → Positions → Completions → Deliveries
 
 Ein Shipment (`tms.shipments`) hat einen vollständigen Lifecycle:
+
 - 1-3 GPS-Positionen (`tms.shipment_positions`)
 - Genau **einen** Transportabschluss (`tms.transport_completions`) mit `delay_minutes`
 - Optional **eine** Lieferung (`tms.deliveries`) – nur für Transporte zum `RETAIL_STORE`
 
-**Kardinalität:** 
+**Kardinalität:**
+
 - `1 Shipment : 1–3 Positions`
 - `1 Shipment : 1 Completion`
 - `1 Shipment : 0–1 Delivery`
@@ -281,14 +283,14 @@ Ein Shipment (`tms.shipments`) hat einen vollständigen Lifecycle:
 
 Diese Beziehungen bestehen fachlich, sind aber aus Architekturgrün­den nicht als PostgreSQL-Fremdschlüssel deklariert (Cross-Schema-Referenzen würden Schema-Abhängigkeiten erzeugen, die Deployments erschweren):
 
-| Von | Feld | Zu | Typ |
-|---|---|---|---|
-| `wms.node_processings` | `batch_reference` | `erp.batches.batch_identifier` | Logische Referenz |
-| `wms.warehouse_skus` | `erp_product_code` | `erp.products.product_code` | Logische Referenz |
-| `tms.transport_product_references` | `erp_product_code` | `erp.products.product_code` | Logische Referenz |
-| `tms.shipments` | `cargo_product_reference` | `tms.transport_product_references` | Logische Referenz |
-| `erp.batches` | `wms_sku` | `wms.warehouse_skus.sku` | Redundant via MDM |
-| `erp.document_references` | `entity_key` | `erp.orders.order_reference` / `erp.batches.batch_identifier` | polymorphe Referenz (kein FK) |
+| Von                                | Feld                      | Zu                                                            | Typ                           |
+| ---------------------------------- | ------------------------- | ------------------------------------------------------------- | ----------------------------- |
+| `wms.node_processings`             | `batch_reference`         | `erp.batches.batch_identifier`                                | Logische Referenz             |
+| `wms.warehouse_skus`               | `erp_product_code`        | `erp.products.product_code`                                   | Logische Referenz             |
+| `tms.transport_product_references` | `erp_product_code`        | `erp.products.product_code`                                   | Logische Referenz             |
+| `tms.shipments`                    | `cargo_product_reference` | `tms.transport_product_references`                            | Logische Referenz             |
+| `erp.batches`                      | `wms_sku`                 | `wms.warehouse_skus.sku`                                      | Redundant via MDM             |
+| `erp.document_references`          | `entity_key`              | `erp.orders.order_reference` / `erp.batches.batch_identifier` | polymorphe Referenz (kein FK) |
 
 Diese Cross-Referenzen werden durch das **MDM-Schema** harmonisiert (siehe `docs/04_masterdata_management.md`).
 
@@ -297,6 +299,7 @@ Diese Cross-Referenzen werden durch das **MDM-Schema** harmonisiert (siehe `docs
 ## 4. Normalisierungsstufe
 
 Alle Tabellen sind in der **3. Normalform (3NF)**:
+
 - **1NF:** Alle Attribute atomar (keine Arrays; items[] aus OrderCreated wurde in `order_items` normalisiert)
 - **2NF:** Alle Nicht-Schlüsselattribute hängen vom vollständigen Primärschlüssel ab
 - **3NF:** Keine transitiven Abhängigkeiten (z. B. `customer_city` liegt in `customers`, nicht in `orders`)
