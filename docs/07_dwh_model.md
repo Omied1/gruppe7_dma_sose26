@@ -156,9 +156,9 @@ Diese Granularität stellt sicher, dass `SUM(total_value)` den tatsächlichen Ge
 | `delay_minutes` | INT | Gesamtverzögerung der Endlieferung in Minuten | RATIO | On-Time-Delivery-Rate, Carrier-Performance |
 | `avg_temperature` | NUMERIC(5,2) | Ø Containertemperatur über alle Knotenverarbeitungen des Batches | INTERVAL | Kühlketten-Compliance (10–15 °C) |
 | `num_supply_chain_hops` | INT | Anzahl Transportetappen der Supply Chain (Konstante: 6) | RATIO | Prozessanalyse, Abweichungserkennung |
-| `on_time_flag` | BOOLEAN | TRUE = SUCCESSFUL + delay_minutes = 0 | NOMINAL | Direktes Liefertreue-Flag für PowerBI |
+| `on_time_flag` | BOOLEAN | TRUE = delay_minutes ≤ 60 (SLA-konform) | NOMINAL | Direktes Liefertreue-Flag für PowerBI |
 
-`on_time_flag` ist ein abgeleitetes KPI-Flag, das im ETL aus `delivery_status` und `delay_minutes` berechnet wird. Da `fact_fulfillment` ausschließlich Endlieferungen enthält, ist `on_time_flag` für jede Zeile eindeutig bestimmbar (kein `NULL` durch `IN_TRANSIT`-Zeilen).
+`on_time_flag` ist ein abgeleitetes KPI-Flag, das im ETL ausschließlich aus `delay_minutes` berechnet wird – nicht aus dem TMS-Rohstatus `delivery_status`. Hintergrund: Der Datengenerator setzt `delivery_status` unabhängig von `delay_minutes`, was zu Inkonsistenzen führt (bekannter Datengenerator-Bug, Regel 6.3 in `08b_dq_audit.sql`). Der SLA-Schwellenwert beträgt **60 Minuten** (`delay_minutes <= 60 → TRUE`). Da `fact_fulfillment` ausschließlich abgeschlossene Lieferungen enthält, ist `on_time_flag` für jede Zeile eindeutig bestimmbar (kein `NULL`).
 
 ---
 
@@ -228,7 +228,15 @@ erp.*, wms.*, tms.*       →    dwh.dim_* (idempotent, ON CONFLICT DO NOTHING)
 | `tms.transport_completions` | JOIN auf shipment_id → `delay_minutes` | `fact_fulfillment.delay_minutes` |
 | `wms.node_processings` | AVG(temperature) pro Produktcode | `fact_fulfillment.avg_temperature` |
 | `erp.orders` + `erp.order_items` | JOIN über product_code → Bestellwert | `fact_fulfillment.quantity / unit_price / total_value` |
-| Berechnet | `delivery_status = 'SUCCESSFUL' AND delay_minutes = 0` | `fact_fulfillment.on_time_flag` |
+| Berechnet | `delay_minutes <= 60` (SLA-Schwellenwert 60 min, unabhängig vom TMS-Rohstatus) | `fact_fulfillment.on_time_flag` |
+
+### Bekannte Einschränkungen des ETL
+
+**1. Bestellzuordnung (order_rn = 1):**  
+Jedes Produkt kann mehrere Bestellungen (Orders) haben. Das ETL bildet jeden Shipment auf die chronologisch erste Bestellung pro Produkt ab (`order_rn = 1`). Wenn für ein Produkt mehr Shipments als Bestellungen existieren, werden mehrere Shipments auf dieselbe Bestellung gemappt. Konsequenz: `SUM(fact_fulfillment.total_value)` entspricht **nicht** dem ERP-Gesamtumsatz (`SUM(order_items.quantity × unit_price)`). Der DWH-Grain ist der Fulfillment-Vorgang (Shipment → Lieferung), nicht die Buchhaltungs-Bestellposition.
+
+**2. Verzögerungsminuten (delay_minutes):**  
+`fact_fulfillment.delay_minutes` enthält die Verzögerung des **finalen Transports** (letzter Shipment pro Fulfillment-Kette), nicht die Summe über alle Hops. Die Kühlkette hat 6 Knoten, aber nur ein `TransportCompleted`-Event pro Batch wird für den DWH-Grain verwendet.
 
 ### Idempotenz
 
@@ -255,7 +263,8 @@ Drei vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenque
 
 ### `dwh.v_carrier_performance`
 **Grain:** 1 Zeile pro Carrier  
-**Felder:** `carrier_code`, `carrier_name`, `total_hops`, `on_time_count`, `delayed_count`, `otd_rate_pct`, `avg_delay_minutes`, `max_delay_minutes`  
+**Felder:** `carrier_code`, `carrier_name`, `total_fulfillments` (Anzahl Fact-Zeilen je Carrier, früher fälschlich `total_hops`), `on_time_count`, `delayed_count`, `otd_rate_pct`, `avg_delay_minutes`, `max_delay_minutes`  
+**Hinweis:** Nur Carrier mit mindestens einem Fulfillment-Datensatz erscheinen in der View. Carrier ohne Shipments (z. B. wenn ein Carrier ausschließlich via LEFT JOIN eingebunden ist) sind nicht sichtbar.  
 **Verwendung:** PowerBI KPI-Card „OTD-Rate", Python-Histogramm „Verzögerungen nach Carrier"
 
 ### `dwh.v_kpi_summary`

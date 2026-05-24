@@ -2,8 +2,9 @@
 -- 08b_dq_audit.sql
 -- Konsolidierte Datenqualitäts-Auditierung
 --
--- Liefert EINE Ergebnistabelle mit allen 28 DQ-Checks aus 08_data_quality_checks.sql
+-- Liefert EINE Ergebnistabelle mit allen 33 DQ-Checks aus 08_data_quality_checks.sql
 -- für eine schnelle Übersicht. Sortiert nach Dimension und Verstössen.
+-- Hinweis: Regel 5.0 (Stammdaten event_timestamp) prüft 4 Tabellen → 4 Zeilen (pos 23–26).
 --
 -- Spaltenformat:
 --   dimension  - eine der 6 DQ-Dimensionen
@@ -65,15 +66,15 @@ WITH dq AS (
             ) x)
 
     -- ── 3. KONSISTENZ ─────────────────────────────────────────────────────────
-    -- 3.1 / 3.2: SKUs werden im ETL durch normalize_key() bereits auf ERP-Format
-    -- gebracht. Die MDM-Auflösung erfolgt daher über normalized_key, nicht über
-    -- source_key (das speichert das System-Originalformat).
+    -- 3.1: Prüfung über source_key = w.sku (WMS-Format BAN_101).
+    -- mdm.source_mappings.source_key speichert den Originalschlüssel je Quellsystem,
+    -- daher direkter Vergleich ohne REPLACE-Transformation.
     UNION ALL SELECT 10, 'KONSISTENZ', '3.1',
-           'wms.warehouse_skus', 'SKU ohne MDM-Mapping (über normalized_key)',
+           'wms.warehouse_skus', 'SKU ohne MDM-Mapping',
            (SELECT COUNT(*) FROM wms.warehouse_skus w
             WHERE NOT EXISTS (SELECT 1 FROM mdm.source_mappings sm
-                              WHERE sm.source_system  = 'WMS'
-                                AND sm.normalized_key = LOWER(REPLACE(w.sku, '_', '-'))))
+                              WHERE sm.source_system = 'WMS'
+                                AND sm.source_key    = w.sku))
     UNION ALL SELECT 11, 'KONSISTENZ', '3.2',
            'tms.transport_product_references', 'TMS-Referenz ohne MDM-Mapping (über normalized_key)',
            (SELECT COUNT(*) FROM tms.transport_product_references t
@@ -136,18 +137,36 @@ WITH dq AS (
             WHERE speed_kmh IS NOT NULL AND (speed_kmh > 200 OR speed_kmh < 0))
 
     -- ── 5. AKTUALITÄT ─────────────────────────────────────────────────────────
-    UNION ALL SELECT 23, 'AKTUALITÄT', '5.1',
+    -- Regel 5.0 aus 08_data_quality_checks.sql: Stammdaten event_timestamp ausserhalb 2026.
+    -- 4 Unterprüfungen – eine je Tabelle mit event_timestamp-Spalte (pos 23–26).
+    UNION ALL SELECT 23, 'AKTUALITÄT', '5.0',
+           'erp.suppliers', 'event_timestamp ausserhalb 2026',
+           (SELECT COUNT(*) FROM erp.suppliers
+            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+    UNION ALL SELECT 24, 'AKTUALITÄT', '5.0',
+           'erp.customers', 'event_timestamp ausserhalb 2026',
+           (SELECT COUNT(*) FROM erp.customers
+            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+    UNION ALL SELECT 25, 'AKTUALITÄT', '5.0',
+           'erp.products', 'event_timestamp ausserhalb 2026',
+           (SELECT COUNT(*) FROM erp.products
+            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+    UNION ALL SELECT 26, 'AKTUALITÄT', '5.0',
+           'tms.carriers', 'event_timestamp ausserhalb 2026',
+           (SELECT COUNT(*) FROM tms.carriers
+            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+    UNION ALL SELECT 27, 'AKTUALITÄT', '5.1',
            'tms', 'TransportCompleted vor TransportStarted',
            (SELECT COUNT(*) FROM tms.transport_completions tc
             JOIN tms.shipments s ON s.shipment_id = tc.shipment_id
             WHERE tc.completed_at < s.started_at)
     -- Bugfix Check 5.2: erp.batches hat KEIN order_id-Feld (BatchHarvested enthält keine Bestellreferenz).
     -- Geändert von "BatchHarvested vor OrderCreated" zu Plausibilitätsprüfung des Erntezeitpunkts.
-    UNION ALL SELECT 24, 'AKTUALITÄT', '5.2',
+    UNION ALL SELECT 28, 'AKTUALITÄT', '5.2',
            'erp.batches', 'harvested_at außerhalb Projektlaufzeit (2026)',
            (SELECT COUNT(*) FROM erp.batches
             WHERE harvested_at < '2026-01-01' OR harvested_at > NOW() + INTERVAL '1 day')
-    UNION ALL SELECT 25, 'AKTUALITÄT', '5.3',
+    UNION ALL SELECT 29, 'AKTUALITÄT', '5.3',
            'erp.orders', 'Order > 90 Tage ohne Delivery',
            (SELECT COUNT(*) FROM erp.orders o
             WHERE o.order_timestamp < NOW() - INTERVAL '90 days'
@@ -161,21 +180,35 @@ WITH dq AS (
                   WHERE  oi.order_id = o.order_id))
 
     -- ── 6. REFERENZIELLE INTEGRITÄT ───────────────────────────────────────────
-    UNION ALL SELECT 26, 'REF. INTEGRITÄT', '6.1',
+    UNION ALL SELECT 30, 'REF. INTEGRITÄT', '6.1',
            'wms.node_processings', 'batch_reference ohne erp.batches',
            (SELECT COUNT(*) FROM wms.node_processings np
             WHERE NOT EXISTS (SELECT 1 FROM erp.batches b
                               WHERE b.batch_identifier = np.batch_reference))
-    UNION ALL SELECT 27, 'REF. INTEGRITÄT', '6.2',
+    UNION ALL SELECT 31, 'REF. INTEGRITÄT', '6.2',
            'tms.shipments', 'cargo_product_reference ohne tms.transport_product_references',
            (SELECT COUNT(*) FROM tms.shipments s
             WHERE NOT EXISTS (SELECT 1 FROM tms.transport_product_references r
                               WHERE r.transport_product_reference = s.cargo_product_reference))
-    -- Hinweis: carrier_id ist NOT NULL im Schema (DB-Constraint verhindert NULL bereits).
-    -- Dieser Check verifiziert retrospektiv, dass kein Shipment ohne Carrier vorliegt.
-    UNION ALL SELECT 28, 'REF. INTEGRITÄT', '6.3',
-           'tms.shipments', 'Shipment ohne Carrier (carrier_id NULL)',
-           (SELECT COUNT(*) FROM tms.shipments WHERE carrier_id IS NULL)
+    -- Check 6.3: Status-Inkonsistenz mit 60-min-SLA (Datengenerator-Bug).
+    -- Fall A: TMS=SUCCESSFUL, delay_minutes > 60 (SLA verletzt → DWH korrigiert zu DELAYED)
+    -- Fall B: TMS=DELAYED, delay_minutes <= 60 (innerhalb SLA → DWH korrigiert zu SUCCESSFUL)
+    -- Verstösse sind erwartet und dokumentiert; Korrektur erfolgt in etl_dwh.py.
+    UNION ALL SELECT 32, 'KONSISTENZ', '6.3',
+           'tms.deliveries', 'Status-Inkonsistenz mit 60-min-SLA (TMS-Rohstatus vs. SLA-korrigierter Status)',
+           (SELECT COUNT(*) FROM tms.deliveries d
+            JOIN tms.transport_completions tc ON tc.shipment_id = d.shipment_id
+            WHERE (d.delivery_status = 'SUCCESSFUL' AND tc.delay_minutes > 60)
+               OR (d.delivery_status = 'DELAYED'    AND tc.delay_minutes <= 60))
+    -- Check 6.4: Carrier/Transport-Mode-Inkonsistenz (Datengenerator-Bug).
+    -- Reedereien (CAR-102/103/105) dürfen nicht auf TRUCK-Strecken erscheinen;
+    -- Landcarrier (CAR-101/104) nicht auf SEA_FREIGHT-Strecken.
+    UNION ALL SELECT 33, 'KONSISTENZ', '6.4',
+           'tms.shipments', 'Seefracht-Carrier auf TRUCK-Route oder Landcarrier auf SEA_FREIGHT',
+           (SELECT COUNT(*) FROM tms.shipments s
+            JOIN tms.carriers c ON c.carrier_id = s.carrier_id
+            WHERE (c.carrier_code IN ('CAR-102','CAR-103','CAR-105') AND s.transport_mode = 'TRUCK')
+               OR (c.carrier_code IN ('CAR-101','CAR-104') AND s.transport_mode = 'SEA_FREIGHT'))
 )
 SELECT
     dimension,

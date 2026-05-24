@@ -125,6 +125,12 @@ Bereich:   100 – 1000 Einheiten laut Datengenerator
 Verstoß:   Menge ≤ 0 → ungültige Bestellung
 ```
 
+> **Hinweis zur Constraint-Trennung:** Der DB-CHECK-Constraint prüft `quantity > 0`
+> (strukturelle Gültigkeit). Der domänenspezifische Bereich 100–1000 Einheiten ist eine
+> fachliche Geschäftsregel und wird bewusst nur im DQ-Check (nicht im Schema) geprüft,
+> um das Datenbankschema nicht zu überspecifizieren. Diese Trennung ist architektonisch
+> korrekt: Constraints = Strukturregeln, DQ-Checks = Geschäftsregeln.
+
 #### Regel PQ-02: Preise im plausiblen Bereich
 ```
 Spalte:    erp.order_items.unit_price
@@ -133,6 +139,11 @@ Bereich:   Aus Datengenerator: uniform(1.5, 5.0) EUR
 Verstoß:   Preis > 5.00 EUR → ungewöhnlich teuer für Bananen
            Preis < 1.50 EUR → unter Marktpreis, möglicher Fehler
 ```
+
+> **Hinweis zur Constraint-Trennung:** Der DB-CHECK-Constraint prüft `unit_price > 0`
+> (strukturelle Gültigkeit). Der Preisbereich 1.50–5.00 EUR ist eine fachliche
+> Domänenregel (Marktpreisspanne für Bananen) und wird nur im DQ-Check erzwungen.
+> Gleiche Trennung wie bei PQ-01: Constraints = Struktur, DQ-Checks = Geschäftslogik.
 
 #### Regel PQ-03: Kühlkette (kritisch!)
 ```
@@ -217,6 +228,15 @@ Prüfung: tms.shipments.cargo_product_reference → tms.transport_product_refere
 Verstoß: Shipment mit unbekanntem Produkt → MDM-Mapping fehlt
 ```
 
+> **Bekannte Einschränkung – RETAIL_STORE ohne NodeProcessed-Events:**
+> Der Knoten `RETAIL_STORE` ist in `wms.supply_chain_nodes` (und im MDM) als 7. Station
+> modelliert, erzeugt aber **keine** `NodeProcessed`-Events. Der Retail Store liegt außerhalb
+> des WMS-Verantwortungsbereichs. Die finale Bestätigung der Warenübergabe erfolgt
+> ausschließlich über das TMS-Event `DeliveryCompleted`. Dies ist fachlich korrekt und
+> bewusst so gestaltet – nicht ein Fehler im Datengenerator.
+> **Konsequenz für DQ-Check RI-01:** Batch-Referenzen werden nur für die 6 WMS-Knoten
+> geprüft; `RETAIL_STORE` hat per Design keinen Eintrag in `wms.node_processings`.
+
 ---
 
 ## 3. Datenqualitäts-Dashboard (konzeptuell)
@@ -226,16 +246,39 @@ Konsolidierte Ausführung: `docker exec -i postgres psql -U user -d logistics < 
 
 ```
 DQ-Dimension     | Regeln | Verstösse (nach ETL) | Status
------------------|--------|----------------------|--------
+-----------------|--------|----------------------|---------------
 Vollständigkeit  |   5    | 0                    | PASS
 Eindeutigkeit    |   4    | 0                    | PASS
-Konsistenz       |   4    | 0                    | PASS
+Konsistenz       |   5    | n > 0  (Regel 6.3)*  | FAIL*
 Plausibilität    |   9    | 0                    | PASS
-Aktualität       |   3    | 0                    | PASS
-Ref. Integrität  |   3    | 0                    | PASS
-─────────────────────────────────────────────────────────
-Gesamt           |  28    | 0                    | 100 %
+Aktualität       |   7    | 0                    | PASS
+Ref. Integrität  |   2    | 0                    | PASS
+─────────────────────────────────────────────────────────────────
+Gesamt           |  32    | n > 0  (Regel 6.3)*  | 31/32 PASS
 ```
+
+**\* Regel 6.3 – erwarteter FAIL (dokumentierte Datengenerator-Inkonsistenz):**
+Der Datengenerator würfelt `delivery_status` und `delay_minutes` unabhängig voneinander.
+Dadurch entstehen zwei Typen von Inkonsistenzen:
+
+- **Fall A:** `delivery_status = 'SUCCESSFUL'` obwohl `delay_minutes > 60` → SLA verletzt, DWH korrigiert zu DELAYED
+- **Fall B:** `delivery_status = 'DELAYED'` obwohl `delay_minutes ≤ 60` → innerhalb SLA, DWH korrigiert zu SUCCESSFUL
+
+Die SQL-Prüfung in `08b_dq_audit.sql` (Regel 6.3) erfasst beide Fälle anhand des SLA-Schwellenwerts von 60 Minuten.
+
+Dieser FAIL ist **absichtlich nicht korrigiert im operativen System** – die Rohdaten bleiben
+erhalten, um den Ausgangszustand nachvollziehbar zu dokumentieren.
+
+Korrektur erfolgt in **ETL Phase 2** (`bananasupplychain/etl_dwh.py`): Der `delivery_status`
+wird im DWH nicht aus `tms.deliveries` übernommen, sondern anhand des SLA-Schwellenwerts
+neu abgeleitet:
+
+```
+delay_minutes ≤ 60  →  SUCCESSFUL  (innerhalb SLA)
+delay_minutes >  60  →  DELAYED     (SLA überschritten)
+```
+
+Das DWH enthält damit konsistente Werte; das operative System dokumentiert den Datengenerator-Bug.
 
 Detailanzeige mit FAIL-Hervorhebung und fachlicher Interpretation: `docs/13_data_quality_results.md`
 

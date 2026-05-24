@@ -141,9 +141,14 @@ def fill_fact_fulfillment(cur):
 
     cur.execute("""
         WITH
-        -- Order-Positionen mit allen Kontextspalten, deterministisch ranked
-        -- pro Produktcode, sodass mehrere Shipments für dasselbe Produkt
-        -- auf unterschiedliche Bestellungen abgebildet werden können.
+        -- Order-Positionen mit allen Kontextspalten, deterministisch ranked pro Produktcode.
+        -- DESIGN-ENTSCHEIDUNG: Jedes Produkt kann mehrere Bestellungen haben (1:N).
+        -- Das ETL bildet JEDEN Shipment auf die ERSTE (älteste) Bestellung pro Produkt ab
+        -- (order_rn = 1). Dies ist eine bewusste Vereinfachung: die Faktentabelle
+        -- modelliert den Fulfillment-Prozess (Shipment → Lieferung), nicht die Buchführung
+        -- (Bestellung → Rechnung). Konsequenz: fact_fulfillment.total_value entspricht
+        -- NICHT dem ERP-Gesamtumsatz, wenn ein Produkt mehr Shipments als Bestellungen hat.
+        -- Dokumentiert in docs/07_dwh_model.md (Bekannte Einschränkungen).
         order_per_product AS (
             SELECT
                 p.product_code,
@@ -253,6 +258,10 @@ def fill_fact_fulfillment(cur):
         -- Order pro Produkt: deterministisches Mapping per Shipment-Reihenfolge.
         -- MOD nutzt die Anzahl der Orders pro Produkt, damit auch der 6. Hop
         -- desselben Produkts eine gültige Order findet.
+        -- order_rn = 1: Immer die älteste Bestellung pro Produkt – vereinfachtes 1:1-Mapping.
+        -- Wenn Shipment-Anzahl > Order-Anzahl für ein Produkt, entstehen Fact-Duplikate für
+        -- dieselbe Bestellung. Dies ist akzeptiert, da der DWH-Grain Fulfillment (Shipment),
+        -- nicht Bestellposition ist.
         JOIN  order_per_product          op  ON op.product_code  = se.product_code
                                             AND op.order_rn      = 1
         JOIN  product_temperature        pt  ON pt.product_code  = se.product_code

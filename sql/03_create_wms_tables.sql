@@ -52,20 +52,22 @@ CREATE TABLE IF NOT EXISTS wms.supply_chain_nodes (
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE  wms.supply_chain_nodes IS 'Stammdaten aller Supply-Chain-Knoten. sequence_order definiert die logische Reihenfolge im Prozessfluss.';
+COMMENT ON TABLE  wms.supply_chain_nodes IS 'Stammdaten aller Supply-Chain-Knoten. sequence_order definiert die logische Reihenfolge im Prozessfluss. Hinweis: RETAIL_STORE ist als Knoten modelliert, erzeugt aber keine NodeProcessed-Events – der Retail Store liegt außerhalb des WMS-Verantwortungsbereichs und wird ausschließlich über TMS DeliveryCompleted-Events abgebildet.';
 COMMENT ON COLUMN wms.supply_chain_nodes.node_code      IS 'Interner Code wie im Datengenerator: BANANA_PLANTATION, COLLECTION_CENTER, etc.';
 COMMENT ON COLUMN wms.supply_chain_nodes.sequence_order IS 'Reihenfolge im Supply-Chain-Flow: 1=Plantation, 2=Collection, ..., 7=Retail.';
 
 -- Stammdaten: Knoten der Banana Supply Chain
+-- node_name entspricht dem kanonischen Namen aus mdm.golden_records (05_create_mdm_tables.sql).
+-- Änderungen hier müssen mit MDM-Seed-Daten und etl_load.py (_SUPPLY_CHAIN_NODES) abgestimmt sein.
 INSERT INTO wms.supply_chain_nodes (node_code, node_name, node_type, region, sequence_order)
 VALUES
-    ('BANANA_PLANTATION',   'Banana Plantation',   'PLANTATION',        'Africa',  1),
-    ('COLLECTION_CENTER',   'Collection Center',   'COLLECTION_CENTER', 'Africa',  2),
-    ('QUALITY_CONTROL',     'Quality Control',     'QUALITY_CONTROL',   'Africa',  3),
-    ('AFRICA_COLD_STORAGE', 'Africa Cold Storage', 'COLD_STORAGE',      'Africa',  4),
-    ('EUROPE_COLD_STORAGE', 'Europe Cold Storage', 'COLD_STORAGE',      'Europe',  5),
-    ('CENTRAL_WAREHOUSE',   'Central Warehouse',   'WAREHOUSE',         'Europe',  6),
-    ('RETAIL_STORE',        'Retail Store',        'RETAIL',            'Europe',  7)
+    ('BANANA_PLANTATION',   'Banana Plantation Ghana', 'PLANTATION',        'Africa',  1),
+    ('COLLECTION_CENTER',   'Collection Center',       'COLLECTION_CENTER', 'Africa',  2),
+    ('QUALITY_CONTROL',     'Quality Control Station', 'QUALITY_CONTROL',   'Africa',  3),
+    ('AFRICA_COLD_STORAGE', 'Africa Cold Storage',     'COLD_STORAGE',      'Africa',  4),
+    ('EUROPE_COLD_STORAGE', 'Europe Cold Storage',     'COLD_STORAGE',      'Europe',  5),
+    ('CENTRAL_WAREHOUSE',   'Central Warehouse',       'WAREHOUSE',         'Europe',  6),
+    ('RETAIL_STORE',        'Retail Store',            'RETAIL',            'Europe',  7)
 ON CONFLICT (node_code) DO NOTHING;
 
 -- -----------------------------------------------------------------------------

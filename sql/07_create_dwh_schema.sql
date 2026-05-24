@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS dwh.fact_fulfillment (
     delivery_priority_code  VARCHAR(10),                    -- HIGH / NORMAL / LOW
 
     -- Abgeleitete KPI-Flags (berechnet im ETL, vermeidet redundante CASE-Logik in Analytics)
-    on_time_flag            BOOLEAN,                        -- TRUE = SUCCESSFUL + delay_minutes = 0
+    on_time_flag            BOOLEAN,                        -- TRUE = delay_minutes <= 60 (SLA-konform)
 
     -- ETL-Metadaten
     etl_loaded_at           TIMESTAMP       NOT NULL DEFAULT NOW(),
@@ -208,10 +208,10 @@ COMMENT ON TABLE  dwh.fact_fulfillment IS
     'KEIN direkter Schreibzugriff aus operativen Systemen – nur via ETL.';
 
 COMMENT ON COLUMN dwh.fact_fulfillment.total_value         IS 'Berechnete Kennzahl: quantity × unit_price. Basiskennzahl für Umsatzanalysen.';
-COMMENT ON COLUMN dwh.fact_fulfillment.delay_minutes       IS 'Summierte Verzögerungsminuten aller Transporte im Fulfillment-Vorgang.';
+COMMENT ON COLUMN dwh.fact_fulfillment.delay_minutes       IS 'Verzögerungsminuten des finalen Transports (letzter Shipment je Fulfillment). Grain: 1 Shipment pro Fact-Row.';
 COMMENT ON COLUMN dwh.fact_fulfillment.avg_temperature     IS 'Durchschnittliche Containertemperatur über alle Knotenverarbeitungen. Kühlketten-KPI.';
 COMMENT ON COLUMN dwh.fact_fulfillment.num_supply_chain_hops IS 'Anzahl durchlaufener Knoten. Standard: 6. Abweichungen deuten auf Prozessänderungen hin.';
-COMMENT ON COLUMN dwh.fact_fulfillment.on_time_flag        IS 'TRUE = pünktliche Lieferung (status=SUCCESSFUL und delay_minutes=0). Basisflag für Liefertreue-KPI.';
+COMMENT ON COLUMN dwh.fact_fulfillment.on_time_flag        IS 'TRUE = pünktliche Lieferung (delay_minutes <= 60, SLA-Schwellenwert). Abgeleitet via ETL; überschreibt TMS-Rohstatus. Basisflag für Liefertreue-KPI.';
 
 -- -----------------------------------------------------------------------------
 -- Indizes für Analytics-Performance
@@ -245,7 +245,7 @@ CREATE OR REPLACE VIEW dwh.v_carrier_performance AS
 SELECT
     ca.carrier_code,
     ca.carrier_name,
-    COUNT(*)                                                                          AS total_hops,
+    COUNT(*)                                                                          AS total_fulfillments,
     SUM(CASE WHEN f.on_time_flag = TRUE  THEN 1 ELSE 0 END)                          AS on_time_count,
     SUM(CASE WHEN f.on_time_flag = FALSE THEN 1 ELSE 0 END)                          AS delayed_count,
     ROUND(
@@ -258,7 +258,7 @@ JOIN  dwh.dim_carrier         ca ON ca.carrier_sk = f.carrier_sk
 GROUP BY ca.carrier_code, ca.carrier_name;
 
 COMMENT ON VIEW dwh.v_carrier_performance IS
-    'Carrier-Performance-Übersicht: OTD-Rate, Ø Verzögerung, Max-Verzögerung pro Transportdienstleister. Quelle: fact_fulfillment + dim_carrier.';
+    'Carrier-Performance-Übersicht: OTD-Rate, Ø Verzögerung, Max-Verzögerung pro Transportdienstleister. total_fulfillments = Anzahl Fact-Zeilen je Carrier (INNER JOIN → nur Carrier mit Shipments sichtbar). Quelle: fact_fulfillment + dim_carrier.';
 
 -- -----------------------------------------------------------------------------
 -- View: KPI-Zusammenfassung
@@ -325,7 +325,7 @@ COMMENT ON VIEW dwh.v_monthly_revenue IS
 -- SELECT COUNT(*) FROM dwh.dim_delivery_status;    -- erwartet:  4
 -- SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 10 (1 Endlieferung pro Order/Batch)
 -- SELECT * FROM dwh.v_kpi_summary;                 -- 1 Zeile mit 5 KPI-Werten
--- SELECT * FROM dwh.v_carrier_performance;         -- 5 Zeilen (1 pro Carrier)
+-- SELECT * FROM dwh.v_carrier_performance;         -- Zeilen je nach tatsächlichem Shipment-Aufkommen (INNER JOIN, max. 5)
 
 DO $$
 BEGIN

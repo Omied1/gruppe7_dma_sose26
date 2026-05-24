@@ -124,9 +124,8 @@ HAVING COUNT(*) > 1;
 -- =============================================================================
 
 -- 3.1 WMS-SKUs ohne MDM-Mapping
--- Hinweis: Das ETL normalisiert WMS-SKUs (BAN_101 → BAN-101) beim Laden, damit
--- alle Schlüssel in der Datenbank im ERP-Format vorliegen. Der Lookup gegen
--- mdm.source_mappings erfolgt daher über normalized_key (kanonisches Format).
+-- Prüfung direkt über source_key = w.sku (WMS-Format BAN_101), da mdm.source_mappings
+-- source_key im Originalformat (BAN_101) speichert. Einfacher und direkter als REPLACE-Transformation.
 SELECT
     'KONSISTENZ'         AS dimension,
     'wms.warehouse_skus' AS tabelle,
@@ -136,8 +135,8 @@ SELECT
 FROM wms.warehouse_skus w
 WHERE NOT EXISTS (
     SELECT 1 FROM mdm.source_mappings sm
-    WHERE sm.source_system  = 'WMS'
-      AND sm.normalized_key = LOWER(REPLACE(w.sku, '_', '-'))
+    WHERE sm.source_system = 'WMS'
+      AND sm.source_key    = w.sku
 );
 
 -- 3.2 TMS-Produktreferenzen ohne MDM-Mapping
@@ -389,28 +388,52 @@ WHERE NOT EXISTS (
     WHERE r.transport_product_reference = s.cargo_product_reference
 );
 
--- 6.3 TMS Deliveries: SUCCESSFUL-Status trotz delay_minutes > 0 (Konsistenzprüfung)
+-- 6.3 TMS Deliveries: Status-Inkonsistenz mit 60-min-SLA (Datengenerator-Bug)
 -- Der Datengenerator würfelt delivery_status und delay_minutes unabhängig voneinander.
--- Eine Lieferung mit Status SUCCESSFUL sollte fachlich keine Verzögerung aufweisen.
--- Verstösse sind ein bekannter Datengenerator-Bug und werden hier dokumentiert.
+-- Das DWH korrigiert den Status anhand des SLA-Schwellenwerts: delay <= 60 → SUCCESSFUL,
+-- delay > 60 → DELAYED. Diese Prüfung erfasst Datensätze, bei denen TMS-Rohstatus und
+-- der SLA-korrigierte DWH-Status nicht übereinstimmen:
+--   Fall A: TMS=SUCCESSFUL, aber delay_minutes > 60 (SLA verletzt → DWH: DELAYED)
+--   Fall B: TMS=DELAYED, aber delay_minutes <= 60 (innerhalb SLA → DWH: SUCCESSFUL)
+-- Verstösse sind erwartet und dokumentiert; Korrektur erfolgt in etl_dwh.py.
 SELECT
     'KONSISTENZ'               AS dimension,
     'tms.deliveries'           AS tabelle,
-    'SUCCESSFUL-Delivery mit delay_minutes > 0 (Status-Delay-Inkonsistenz)' AS regel,
+    'Status-Inkonsistenz mit 60-min-SLA (TMS-Rohstatus vs. SLA-korrigierter Status)' AS regel,
     COUNT(*)                   AS verstösse
 FROM tms.deliveries d
 JOIN tms.transport_completions tc ON tc.shipment_id = d.shipment_id
-WHERE d.delivery_status = 'SUCCESSFUL'
-  AND tc.delay_minutes > 0;
+WHERE (d.delivery_status = 'SUCCESSFUL' AND tc.delay_minutes > 60)
+   OR (d.delivery_status = 'DELAYED'    AND tc.delay_minutes <= 60);
+
+-- 6.4 TMS: Carrier-Transportmodus-Inkonsistenz
+-- Prüft ob ein Seefracht-Carrier (Maersk, MSC, Hapag Lloyd = CAR-102/103/105) auf einer
+-- TRUCK-Strecke eingesetzt wird oder umgekehrt ein Landcarrier auf SEA_FREIGHT.
+-- Ursache: Datengenerator verknüpft Carrier und Transportmodus unabhängig.
+-- Verstösse sind ein bekannter Datengenerator-Bug und werden hier dokumentiert.
+SELECT
+    'KONSISTENZ'      AS dimension,
+    'tms.shipments'   AS tabelle,
+    'Seefracht-Carrier auf TRUCK-Route oder Landcarrier auf SEA_FREIGHT' AS regel,
+    COUNT(*)          AS verstösse
+FROM tms.shipments s
+JOIN tms.carriers  c ON c.carrier_id = s.carrier_id
+WHERE
+    -- Reedereien (Maersk, MSC, Hapag Lloyd) dürfen nicht auf TRUCK-Strecken fahren
+    (c.carrier_code IN ('CAR-102', 'CAR-103', 'CAR-105') AND s.transport_mode = 'TRUCK')
+    OR
+    -- Landcarrier (DHL, DB Schenker) dürfen nicht auf SEA_FREIGHT-Strecken fahren
+    (c.carrier_code IN ('CAR-101', 'CAR-104') AND s.transport_mode = 'SEA_FREIGHT');
 
 -- =============================================================================
 -- ZUSAMMENFASSUNG: Qualitäts-Score pro Dimension
 -- Gibt eine kompakte Übersicht aller Verstösse (0 = perfekt)
--- Gesamt: 28 Regeln über 6 Dimensionen (konsolidierte Übersicht: sql/08b_dq_audit.sql)
+-- Gesamt: 33 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query)
+-- Konsolidierte Übersicht mit PASS/FAIL: sql/08b_dq_audit.sql
 -- =============================================================================
 DO $$
 BEGIN
-    RAISE NOTICE '=== DQ-Check abgeschlossen (28 Regeln). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
+    RAISE NOTICE '=== DQ-Check abgeschlossen (33 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
 END $$;
 
 -- Nachweis: Datenbasis für DQ-Checks

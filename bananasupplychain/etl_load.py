@@ -75,14 +75,16 @@ def count(label):
     stats[label] = stats.get(label, 0) + 1
 
 # ── Neo4j Topologie-Konstanten ────────────────────────────────────────────────
+# node_name muss mit mdm.golden_records.canonical_name (05_create_mdm_tables.sql)
+# und wms.supply_chain_nodes.node_name (03_create_wms_tables.sql) übereinstimmen.
 _SUPPLY_CHAIN_NODES = [
-    ("BANANA_PLANTATION",   "Banana Plantation Ghana",       "PLANTATION",       "Africa", 1),
-    ("COLLECTION_CENTER",   "Collection Center Ghana",       "COLLECTION_CENTER","Africa", 2),
-    ("QUALITY_CONTROL",     "Quality Control Station",       "QUALITY_CONTROL",  "Africa", 3),
-    ("AFRICA_COLD_STORAGE", "Africa Cold Storage Accra",     "COLD_STORAGE",     "Africa", 4),
-    ("EUROPE_COLD_STORAGE", "Europe Cold Storage Hamburg",   "COLD_STORAGE",     "Europe", 5),
-    ("CENTRAL_WAREHOUSE",   "Central Warehouse Germany",     "WAREHOUSE",        "Europe", 6),
-    ("RETAIL_STORE",        "Retail Store",                  "RETAIL",           "Europe", 7),
+    ("BANANA_PLANTATION",   "Banana Plantation Ghana", "PLANTATION",       "Africa", 1),
+    ("COLLECTION_CENTER",   "Collection Center",       "COLLECTION_CENTER","Africa", 2),
+    ("QUALITY_CONTROL",     "Quality Control Station", "QUALITY_CONTROL",  "Africa", 3),
+    ("AFRICA_COLD_STORAGE", "Africa Cold Storage",     "COLD_STORAGE",     "Africa", 4),
+    ("EUROPE_COLD_STORAGE", "Europe Cold Storage",     "COLD_STORAGE",     "Europe", 5),
+    ("CENTRAL_WAREHOUSE",   "Central Warehouse",       "WAREHOUSE",        "Europe", 6),
+    ("RETAIL_STORE",        "Retail Store",            "RETAIL",           "Europe", 7),
 ]
 
 _SUPPLY_CHAIN_TOPOLOGY = [
@@ -95,11 +97,17 @@ _SUPPLY_CHAIN_TOPOLOGY = [
 ]
 
 # Truck-Carrier → Landstrecken; Seefracht-Carrier → Kaltlager
+# CAR-101 DHL:          Kurier/Logistik    → TRUCK auf allen Landknoten
+# CAR-102 Maersk:       Reederei           → SEA_FREIGHT auf Kaltlagern
+# CAR-103 MSC:          Reederei           → SEA_FREIGHT auf Kaltlagern
+# CAR-104 DB Schenker:  Landlogistik       → TRUCK auf allen Landknoten (kein Seefrachteur!)
+# CAR-105 Hapag Lloyd:  Reederei           → SEA_FREIGHT auf Kaltlagern
 _CARRIER_OPERATES_ON = {
     "CAR-101": ("TRUCK",       ["PLANTATION", "COLLECTION_CENTER", "QUALITY_CONTROL", "WAREHOUSE", "RETAIL"]),
     "CAR-102": ("SEA_FREIGHT", ["COLD_STORAGE"]),
     "CAR-103": ("SEA_FREIGHT", ["COLD_STORAGE"]),
-    "CAR-104": ("SEA_FREIGHT", ["COLD_STORAGE"]),
+    "CAR-104": ("TRUCK",       ["PLANTATION", "COLLECTION_CENTER", "QUALITY_CONTROL", "WAREHOUSE", "RETAIL"]),
+    "CAR-105": ("SEA_FREIGHT", ["COLD_STORAGE"]),
 }
 
 # =============================================================================
@@ -249,6 +257,11 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                         (canonical,))
             prow = cur.fetchone()
             product_id = prow[0] if prow else None
+            # wms_sku und tms_product_reference: bevorzuge Event-Felder wenn vorhanden,
+            # leite sie sonst aus product_code ab. So bleibt der ETL event-treu, auch
+            # wenn der Generator abweichende Schlüsselformate liefern würde.
+            wms_sku_val  = ev.get("wms_sku")  or canonical.replace("-", "_")
+            tms_ref_val  = ev.get("tms_product_reference") or canonical.lower()
             cur.execute("""
                 INSERT INTO erp.batches
                     (batch_identifier, product_id, quantity, origin_country,
@@ -258,8 +271,7 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             """, (ev["batch_identifier"], product_id,
                   safe_int(ev.get("quantity")), ev.get("origin_country"),
                   ev.get("supply_chain_node"), ev.get("timestamp"),
-                  canonical.replace("-", "_"),
-                  canonical.lower()))
+                  wms_sku_val, tms_ref_val))
             count("pg.batches")
 
     # ── Schritt 5: WMS-Eventdaten ─────────────────────────────────────────────
@@ -403,7 +415,14 @@ def _upsert_golden(cur, entity_type_id, canonical_key, canonical_name, score=0.9
 
 
 def _upsert_mapping(cur, golden_id, source_system, source_key, is_canonical):
-    """Registriert ein Quellsystem-Schlüsselmapping (idempotent)."""
+    """Registriert ein Quellsystem-Schlüsselmapping (idempotent).
+
+    normalized_key wird als Kleinbuchstaben + Bindestriche gespeichert (z.B. 'ban-101').
+    Bewusst KEINE Nutzung von normalize_key(): normalize_key() liefert Großbuchstaben
+    (kanonisches ERP-Format 'BAN-101'), normalized_key hingegen ist für systemübergreifende
+    Kleinbuchstaben-Vergleiche gedacht. Beide Konzepte sind unterschiedlich und dürfen
+    nicht verwechselt werden.
+    """
     cur.execute("""
         INSERT INTO mdm.source_mappings
             (golden_id, source_system, source_key, normalized_key, is_canonical)
@@ -642,6 +661,10 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
             event_entry = {
                 "event_type":            "ShipmentPositionUpdated",
                 "coordinates":           ev.get("coordinates"),
+                # current_route: zwischen welchen Nodes die GPS-Position aufgezeichnet wurde.
+                # Wird persistiert, damit die Route nicht aus Shipment-Zeitstempeln
+                # rekonstruiert werden muss (Befund 12).
+                "current_route":         ev.get("current_route"),
                 "container_temperature": safe_float(ev.get("container_temperature")),
                 "speed_kmh":             safe_float(ev.get("speed_kmh")),
                 "timestamp":             ev.get("timestamp")
@@ -711,7 +734,21 @@ def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
 # LOAD – Redis
 # =============================================================================
 def load_redis(erp_events, tms_events, r):
-    """Befüllt Redis mit Echtzeitstatus, GPS-Verlauf, Alerts und Countern."""
+    """Befüllt Redis mit Echtzeitstatus, GPS-Verlauf, Alerts und Countern.
+
+    Idempotenz: Aggregat-Zähler werden zu Beginn auf 0 zurückgesetzt, damit
+    ein erneuter ETL-Lauf nicht akkumuliert. Der etl_runs-Zähler ist bewusst
+    ausgenommen – er protokolliert die Anzahl der Läufe kumulativ.
+    Hash- und String-Keys (Shipment-Status, GPS-Positionen) sind per SET/HSET
+    inhärent idempotent (Überschreiben statt Akkumulieren).
+    """
+    # ── Zähler-Reset: Aggregat-Counter auf definierten Ausgangszustand setzen ─
+    # Verhindert Doppelzählung bei mehrfachem ETL-Lauf (Befund 9).
+    r.set("system:counter:orders_today",           0)
+    r.set("system:counter:active_shipments",        0)
+    r.set("system:counter:temperature_alerts_active", 0)
+    for status in ("successful", "delayed", "failed"):
+        r.set(f"system:counter:deliveries_{status}", 0)
 
     # ── ERP: ProductCreated → Produktcache (alle 10 Produkte, unabhängig von Orders) ──
     for ev in erp_events:

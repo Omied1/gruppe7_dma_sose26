@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS tms.deliveries (
 );
 
 COMMENT ON TABLE  tms.deliveries IS 'Lieferabschlüsse am Retail Store. delivery_status SUCCESSFUL/DELAYED ist Haupt-KPI für Fulfillment-Qualität.';
-COMMENT ON COLUMN tms.deliveries.delivery_status IS 'SUCCESSFUL: Pünktlich. DELAYED: Mit Verspätung zugestellt. FAILED: Nicht zugestellt (Ausnahmefall).';
+COMMENT ON COLUMN tms.deliveries.delivery_status IS 'Rohstatus aus TMS-Event (Datengenerator). SUCCESSFUL/DELAYED wird unabhängig von delay_minutes gesetzt – Inkonsistenz möglich. DWH korrigiert anhand SLA-Schwellenwert: delay_minutes <= 60 → SUCCESSFUL, > 60 → DELAYED. FAILED: Nicht zugestellt (Ausnahmefall).';
 COMMENT ON COLUMN tms.deliveries.received_by     IS 'Mitarbeiter-ID des Empfängers am Retail Store (EMP-NNN).';
 
 -- -----------------------------------------------------------------------------
