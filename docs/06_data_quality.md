@@ -113,6 +113,61 @@ Grund: DeliveryCompleted und TransportCompleted sind logisch abhängige Events �
        ist die Delivery-Buchung ein Nachweis-Waise
 ```
 
+#### Regel KQ-05: Carrier-ID und Carrier-Name in TransportStarted-Events konsistent
+
+**Identifizierte Inkonsistenz im Datengenerator:**
+Der Datengenerator erzeugt in `TransportStarted`-Events `carrier_id` und `carrier_name` als **unabhängige Zufallswerte**:
+
+```python
+# test_data_generator.py – create_transport(), Zeile 1033–1046
+"carrier": {
+    "carrier_id":   f"CAR-{random.randint(101,105)}",     # unabhängig zufällig
+    "carrier_name": random.choice(["DHL","Maersk",...])   # unabhängig zufällig
+}
+```
+
+Die korrekte Zuordnung laut CarrierCreated-Stammdaten wäre fest:
+
+| carrier_id | carrier_name |
+|---|---|
+| CAR-101 | DHL |
+| CAR-102 | Maersk |
+| CAR-103 | MSC |
+| CAR-104 | DB Schenker |
+| CAR-105 | Hapag Lloyd |
+
+**Folge:** Ein `TransportStarted`-Event kann z.B. `CAR-103` mit `"DHL"` enthalten – obwohl CAR-103 = MSC ist. Der `carrier_name` im Event ist damit nicht autoritativ.
+
+**Behandlung im ETL (`etl_load.py`, Zeile 312–316):**
+Der ETL ignoriert `carrier_name` aus dem Event vollständig und löst den Carrier ausschließlich über `carrier_id` auf:
+
+```python
+carrier_code = ev["carrier"]["carrier_id"]   # autoritativer Schlüssel
+cur.execute("SELECT carrier_id FROM tms.carriers WHERE carrier_code = %s", (carrier_code,))
+carrier_id = crow[0] if crow else None
+# carrier_name aus dem Event wird nicht gespeichert
+```
+
+Der korrekte Name wird aus `tms.carriers` (Golden Record, befüllt aus CarrierCreated-Stammdaten) bezogen – nicht aus dem fehlerbehafteten Event-Feld.
+
+**DQ-Prüfung – Nachweis der korrekten Auflösung:**
+```sql
+-- KQ-05: Alle Shipments müssen einem gültigen Carrier zugeordnet sein
+-- Erwartung: 0 (ETL hat carrier_id korrekt aufgelöst)
+SELECT COUNT(*) AS shipments_ohne_carrier
+FROM tms.shipments
+WHERE carrier_id IS NULL;
+
+-- Zusatz: Carrier-Verteilung zur Plausibilitätskontrolle
+SELECT c.carrier_code, c.carrier_name, COUNT(s.shipment_id) AS anzahl_shipments
+FROM tms.carriers c
+LEFT JOIN tms.shipments s ON s.carrier_id = c.carrier_id
+GROUP BY c.carrier_code, c.carrier_name
+ORDER BY c.carrier_code;
+```
+
+**Fazit:** Die Inkonsistenz existiert in den Rohdaten (JSON-Events), wird aber durch das ETL-Design korrekt behandelt. Das operative Datenbanksystem enthält ausschließlich konsistente Carrier-Zuordnungen.
+
 ---
 
 ### 2.4 Plausibilität (Validity)
@@ -249,12 +304,12 @@ DQ-Dimension     | Regeln | Verstösse (nach ETL) | Status
 -----------------|--------|----------------------|---------------
 Vollständigkeit  |   5    | 0                    | PASS
 Eindeutigkeit    |   4    | 0                    | PASS
-Konsistenz       |   5    | n > 0  (Regel 6.3)*  | FAIL*
+Konsistenz       |   6    | n > 0  (Regel 6.3)*  | FAIL*
 Plausibilität    |   9    | 0                    | PASS
 Aktualität       |   7    | 0                    | PASS
 Ref. Integrität  |   2    | 0                    | PASS
 ─────────────────────────────────────────────────────────────────
-Gesamt           |  32    | n > 0  (Regel 6.3)*  | 31/32 PASS
+Gesamt           |  33    | n > 0  (Regel 6.3)*  | 32/33 PASS
 ```
 
 **\* Regel 6.3 – erwarteter FAIL (dokumentierte Datengenerator-Inkonsistenz):**
