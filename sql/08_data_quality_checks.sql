@@ -279,6 +279,43 @@ FROM tms.shipment_positions
 WHERE speed_kmh IS NOT NULL
 AND   (speed_kmh > 200 OR speed_kmh < 0);
 
+-- 4.10 TMS: GPS-Koordinaten außerhalb erwarteter Routenkorridore
+-- Der Generator erzeugt syntaktisch gültige WGS84-Koordinaten zufällig weltweit.
+-- Dieser Check prüft zusätzlich fachliche Plausibilität gegen grobe Supply-Chain-Korridore:
+--   Ghana-Landrouten:       ca. Ghana / Westafrika
+--   Seefracht Ghana→Europa: grober Atlantik-/Europa-Korridor
+--   Europa-Landrouten:      ca. Niederlande / Deutschland
+SELECT
+    'PLAUSIBILITÄT'          AS dimension,
+    'tms.shipment_positions' AS tabelle,
+    'GPS-Koordinaten außerhalb erwarteter Routenkorridore' AS regel,
+    COUNT(*)                 AS verstösse
+FROM tms.shipment_positions sp
+JOIN tms.shipments s
+  ON s.shipment_id = sp.shipment_id
+WHERE NOT (
+    (
+        s.source_node IN ('BANANA_PLANTATION', 'COLLECTION_CENTER', 'QUALITY_CONTROL')
+        AND s.target_node IN ('COLLECTION_CENTER', 'QUALITY_CONTROL', 'AFRICA_COLD_STORAGE')
+        AND sp.latitude  BETWEEN 4.5 AND 7.5
+        AND sp.longitude BETWEEN -2.5 AND 1.0
+    )
+    OR
+    (
+        s.source_node = 'AFRICA_COLD_STORAGE'
+        AND s.target_node = 'EUROPE_COLD_STORAGE'
+        AND sp.latitude  BETWEEN 0.0 AND 55.0
+        AND sp.longitude BETWEEN -20.0 AND 10.0
+    )
+    OR
+    (
+        s.source_node IN ('EUROPE_COLD_STORAGE', 'CENTRAL_WAREHOUSE')
+        AND s.target_node IN ('CENTRAL_WAREHOUSE', 'RETAIL_STORE')
+        AND sp.latitude  BETWEEN 49.0 AND 54.0
+        AND sp.longitude BETWEEN 3.0 AND 15.0
+    )
+);
+
 -- =============================================================================
 -- 5. AKTUALITÄT (Timeliness)
 -- Zeitliche Plausibilität: Events müssen in logischer Reihenfolge liegen
@@ -428,12 +465,12 @@ WHERE
 -- =============================================================================
 -- ZUSAMMENFASSUNG: Qualitäts-Score pro Dimension
 -- Gibt eine kompakte Übersicht aller Verstösse (0 = perfekt)
--- Gesamt: 33 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query)
+-- Gesamt: 34 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query)
 -- Konsolidierte Übersicht mit PASS/FAIL: sql/08b_dq_audit.sql
 -- =============================================================================
 DO $$
 BEGIN
-    RAISE NOTICE '=== DQ-Check abgeschlossen (33 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
+    RAISE NOTICE '=== DQ-Check abgeschlossen (34 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
 END $$;
 
 -- Nachweis: Datenbasis für DQ-Checks

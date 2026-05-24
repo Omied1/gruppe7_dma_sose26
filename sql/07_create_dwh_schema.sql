@@ -241,6 +241,8 @@ ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS on_time_flag BOOLEAN;
 -- Grain: 1 Zeile pro Carrier
 -- Verwendung: PowerBI KPI-Card „On-Time-Delivery-Rate", Python-Chart „Verzögerungen nach Carrier"
 -- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS dwh.v_carrier_performance;
+
 CREATE OR REPLACE VIEW dwh.v_carrier_performance AS
 SELECT
     ca.carrier_code,

@@ -229,6 +229,24 @@ Verstoß:   Ungültige WGS84-Koordinaten (z.B. latitude = 999.0)
            CHECK-Constraints im Schema verhindern dies bereits
 ```
 
+#### Regel PQ-05b / SQL 4.10: GPS-Routenkorridor-Plausibilität
+```
+Spalten:   tms.shipment_positions.latitude / longitude
+           tms.shipments.source_node / target_node
+Regel:     GPS-Punkt muss in einem groben geografischen Korridor der Route liegen
+Korridore: Ghana-Landrouten, Ghana→Europa-Seefracht, Europa-Landrouten
+Verstoß:   Koordinate ist syntaktisch gültig, aber fachlich unrealistisch für die Route
+```
+
+Der Datengenerator erzeugt GPS-Koordinaten zufällig innerhalb der globalen WGS84-Grenzen.
+Dadurch bestehen die Punkte zwar den Wertebereichs-Check, liegen aber nicht zwingend entlang
+der modellierten Supply-Chain-Route. Der Anteil fachlich unrealistischer GPS-Positionen
+kann aus Regel 4.10 berechnet werden:
+
+```text
+Invalid GPS Rate % = Verstöße Regel 4.10 / COUNT(tms.shipment_positions) * 100
+```
+
 #### Regel PQ-06: Gültige Status-Werte
 ```
 Spalten:   erp.orders.delivery_priority → CHECK IN ('HIGH', 'NORMAL', 'LOW')
@@ -304,13 +322,19 @@ DQ-Dimension     | Regeln | Verstösse (nach ETL) | Status
 -----------------|--------|----------------------|---------------
 Vollständigkeit  |   5    | 0                    | PASS
 Eindeutigkeit    |   4    | 0                    | PASS
-Konsistenz       |   6    | n > 0  (Regel 6.3)*  | FAIL*
-Plausibilität    |   9    | 0                    | PASS
+Konsistenz       |   6    | n > 0  (6.3, 6.4)*   | FAIL*
+Plausibilität    |  10    | n > 0  (Regel 4.10)* | FAIL*
 Aktualität       |   7    | 0                    | PASS
 Ref. Integrität  |   2    | 0                    | PASS
 ─────────────────────────────────────────────────────────────────
-Gesamt           |  33    | n > 0  (Regel 6.3)*  | 32/33 PASS
+Gesamt           |  34    | n > 0  (4.10, 6.3, 6.4)* | 31/34 PASS
 ```
+
+**\* Regel 4.10 – erwarteter FAIL (GPS-Simulationsgrenze):**
+Die GPS-Koordinaten sind formal gültige WGS84-Werte, werden vom Datengenerator aber zufällig
+weltweit erzeugt. Daher prüft Regel 4.10 zusätzlich grobe Routenkorridore und markiert
+unrealistische Positionen als DQ-Verstoß. Die Rohdaten bleiben unverändert; die daraus
+ableitbare Invalid-GPS-Rate macht die Simulationsgrenze transparent.
 
 **\* Regel 6.3 – erwarteter FAIL (dokumentierte Datengenerator-Inkonsistenz):**
 Der Datengenerator würfelt `delivery_status` und `delay_minutes` unabhängig voneinander.
