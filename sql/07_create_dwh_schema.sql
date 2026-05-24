@@ -263,6 +263,33 @@ COMMENT ON VIEW dwh.v_carrier_performance IS
     'Carrier-Performance-Übersicht: OTD-Rate, Ø Verzögerung, Max-Verzögerung pro Transportdienstleister. total_fulfillments = Anzahl Fact-Zeilen je Carrier (INNER JOIN → nur Carrier mit Shipments sichtbar). Quelle: fact_fulfillment + dim_carrier.';
 
 -- -----------------------------------------------------------------------------
+-- View: Carrier-Speed-Performance
+-- Grain: 1 Zeile pro Carrier
+-- Verwendung: PowerBI Balkendiagramm „Ø Geschwindigkeit je Carrier"
+-- Hinweis: Speed ist GPS-/TMS-Grain, deshalb separate View statt Erweiterung von fact_fulfillment.
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS dwh.v_carrier_speed_performance;
+
+CREATE OR REPLACE VIEW dwh.v_carrier_speed_performance AS
+SELECT
+    c.carrier_code,
+    c.carrier_name,
+    COUNT(DISTINCT s.shipment_id)              AS total_shipments,
+    COUNT(sp.position_id)                      AS gps_points,
+    ROUND(AVG(sp.speed_kmh), 2)                AS avg_speed_kmh,
+    ROUND(MIN(sp.speed_kmh), 2)                AS min_speed_kmh,
+    ROUND(MAX(sp.speed_kmh), 2)                AS max_speed_kmh,
+    ROUND(AVG(sp.container_temperature), 2)    AS avg_container_temperature
+FROM  tms.shipment_positions sp
+JOIN  tms.shipments          s ON s.shipment_id = sp.shipment_id
+JOIN  tms.carriers           c ON c.carrier_id  = s.carrier_id
+WHERE sp.speed_kmh IS NOT NULL
+GROUP BY c.carrier_code, c.carrier_name;
+
+COMMENT ON VIEW dwh.v_carrier_speed_performance IS
+    'Carrier-Speed-Performance auf GPS-/TMS-Grain: Ø/min/max speed_kmh, GPS-Punkte und Shipments je Carrier. Separate DWH-Analytics-View für PowerBI, damit Fulfillment-Grain und GPS-Grain nicht vermischt werden.';
+
+-- -----------------------------------------------------------------------------
 -- View: KPI-Zusammenfassung
 -- Grain: 1 Zeile (Gesamtaggregat über alle Fulfillment-Vorgänge)
 -- Verwendung: PowerBI KPI-Cards (Liefertreue, Ø Bestellwert, Temperaturausreißer)
@@ -328,8 +355,9 @@ COMMENT ON VIEW dwh.v_monthly_revenue IS
 -- SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 10 (1 Endlieferung pro Order/Batch)
 -- SELECT * FROM dwh.v_kpi_summary;                 -- 1 Zeile mit 5 KPI-Werten
 -- SELECT * FROM dwh.v_carrier_performance;         -- Zeilen je nach tatsächlichem Shipment-Aufkommen (INNER JOIN, max. 5)
+-- SELECT * FROM dwh.v_carrier_speed_performance;   -- 1 Zeile pro Carrier mit GPS-Speed-KPIs
 
 DO $$
 BEGIN
-    RAISE NOTICE 'DWH-Schema erstellt: 7 Dimensionstabellen + 1 Faktentabelle + 3 analytische Views. dim_date: 1095 Zeilen (2025–2027). on_time_flag ergänzt.';
+    RAISE NOTICE 'DWH-Schema erstellt: 7 Dimensionstabellen + 1 Faktentabelle + 4 analytische Views. dim_date: 1095 Zeilen (2025–2027). on_time_flag ergänzt.';
 END $$;

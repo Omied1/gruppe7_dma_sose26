@@ -259,13 +259,22 @@ Produkt-Schlüssel kommen in drei Formaten vor:
 
 ## 6. Analytische Views
 
-Drei vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenquelle für PowerBI-Visuals und Python-Charts.
+Vier vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenquelle für PowerBI-Visuals und Python-Charts.
 
 ### `dwh.v_carrier_performance`
 **Grain:** 1 Zeile pro Carrier  
 **Felder:** `carrier_code`, `carrier_name`, `total_fulfillments` (Anzahl Fact-Zeilen je Carrier, früher fälschlich `total_hops`), `on_time_count`, `delayed_count`, `otd_rate_pct`, `avg_delay_minutes`, `max_delay_minutes`  
 **Hinweis:** Nur Carrier mit mindestens einem Fulfillment-Datensatz erscheinen in der View. Carrier ohne Shipments (z. B. wenn ein Carrier ausschließlich via LEFT JOIN eingebunden ist) sind nicht sichtbar.  
 **Verwendung:** PowerBI KPI-Card „OTD-Rate", Python-Histogramm „Verzögerungen nach Carrier"
+
+### `dwh.v_carrier_speed_performance`
+**Grain:** 1 Zeile pro Carrier
+
+**Felder:** `carrier_code`, `carrier_name`, `total_shipments`, `gps_points`, `avg_speed_kmh`, `min_speed_kmh`, `max_speed_kmh`, `avg_container_temperature`
+
+**Hinweis:** Speed kommt aus `tms.shipment_positions` und liegt auf GPS-Positions-Grain. Deshalb ist diese Analyse als separate DWH-View modelliert und nicht in `fact_fulfillment` integriert.
+
+**Verwendung:** PowerBI Balkendiagramm „Ø Geschwindigkeit je Carrier"
 
 ### `dwh.v_kpi_summary`
 **Grain:** 1 Zeile (Gesamtaggregat)  
@@ -296,6 +305,13 @@ ORDER  BY d.year, d.month;
 SELECT carrier_name, otd_rate_pct, avg_delay_minutes
 FROM   dwh.v_carrier_performance
 ORDER  BY otd_rate_pct DESC;
+```
+
+### Durchschnittliche Geschwindigkeit pro Carrier
+```sql
+SELECT carrier_name, avg_speed_kmh, gps_points
+FROM   dwh.v_carrier_speed_performance
+ORDER  BY avg_speed_kmh DESC;
 ```
 
 ### Alle 5 Pflicht-KPIs in einer Abfrage
@@ -339,6 +355,7 @@ ORDER  BY product_code, year, month;
 |---|---|
 | KPI-Cards (Liefertreue, Umsatz, Temperatur) | `dwh.v_kpi_summary` |
 | Carrier-Performance-Balkendiagramm | `dwh.v_carrier_performance` |
+| Durchschnittliche Geschwindigkeit je Carrier | `dwh.v_carrier_speed_performance` |
 | Zeitreihen-Liniendiagramm (Umsatz/Monat) | `dwh.v_monthly_revenue` |
 | Detailtabelle aller Fulfillments | `dwh.fact_fulfillment` + alle `dim_*` |
 | Slicer: Datum | `dwh.dim_date` (Felder: year, month, quarter) |
