@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Deadline:** 01.07.2026  
-**Zuletzt aktualisiert:** 2026-05-21 (Projektüberblick + Review-Doku erstellt, Fixes F-10 + F-11)
+**Zuletzt aktualisiert:** 2026-05-24 (docs/13_data_quality_results.md auf 34 Checks aktualisiert; Dateianzahlen korrigiert; INC-06 Timestamp-Risiko ergänzt)
 
 ---
 
@@ -35,7 +35,7 @@ und getestet.
 | `docs/10_neo4j_graph_model.md` | 8 Node-Typen, 13 Relationship-Typen, 8 Cypher-Abfragen; Produkt-Lieferanten-Tabelle; Neo4j-vs-SQL-Vergleich | abgabefähig |
 | `docs/11_minio_document_model.md` | 4 Buckets, Referenzierungsmuster PostgreSQL <-> MinIO; Bucket Versioning (Kap. 6); Zwei-Phasen-Ansatz (Kap. 7); 6 Prüfqueries (Kap. 8) | abgabefähig |
 | `docs/12_etl_concept.md` | ETL-Konzept mit Mapping-Tabelle für alle 13 Eventtypen; Feld-Ebene-Mapping ergänzt (6 Tabellen); Load-Reihenfolge bereinigt; Idempotenz-Abschnitt auf MongoDB/Redis/Neo4j ausgeweitet; ETL-Nachweis mit Prüfqueries hinzugefügt; **Bug-Fix 2026-05-15:** Phase-2-SQL-Beispiel korrigiert (JOIN auf erp.batches.order_id entfernt, der nicht existiert); BatchHarvested-Mapping-Eintrag korrigiert; ETL-Nachweis-Zahlen auf 60 korrigiert | abgabefähig |
-| `docs/13_data_quality_results.md` | Live-Audit-Ergebnisse (28/28 PASS); Check 5.2 korrigiert; neue Checks 1.5 + 3.4 dokumentiert; Abschnitt 7 ergänzt: systemübergreifende Befüllungsnachweise für alle 5 Systeme (PostgreSQL/MDM/DWH/MongoDB/Redis/Neo4j/MinIO) | abgabefähig |
+| `docs/13_data_quality_results.md` | Audit-Ergebnisse auf 34 Checks aktualisiert (31/34 PASS = 91 %); 3 erwartete FAILs erklärt (4.10 GPS-Simulation, 6.3 SLA-Inkonsistenz, 6.4 Carrier-Modus); §3.7 neu; Dateianzahlen in §7.1 korrigiert (10 orders, 10 batches) | abgabefähig |
 | `docs/Projekt_Gesamtueberblick_Teil1.md` | Vollständige statische Projektanalyse (2026-05-21): Architektur, alle Dateien, Widersprüche, Empfehlungen, Reproduzierbarkeit, Abgabebereitschaft | erstellt |
 | `docs/review_fehler_risiken_teil1.md` | Unabhängiges Review mit priorisierten Fehlern, Risiken und Lücken; enthält Prioritätsliste und Gesamtbewertung für Abgabe | erstellt |
 
@@ -50,8 +50,8 @@ und getestet.
 | `sql/05_create_mdm_tables.sql` | 3 MDM-Tabellen; vollst. Seed-Daten (42 GR / 69 Mappings); `resolve_canonical_key()` + `resolve_canonical_key_fuzzy()`; VIEW `mdm.v_golden_overview`; Diagnose-Queries für nicht-harmonisierte Schlüssel; Partial Unique Index; 7 Prüfqueries | erstellt |
 | `sql/06_create_metadata_tables.sql` | 3 Meta-Tabellen; explizite Spalteneinträge für alle ERP/WMS/TMS-Kerntabellen (customers, batches, warehouse_skus, supply_chain_nodes, carriers, transport_product_references ergänzt); delay_minutes Quality Rule um SLA-Schwelle ergänzt; TMS.TRANSPORT_COMPLETIONS und TMS.DELIVERIES vollständig dokumentiert | erstellt |
 | `sql/07_create_dwh_schema.sql` | 7 Dimensionen + 1 Faktentabelle + Date Spine 2025-2027; `on_time_flag` ergaenzt; ALTER TABLE IF NOT EXISTS fuer Upgrade-Sicherheit; 3 analytische Views (v_carrier_performance, v_kpi_summary, v_monthly_revenue); Pruefqueries | abgabefähig |
-| `sql/08_data_quality_checks.sql` | 28 DQ-Prüfungen in 6 Dimensionen; VQ-05 + KQ-04 neu; DQ 6.3 auf carrier_id-Check korrigiert (konsistent mit 08b); Datenbasis-Prüfquery am Ende ergänzt | getestet |
-| `sql/08b_dq_audit.sql` | Konsolidierter Audit (28 Checks, 1 Result-Set); Bugfix Check 5.2 (broken JOIN auf nicht-existente order_id-Spalte); Pos-Nummern neu durchgezählt; VQ-05 + KQ-04 eingebaut | getestet |
+| `sql/08_data_quality_checks.sql` | 34 DQ-Prüfungen in 6 Dimensionen; neu: PQ-4.10 (GPS-Routenkorridore), AQ-5.0 (event_timestamp ×4), KQ-6.3 (SLA-Inkonsistenz), KQ-6.4 (Carrier-Transportmodus); 31/34 PASS erwartet | getestet |
+| `sql/08b_dq_audit.sql` | Konsolidierter Audit (34 Checks, 1 Result-Set); Checks 4.10 / 5.0×4 / 6.3 / 6.4 ergänzt; 3 erwartete FAILs dokumentiert (Datengenerator-Inkonsistenzen) | getestet |
 | `sql/09_verification_queries.sql` | Befüllungsnachweise: COUNT für alle Tabellen (ERP/WMS/TMS/MDM/Meta/DWH), FK-Integrität (intra-Schema + Cross-Schema), DWH Date Spine, fact_fulfillment Plausibilität, MDM Schlüsselauflösung | erstellt |
 
 ### Python / ETL (`bananasupplychain/`)
@@ -76,9 +76,9 @@ und getestet.
 
 | Ordner | Dateien | Status |
 |---|---|---|
-| `shared/erp/` | 70 JSON-Events | getestet |
-| `shared/wms/` | 130 JSON-Events | getestet |
-| `shared/tms/` | 514 JSON-Events | getestet |
+| `shared/erp/` | 50 JSON-Events | getestet |
+| `shared/wms/` | 70 JSON-Events | getestet |
+| `shared/tms/` | 257 JSON-Events | getestet |
 
 ---
 
@@ -92,7 +92,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | MDM `resolve_canonical_key()` | BAN_101 / ban-101 / BAN-101 -> alle loesen auf BAN-101 auf |
 | DWH `dim_date` | 1095 Zeilen (2025-01-01 bis 2027-12-31) |
 | DWH `fact_fulfillment` | 10 Facts (1 pro Endlieferung, Grain-Fix 2026-05-15); dim_customer/supplier/carrier mit `source_created_at` befuellt |
-| DQ-Checks `08` | 29/30 PASS + 1 echter Befund: 6x SUCCESSFUL-Delivery trotz delay_minutes > 0 (Datengenerator-Inkonsistenz) |
+| DQ-Checks `08` + `08b` | 34 Checks; 31/34 PASS; 3 erwartete FAILs: 4.10 (GPS weltweit zufällig), 6.3 (delivery_status vs delay_minutes), 6.4 (Carrier-Typ vs Transportmodus); alle dokumentiert in docs/13_data_quality_results.md §3.7 |
 | WMS warehouse_skus | sku im WMS-Format (BAN_101), erp_product_code normalisiert (BAN-101) – Fix wirksam |
 | erp.batches | kein order_id mehr; harvested_at korrekt aus event.timestamp befuellt |
 | ETL Phase 1 | 377 Events -> PostgreSQL/MongoDB/Redis/Neo4j; 10 Suppliers/Customers/Products, 10 Orders/Batches, 60 NodeProcessings, 60 Shipments |
@@ -165,6 +165,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | R-2 | Risiko | PowerBI benoetigt laufende PostgreSQL-Verbindung – Verbindungsparameter muessen vor Abgabe geprueft werden |
 | R-3 | Annahme | [ANNAHME] Docker-Container laufen bei der Abgabe auf dem lokalen Rechner – kein Cloud-Deployment geplant |
 | R-4 | Annahme | [ANNAHME] TMS-Daten enthalten genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell 10 Iterationen) |
+| R-5 | **Risiko** | Alle generierten Events haben Timestamps aus demselben Python-Aufruf (`datetime.utcnow()`). Gesamtspanne aller 10 Iterationen: **39 Millisekunden**. TransportStarted ≈ TransportCompleted ≈ DeliveryCompleted. **Impact Teil 2:** Zeitreihen-Charts, ARIMA/Prophet und KPI „Ø Transportdauer" sind damit fachlich wertlos. Vor Analytics-Arbeiten muss der Datengenerator um realistische Zeitversätze erweitert werden (z.B. `timedelta(days=i*7)` pro Iteration) — oder ein separater Datensatz mit realistischen Timestamps generiert werden. |
 
 ---
 
