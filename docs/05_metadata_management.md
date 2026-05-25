@@ -160,7 +160,7 @@ Business Keys wie `BAN-101` sind Bezeichner ohne inhärente Reihenfolge oder num
 | `batch_identifier`      | VARCHAR(60) | NOMINAL      | Bewegungsdaten | Format: BATCH-\<uuid\>. Verbindet ERP-Batch mit WMS-NodeProcessed   |
 | `product_id`            | INT         | NOMINAL      | Bewegungsdaten | FK auf erp.products. Pflichtfeld                                    |
 | `origin_country`        | VARCHAR(50) | NOMINAL      | Bewegungsdaten | Z.B. Ghana, Ecuador. ISO-Ländername. NOMINAL: keine Reihenfolge     |
-| `quantity`              | INT         | **RATIO**    | Bewegungsdaten | > 0 (CHECK). 0 = kein Batch. Verhältnis 400/200 = doppeltes Volumen |
+| `quantity`              | INT         | **RATIO**    | Bewegungsdaten | Bestellmenge in ME (Mengeneinheiten). > 0 (CHECK). Verhältnis 400/200 = doppeltes Volumen |
 | `wms_sku`               | VARCHAR(30) | NOMINAL      | Bewegungsdaten | Format: BAN_NNN (Unterstriche). Nullable                            |
 | `tms_product_reference` | VARCHAR(30) | NOMINAL      | Bewegungsdaten | Format: ban-nnn (Kleinbuchstaben). Nullable                         |
 | `harvested_at`          | TIMESTAMP   | **INTERVAL** | Bewegungsdaten | Nicht in der Zukunft. Erntezeitpunkt = event_timestamp              |
@@ -180,9 +180,9 @@ Business Keys wie `BAN-101` sind Bezeichner ohne inhärente Reihenfolge oder num
 | Spalte                   | Datentyp      | Skalenniveau | Datenart | Qualitätsregel                                                       |
 | ------------------------ | ------------- | ------------ | -------- | -------------------------------------------------------------------- |
 | `fulfillment_sk`         | SERIAL        | NOMINAL      | Analytik | Surrogate Key. Eindeutig, auto-generiert                             |
-| `quantity`               | INT           | **RATIO**    | Analytik | > 0. Basismaß für Volumenanalysen                                    |
-| `unit_price`             | NUMERIC(10,2) | **RATIO**    | Analytik | > 0 EUR. 2 Dezimalstellen. Plausibel: 1.50 – 5.00 EUR                |
-| `total_value`            | NUMERIC(12,2) | **RATIO**    | Analytik | = quantity × unit_price. Berechnete Kennzahl. > 0                    |
+| `quantity`               | INT           | **RATIO**    | Analytik | Bestellmenge in ME (Mengeneinheiten). > 0. Basismaß für Volumenanalysen |
+| `unit_price`             | NUMERIC(10,2) | **RATIO**    | Analytik | Preis pro ME in EUR. > 0. 2 Dezimalstellen. Plausibel: 1.50 – 5.00 EUR/ME |
+| `total_value`            | NUMERIC(12,2) | **RATIO**    | Analytik | = quantity [ME] × unit_price [EUR/ME]. Berechnete Kennzahl. > 0        |
 | `delay_minutes`          | INT           | **RATIO**    | Analytik | >= 0 (CHECK). 0 = pünktlich. > 30 min = SLA-Verletzung               |
 | `avg_temperature`        | NUMERIC(5,2)  | **INTERVAL** | Analytik | Soll 10–15°C. °C ohne natürlichen Nullpunkt → INTERVAL (nicht RATIO) |
 | `num_supply_chain_hops`  | INT           | **RATIO**    | Analytik | Standard: 6. 0 = kein Transport. Abweichungen = Prozessänderung      |

@@ -150,13 +150,15 @@ Diese Granularität stellt sicher, dass `SUM(total_value)` den tatsächlichen Ge
 
 | Kennzahl | Datentyp | Beschreibung | Skalenniveau | Analytics-Verwendung |
 |---|---|---|---|---|
-| `quantity` | INT | Bestellmenge in Einheiten | RATIO | Gesamtmenge pro Produkt/Kunde/Monat |
-| `unit_price` | NUMERIC(10,2) | Einzelpreis in EUR | RATIO | Preisanalyse, Durchschnittspreise |
+| `quantity` | INT | Bestellmenge in Mengeneinheiten (ME) | RATIO | Gesamtmenge pro Produkt/Kunde/Monat |
+| `unit_price` | NUMERIC(10,2) | Preis pro ME in EUR | RATIO | Preisanalyse, Durchschnittspreise |
 | `total_value` | NUMERIC(12,2) | Gesamtwert (qty × price) | RATIO | Umsatz pro Carrier/Kunde/Monat |
 | `delay_minutes` | INT | Gesamtverzögerung der Endlieferung in Minuten | RATIO | On-Time-Delivery-Rate, Carrier-Performance |
 | `avg_temperature` | NUMERIC(5,2) | Ø Containertemperatur über alle Knotenverarbeitungen des Batches | INTERVAL | Kühlketten-Compliance (10–15 °C) |
 | `num_supply_chain_hops` | INT | Anzahl Transportetappen der Supply Chain (Konstante: 6) | RATIO | Prozessanalyse, Abweichungserkennung |
 | `on_time_flag` | BOOLEAN | TRUE = delay_minutes ≤ 60 (SLA-konform) | NOMINAL | Direktes Liefertreue-Flag für PowerBI |
+
+**Hinweis zu `quantity` und `unit_price`:** Der Datengenerator legt keine physikalische Einheit fest. Im Dashboard und in Analysen wird `quantity` daher in **ME (Mengeneinheiten)** ausgewiesen, `unit_price` als **EUR/ME**. Der Wertebereich (100–1.000 ME, 1,50–5,00 EUR/ME) ist simulationsbedingt und hat keine direkte Entsprechung im realen Bananenhandel.
 
 `on_time_flag` ist ein abgeleitetes KPI-Flag, das im ETL ausschließlich aus `delay_minutes` berechnet wird – nicht aus dem TMS-Rohstatus `delivery_status`. Hintergrund: Der Datengenerator setzt `delivery_status` unabhängig von `delay_minutes`, was zu Inkonsistenzen führt (bekannter Datengenerator-Bug, Regel 6.3 in `08b_dq_audit.sql`). Der SLA-Schwellenwert beträgt **60 Minuten** (`delay_minutes <= 60 → TRUE`). Da `fact_fulfillment` ausschließlich abgeschlossene Lieferungen enthält, ist `on_time_flag` für jede Zeile eindeutig bestimmbar (kein `NULL`).
 
