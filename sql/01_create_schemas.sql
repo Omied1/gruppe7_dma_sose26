@@ -1,7 +1,11 @@
 -- =============================================================================
 -- 01_create_schemas.sql
 -- Erstellt alle PostgreSQL-Schemas für die Banana Supply Chain Plattform
---
+-- Die Datei sql/01_create_schemas.sql erstellt die Grundbereiche/Schemas in PostgreSQL. 
+-- Ein Schema ist wie ein Ordner innerhalb der Datenbank. Damit werden Tabellen logisch getrennt. 
+-- Diese Datei erstellt noch keine Tabellen. Sie erstellt nur die leeren Bereiche.
+-- Kurz gesagt: 01_create_schemas.sql legt die Datenbank-Struktur auf oberster Ebene an, damit später Tabellen wie tms.shipment_positions, erp.orders oder dwh.fact_fulfillment überhaupt angelegt werden können
+
 -- Schemas:
 --   erp   - Enterprise Resource Planning (Lieferanten, Kunden, Produkte, Orders)
 --   wms   - Warehouse Management System (SKUs, Knotenverarbeitungen)
