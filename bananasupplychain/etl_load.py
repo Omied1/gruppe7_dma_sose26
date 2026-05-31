@@ -16,7 +16,7 @@ import json
 import glob
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ── Abhängigkeiten ────────────────────────────────────────────────────────────
 try:
@@ -56,6 +56,33 @@ def safe_int(val):
     except (ValueError, TypeError):
         return None
 
+# ── Timestamp-Offset (realisitische Zeitreihe ohne Generator-Änderung) ────────
+# Iteration 001 → KW2 2026 (05.01.), jede weitere Iteration +7 Tage
+_ITER_BASE = datetime(2026, 1, 5, 6, 0, 0)
+
+def _apply_ts_offset(event: dict, filename: str) -> dict:
+    """Verschiebt den Timestamp eines Events auf eine iterationsbezogene Basiswoche."""
+    if "_iteration_" not in filename:
+        return event
+    try:
+        iteration = int(filename.split("_iteration_")[1].split("_")[0])
+    except (IndexError, ValueError):
+        return event
+    if iteration == 0:
+        return event
+    base = _ITER_BASE + timedelta(days=(iteration - 1) * 7)
+    for key in ("timestamp", "estimated_arrival"):
+        if key in event:
+            try:
+                orig = datetime.fromisoformat(event[key])
+                event[key] = base.replace(
+                    hour=orig.hour, minute=orig.minute,
+                    second=orig.second, microsecond=orig.microsecond
+                ).isoformat()
+            except (ValueError, TypeError):
+                pass
+    return event
+
 # ── Extract ──────────────────────────────────────────────────────────────────
 def extract_events(system: str) -> list:
     """Liest alle JSON-Events eines Systems. Iteration 000 (Stammdaten) zuerst."""
@@ -64,7 +91,8 @@ def extract_events(system: str) -> list:
     events  = []
     for f in files:
         try:
-            events.append(json.load(open(f, encoding='utf-8')))
+            data = json.load(open(f, encoding='utf-8'))
+            events.append(_apply_ts_offset(data, os.path.basename(f)))
         except Exception as exc:
             print(f"  WARNUNG: {f} konnte nicht gelesen werden: {exc}")
     return events

@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Deadline:** 01.07.2026  
-**Zuletzt aktualisiert:** 2026-05-24 (docs/13_data_quality_results.md auf 34 Checks aktualisiert; Dateianzahlen korrigiert; INC-06 Timestamp-Risiko ergänzt)
+**Zuletzt aktualisiert:** 2026-05-31 (Vollständiger Pipeline-Run: etl_load.py (381 Dateien, 11s), generate_documents.py (96 PDFs, erp.document_references befüllt), etl_dwh.py (20 facts), clustering.py, forecast.py, dashboard.py – alle Systeme getestet und aktuell)
 
 ---
 
@@ -173,14 +173,16 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 
 Priorisiert fuer den naechsten Arbeitssprint:
 
-1. **ETL Phase 2 implementieren** (`analytics/etl_dwh.py`) – operative PostgreSQL-Schemas -> DWH befuellen. Blockiert alle Analytics-Aufgaben.
-2. **Deskriptive Statistik** – Python-Skript mit `pandas` auf DWH-Daten (A-1)
-3. **KPIs definieren und berechnen** – SQL + Python (A-2)
-4. **5 Python-Charts erstellen** – Matplotlib/Seaborn (A-3)
-5. **PowerBI-Dashboard** – Verbindung zu PostgreSQL DWH testen (A-4)
-6. **Clustering** – k-Means auf Kundendaten (A-5)
-7. **Absatzprognose** – ARIMA oder Prophet (A-6)
-8. **Abschlussbericht** – nach Fertigstellung aller Aufgaben (A-7)
+1. **patch_timestamps.py erstellen** (Risiko R-5) – alle JSON-Timestamps von 39ms-Spanne auf realistische Zeitversaetze verteilen (Iteration 1 → KW2 2026, Iteration 2 → KW3 2026, …, ~12 Tage Supply-Chain-Dauer pro Iteration); Reihenfolge danach: patch_timestamps.py → etl_load.py → etl_dwh.py → Charts
+2. **generate_documents.py ausfuehren** – `erp.document_references` hat aktuell 0 Zeilen, obwohl MinIO 98 Dokumente enthaelt; Befehl: `python3 bananasupplychain/generate_documents.py`; kritisch fuer PostgreSQL ↔ MinIO Nachweis bei der Abgabe
+3. **Power BI Desktop Quelle aktualisieren** – Verbindungsparameter auf lokale PostgreSQL pruefen; avg_speed_kmh KPI aus neuer View einbinden; BI-Werte Plausi-Check (Gesamtumsatz auf Einzellieferungen runterrechnen)
+4. **Datengenerator mehrmals ausfuehren** – `test_data_generator.py` mehrfach (z.B. 5×) ausfuehren fuer breitere Datenbasis; danach etl_load.py + etl_dwh.py; Timestamps vorher auf Monats-Verteilung anpassen (Punkt 1 muss vorher erledigt sein)
+5. **Clustering + Prognose neu ausfuehren** (nach Mehrfach-Generatorlauf) – `analytics/clustering.py` + `analytics/forecast.py` neu ausfuehren; Ziel Clustering: Silhouette-Score > 0,5 (aktuell 0,40 bei nur 6 Kunden-Datenpunkten); Ziel Prognose: Train/Test-Split (letzte 3 Monate = Test) fuer belastbare RMSE/MAE-Werte
+6. **Deskriptive Statistik** – Python-Skript mit `pandas` auf DWH-Daten; Min/Max/Mittelwert/Median/Std fuer delay_minutes, avg_temperature, quantity, unit_price (A-1)
+7. **KPIs definieren und berechnen** – mindestens 5 KPIs mit Formel, Datenquelle, Zielwert; SQL aus DWH-Schema (A-2)
+8. **5 Python-Charts erstellen** – Matplotlib/Seaborn; Lieferverzoegerungen, Temperaturverlauf, Bestellwert-Verteilung, Routen-Heatmap, Batchqualitaet (A-3)
+9. **PowerBI-Dashboard** – Konzept + Umsetzung mit DWH-Schema als Datenquelle (A-4)
+10. **Abschlussbericht** – nach Fertigstellung aller Aufgaben (A-7)
 
 ---
 
