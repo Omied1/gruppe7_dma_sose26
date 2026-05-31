@@ -17,7 +17,7 @@
 | I-1 | Gruppe gebildet und Projektsrepo eingerichtet | ✅ Erfüllt | GitLab-Repo: `gruppe7_dma_sose26` |
 | I-2 | Vorgegebene Folderstruktur hochgeladen | ✅ Erfüllt | `bananasupplychain/`, `databasemodels_logistics_playground/` |
 | I-3 | Docker Container startbar | ✅ Erfüllt | `bananasupplychain/container/docker-compose.yml` (5 Services: PostgreSQL, MongoDB, Redis, Neo4j, MinIO) |
-| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (257) JSON-Dateien erzeugt (10 operative Iterationen) |
+| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (265) JSON-Dateien erzeugt (10 operative Iterationen) |
 
 ---
 
@@ -78,7 +78,7 @@
 | # | Anforderung | Status | Nachweis |
 |---|---|---|---|
 | N-1 | Neo4j Instanz zur Graphenmodellierung entwickelt | ✅ Erfüllt | `docs/10_neo4j_graph_model.md` + `cypher/01_create_graph_model.cypher` |
-| N-2 | Nodes und Beziehungen definiert | ✅ Erfüllt | 8 Node-Typen, 12 Relationship-Typen |
+| N-2 | Nodes und Beziehungen definiert | ✅ Erfüllt | 8 Node-Typen, 13 Relationship-Typen |
 | N-3 | Begründung für Graphdatenbank | ✅ Erfüllt | `docs/10_neo4j_graph_model.md` Kap. 1 + SQL vs. Cypher Vergleich |
 | N-4 | Beispiel-Cypher-Abfragen | ✅ Erfüllt | 5 Abfragen in `docs/10_neo4j_graph_model.md` Kap. 5 |
 
@@ -122,7 +122,7 @@
 |---|---|---|---|
 | Q-1 | Konkrete Datenqualitätsregeln definiert | ✅ Erfüllt | `docs/06_data_quality.md` – 6 Dimensionen mit je 2-4 Regeln |
 | Q-2 | Bezug auf konkrete Supply-Chain-Beispiele | ✅ Erfüllt | Kühlkette (PQ-03), Produktcode-Harmonisierung (KQ-01), Zeitlogik (AQ-01/02) |
-| Q-3 | SQL-Checks implementiert | ✅ Erfüllt | `sql/08_data_quality_checks.sql` – 28 Checks über alle 6 Dimensionen; `sql/08b_dq_audit.sql` – konsolidiertes Ergebnis |
+| Q-3 | SQL-Checks implementiert | ✅ Erfüllt | `sql/08_data_quality_checks.sql` – 34 Checks über alle 6 Dimensionen; `sql/08b_dq_audit.sql` – konsolidiertes Ergebnis (31/34 PASS, 3 erwartete FAILs dokumentiert) |
 | Q-4 | Python-Validierungsfunktionen | ✅ Erfüllt | `docs/06_data_quality.md` Kap. 4 + `docs/12_etl_concept.md` |
 | Q-5 | Technische Nachweise alle Systeme | ✅ Erfüllt | `sql/09_verification_queries.sql` (PostgreSQL+DWH), `cypher/02_verification_queries.cypher` (Neo4j), `bananasupplychain/verify_all_systems.py` (MongoDB/Redis/MinIO/Neo4j) |
 
@@ -145,7 +145,7 @@
 |---|---|---|
 | `shared/erp/` | 50 JSON-Dateien | ✅ Erzeugt |
 | `shared/wms/` | 70 JSON-Dateien | ✅ Erzeugt |
-| `shared/tms/` | 257 JSON-Dateien | ✅ Erzeugt |
+| `shared/tms/` | 265 JSON-Dateien | ✅ Erzeugt |
 | `docs/` | 13 Markdown-Dokumente | ✅ Vollständig |
 | `sql/` | 8 SQL-Dateien | ✅ Vollständig |
 | `cypher/` | 1 Cypher-Datei | ✅ Vollständig |
@@ -175,7 +175,7 @@
 - `05_create_mdm_tables.sql` – 3 MDM-Tabellen + Hilfsfunktion
 - `06_create_metadata_tables.sql` – 3 Metadaten-Tabellen + exemplarische Einträge
 - `07_create_dwh_schema.sql` – 7 Dimensionen + 1 Faktentabelle + Date Spine 2025-2027
-- `08_data_quality_checks.sql` – 28 SQL-Qualitätsprüfungen (6 Dimensionen)
+- `08_data_quality_checks.sql` – 34 SQL-Qualitätsprüfungen (6 Dimensionen, 31/34 PASS)
 - `08b_dq_audit.sql` – konsolidierter DQ-Audit (ein Ergebnis-Set)
 - `09_verification_queries.sql` – Befüllungsnachweise alle Schemas + DWH + FK-Checks
 
@@ -201,9 +201,9 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
 | Neo4j: Graphmodell | ✅ Nodes + Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
 | MinIO: Buckets + Dokumente | ✅ 4 Buckets | 98 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
-| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 377 Events in PostgreSQL, MongoDB, Redis, Neo4j |
+| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 385 Events in PostgreSQL, MongoDB, Redis, Neo4j |
 
-### ETL-Ergebnis (377 JSON-Events → alle 5 Systeme)
+### ETL-Ergebnis (385 JSON-Events → alle 5 Systeme)
 
 | System | Einträge geladen |
 |---|---|

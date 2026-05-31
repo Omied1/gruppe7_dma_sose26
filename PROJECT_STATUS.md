@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Deadline:** 01.07.2026  
-**Zuletzt aktualisiert:** 2026-05-31 (Vollständiger Pipeline-Run: etl_load.py (381 Dateien, 11s), generate_documents.py (96 PDFs, erp.document_references befüllt), etl_dwh.py (20 facts), clustering.py, forecast.py, dashboard.py – alle Systeme getestet und aktuell)
+**Zuletzt aktualisiert:** 2026-06-01 (Audit + Korrekturen: Dokumentationskonsistenz hergestellt; Analytics-Status aktualisiert; Sollwerte auf Single-Run-Basis vereinheitlicht: 10 fact_fulfillment-Zeilen, 265 TMS-Events, 34 DQ-Checks, 13 Neo4j-Relationship-Typen)
 
 ---
 
@@ -12,7 +12,7 @@
 Datenmodelle, ETL-Skript, alle Datenbanksysteme und Dokumentation sind erstellt
 und getestet.
 
-**Teil 2 – Analytics:** Noch nicht begonnen. Vollständig offen.
+**Teil 2 – Analytics:** In Bearbeitung. Dashboard (5 Charts), Clustering (k-Means) und Absatzprognose (ARIMA) sind implementiert und getestet. Deskriptive Statistik, KPI-Dokumentation, PowerBI-Dashboard und Abschlussbericht stehen noch aus.
 
 ---
 
@@ -28,7 +28,7 @@ und getestet.
 | `docs/03_er_model.md` | ER-Modell mit PKs, FKs, Kardinalitäten (Mermaid); `order_id` aus `ERP_BATCHES` entfernt; `ERP_DOCUMENT_REFERENCES` ergaenzt; Cross-Schema-Tabelle vervollstaendigt | abgabefähig |
 | `docs/04_masterdata_management.md` | MDM-Konzept, Schlüsselharmonisierung BAN-101/BAN_101/ban-101; View `mdm.v_golden_overview` dokumentiert; Edge Cases (NULL-Handling, ETL-Reihenfolge) ergänzt; Diagnose-Queries für nicht-harmonisierte WMS/TMS-Schlüssel ergänzt | abgabefähig |
 | `docs/05_metadata_management.md` | Skalenniveaus für alle Kernspalten; Section 4 um 4 weitere Tabellen (customers, batches, supply_chain_nodes, fact_fulfillment) erweitert; Section 6 auf 52 Schlüsselspalten ausgebaut | abgabefähig |
-| `docs/06_data_quality.md` | 6 DQ-Dimensionen, 28 Regeln; VQ-05 + KQ-04 ergänzt; AQ-01 auf korrekte Logik (kein order_id-FK) korrigiert; DQ-Dashboard aktualisiert | abgabefähig |
+| `docs/06_data_quality.md` | 6 DQ-Dimensionen, 34 Regeln (28 ursprünglich + 6 ergänzt: PQ-4.10, AQ-5.0×4, KQ-6.3, KQ-6.4); VQ-05 + KQ-04 ergänzt; AQ-01 auf korrekte Logik (kein order_id-FK) korrigiert; DQ-Dashboard aktualisiert | abgabefähig |
 | `docs/07_dwh_model.md` | Sternschema-Doku: 7 Dim + Faktentabelle + ETL-Übergänge + 3 analytische Views + PowerBI-Abschnitt + Prüfqueries; `on_time_flag` dokumentiert | abgabefähig |
 | `docs/08_mongodb_event_model.md` | 4 Collections; Lifecycle-Modell für shipment_events; TTL-Index (90 Tage); korrekter node_events-Index (batch+node unique); vollständige Knotenobjekte in batch_tracking; Prüfqueries | abgabefähig |
 | `docs/09_redis_realtime_model.md` | Key-Taxonomie vollständig (7 Abschnitte); TTL-Übersicht; ERP+TMS-Events; ETL-Nachweis mit Prüfabfragen; Datentyp-Begründung; Abgrenzungstabelle | abgabefähig |
@@ -36,8 +36,6 @@ und getestet.
 | `docs/11_minio_document_model.md` | 4 Buckets, Referenzierungsmuster PostgreSQL <-> MinIO; Bucket Versioning (Kap. 6); Zwei-Phasen-Ansatz (Kap. 7); 6 Prüfqueries (Kap. 8) | abgabefähig |
 | `docs/12_etl_concept.md` | ETL-Konzept mit Mapping-Tabelle für alle 13 Eventtypen; Feld-Ebene-Mapping ergänzt (6 Tabellen); Load-Reihenfolge bereinigt; Idempotenz-Abschnitt auf MongoDB/Redis/Neo4j ausgeweitet; ETL-Nachweis mit Prüfqueries hinzugefügt; **Bug-Fix 2026-05-15:** Phase-2-SQL-Beispiel korrigiert (JOIN auf erp.batches.order_id entfernt, der nicht existiert); BatchHarvested-Mapping-Eintrag korrigiert; ETL-Nachweis-Zahlen auf 60 korrigiert | abgabefähig |
 | `docs/13_data_quality_results.md` | Audit-Ergebnisse auf 34 Checks aktualisiert (31/34 PASS = 91 %); 3 erwartete FAILs erklärt (4.10 GPS-Simulation, 6.3 SLA-Inkonsistenz, 6.4 Carrier-Modus); §3.7 neu; Dateianzahlen in §7.1 korrigiert (10 orders, 10 batches) | abgabefähig |
-| `docs/Projekt_Gesamtueberblick_Teil1.md` | Vollständige statische Projektanalyse (2026-05-21): Architektur, alle Dateien, Widersprüche, Empfehlungen, Reproduzierbarkeit, Abgabebereitschaft | erstellt |
-| `docs/review_fehler_risiken_teil1.md` | Unabhängiges Review mit priorisierten Fehlern, Risiken und Lücken; enthält Prioritätsliste und Gesamtbewertung für Abgabe | erstellt |
 
 ### SQL (`sql/`)
 
@@ -58,7 +56,7 @@ und getestet.
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `bananasupplychain/etl_load.py` | ETL-Hauptskript: 377 Events -> PostgreSQL, MongoDB, Redis, Neo4j (kein MinIO); Bug-Fix: node_processings.sku behält WMS-Format (BAN_108, nicht normalisiert); Bug-Fix Neo4j: product_code auf Batch-Node gesetzt, TRANSPORTED_VIA-Relationship in TransportStarted-Handler ergänzt → DeliveryCompleted kann jetzt DELIVERED_TO-Kante anlegen | erstellt |
+| `bananasupplychain/etl_load.py` | ETL-Hauptskript: 385 Events -> PostgreSQL, MongoDB, Redis, Neo4j (kein MinIO); Bug-Fix: node_processings.sku behält WMS-Format (BAN_108, nicht normalisiert); Bug-Fix Neo4j: product_code auf Batch-Node gesetzt, TRANSPORTED_VIA-Relationship in TransportStarted-Handler ergänzt → DeliveryCompleted kann jetzt DELIVERED_TO-Kante anlegen | erstellt |
 | `bananasupplychain/verify_all_systems.py` | Technische Nachweise MongoDB/Redis/Neo4j/MinIO: Collection-Counts, Index-Prüfung, TTL-Prüfung, Key-Typen, Node/Rel-Counts, 6-Hop-Pfad, Bucket-Prüfung, Metadaten-Check; PASS/FAIL-Ausgabe | erstellt |
 | `bananasupplychain/etl_dwh.py` | ETL Phase 2: Operative Schemas -> DWH-Sternschema (6 Dimensionen + fact_fulfillment); `on_time_flag` berechnet und geladen; **Bug-Fix 2026-05-15:** Grain auf Endlieferungen korrigiert (INNER JOIN tms.deliveries), fact_fulfillment 10 Zeilen statt 60 – Umsatz-Inflation behoben | abgabefähig |
 | `bananasupplychain/generate_documents.py` | MinIO-Dokumentengenerator (einziger MinIO-Einstiegspunkt): alle 4 Buckets; erwartete Ausgabe: 60+8+10+10+10 = 98 PostgreSQL-Referenzen | erstellt |
@@ -78,7 +76,15 @@ und getestet.
 |---|---|---|
 | `shared/erp/` | 50 JSON-Events | getestet |
 | `shared/wms/` | 70 JSON-Events | getestet |
-| `shared/tms/` | 257 JSON-Events | getestet |
+| `shared/tms/` | 265 JSON-Events | getestet |
+
+### Analytics (`analytics/`)
+
+| Datei | Inhalt | Status |
+|---|---|---|
+| `analytics/dashboard.py` | 5 BI-Charts (Umsatz-Zeitreihe, Carrier-Performance, Umsatz nach Produkt, Verzoegerung, Kuehlkette); Output: PDF + PNG + HTML | abgabefaehig |
+| `analytics/clustering.py` | Kundensegmentierung k-Means; Elbow-Methode; Silhouette-Score; Output: PDF + PNG | abgabefaehig |
+| `analytics/forecast.py` | Absatzprognose ARIMA(1,0,1); 1 echter Datenpunkt + 26 Monate synthetische History (transparent markiert); Output: PDF + PNG + TXT | abgabefaehig |
 
 ---
 
@@ -95,7 +101,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | DQ-Checks `08` + `08b` | 34 Checks; 31/34 PASS; 3 erwartete FAILs: 4.10 (GPS weltweit zufällig), 6.3 (delivery_status vs delay_minutes), 6.4 (Carrier-Typ vs Transportmodus); alle dokumentiert in docs/13_data_quality_results.md §3.7 |
 | WMS warehouse_skus | sku im WMS-Format (BAN_101), erp_product_code normalisiert (BAN-101) – Fix wirksam |
 | erp.batches | kein order_id mehr; harvested_at korrekt aus event.timestamp befuellt |
-| ETL Phase 1 | 377 Events -> PostgreSQL/MongoDB/Redis/Neo4j; 10 Suppliers/Customers/Products, 10 Orders/Batches, 60 NodeProcessings, 60 Shipments |
+| ETL Phase 1 | 385 Events -> PostgreSQL/MongoDB/Redis/Neo4j; 10 Suppliers/Customers/Products, 10 Orders/Batches, 60 NodeProcessings, 60 Shipments |
 | ETL Phase 2 | 10 dim_customer, 10 dim_supplier, 10 dim_product, 5 dim_carrier, 10 fact_fulfillment (nach Grain-Fix) |
 | MongoDB: 4 Collections | 60 shipment_events, 60 node_events, 60 batch_tracking, 10 order_events |
 | Redis: alle Key-Typen | STRING, HASH, LIST, SORTED SET, COUNTER + TTLs auf allen Keys; load_redis() verarbeitet ERP+TMS; monitoring:temp_violations mit Datumskey + 7-Tage-TTL; active_shipments INCR/DECR; shipment:route Sorted Set; Produktcache; orders_today mit EXPIREAT |
@@ -125,16 +131,23 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 
 ---
 
-## 6. Offene Aufgaben – Teil 2: Analytics
+## 6. Aufgaben – Teil 2: Analytics
+
+### Erledigt
+
+| # | Aufgabe | Status | Nachweis |
+|---|---|---|---|
+| A-3 | 5 Python-Charts (Matplotlib/Seaborn/Plotly): Umsatz-Zeitreihe, Carrier-Performance, Umsatz nach Produkt, Verzoegerung pro Knoten, Kuehlkettenqualitaet | **abgabefaehig** | `analytics/dashboard.py` → `dashboard.pdf`, `dashboard.png`, `dashboard.html` |
+| A-5 | Clustering: Kundensegmentierung mit k-Means (Elbow-Methode, 4 Features, Silhouette-Score) | **abgabefaehig** | `analytics/clustering.py` → `clustering.pdf`, `clustering.png` |
+| A-6 | Absatzprognose: ARIMA auf Bestellvolumen (RMSE/MAE im Chart; 26 Monate synthetische History + 1 echter Datenpunkt Mai 2026 – transparent markiert) | **abgabefaehig** | `analytics/forecast.py` → `forecast.pdf`, `forecast.png`, `forecast_model_summary.txt` |
+
+### Noch offen
 
 | # | Aufgabe | Priorität |
 |---|---|---|
-| A-1 | Deskriptive Statistik: Min, Max, Mittelwert, Median, Std fuer delay_minutes, temperature, quantity | Hoch |
-| A-2 | KPI-Definition: mindestens 5 KPIs mit Formel, Datenquelle, Zielwert | Hoch |
-| A-3 | 5 Python-Charts (Matplotlib/Seaborn): Lieferverzoegerungen, Temperatur, Bestellwert, Routen-Heatmap, Batchqualitaet | Hoch |
-| A-4 | PowerBI-Dashboard: Konzept + Umsetzung mit DWH-Schema als Datenquelle | Hoch |
-| A-5 | Clustering: Kundensegmentierung mit k-Means (Elbow-Methode) | Mittel |
-| A-6 | Absatzprognose: Zeitreihe Bestellvolumen mit ARIMA oder Prophet (RMSE/MAE angeben) | Mittel |
+| A-1 | Deskriptive Statistik: Min, Max, Mittelwert, Median, Std fuer delay_minutes, temperature, quantity, unit_price | Hoch |
+| A-2 | KPI-Definition: mindestens 5 KPIs mit Formel, Datenquelle, Zielwert (SQL aus DWH) | Hoch |
+| A-4 | PowerBI-Dashboard: Konzept dokumentiert in `docs/07_dwh_model.md`; .pbix-Datei noch nicht erstellt | Hoch |
 | A-7 | Abschlussbericht: Zusammenfassung aller Ergebnisse Teil 1 + Teil 2 | Hoch |
 
 ---

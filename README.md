@@ -65,6 +65,17 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 python3 bananasupplychain/test_data_generator.py
 ```
 
+### Schritt 3b: Timestamps auf realistische Supply-Chain-Zeiträume verteilen
+
+> **Hinweis:** Dieser Schritt ist für korrekte Zeitreihen in Analytics und DWH erforderlich.
+> Der Generator erzeugt alle Timestamps innerhalb von Millisekunden. `patch_timestamps.py`
+> verteilt sie auf KW2–KW11 2026 (7 Tage Abstand je Iteration, route-spezifisch gespreizt).
+> Das Skript ist idempotent und kann beliebig oft ausgeführt werden.
+
+```bash
+python3 bananasupplychain/patch_timestamps.py
+```
+
 ### Schritt 4: ETL Phase 1 (ERP/WMS/TMS → alle Datenbanken)
 
 ```bash
@@ -82,6 +93,24 @@ python3 bananasupplychain/generate_documents.py
 ```bash
 python3 bananasupplychain/etl_dwh.py
 ```
+
+### Schritt 7: Verifikation aller Systeme
+
+```bash
+docker exec -i postgres psql -U user -d logistics < sql/09_verification_queries.sql
+docker exec -i postgres psql -U user -d logistics < sql/08_data_quality_checks.sql
+python3 bananasupplychain/verify_all_systems.py
+```
+
+### Schritt 8: Analytics ausführen
+
+```bash
+python3 analytics/dashboard.py
+python3 analytics/clustering.py
+python3 analytics/forecast.py
+```
+
+> Output-Dateien (`dashboard.pdf`, `clustering.pdf`, `forecast.pdf` etc.) werden in `analytics/` gespeichert.
 
 ---
 
@@ -103,7 +132,7 @@ python3 bananasupplychain/etl_dwh.py
 ## Projektstruktur
 
 ```
-shared/                    # ERP/WMS/TMS JSON-Quelldaten (50 + 70 + 257 Dateien)
+shared/                    # ERP/WMS/TMS JSON-Quelldaten (50 + 70 + 265 Dateien)
 sql/                       # PostgreSQL DDL (01–09)
 bananasupplychain/         # ETL-Skripte + Docker-Compose
 analytics/                 # Python Charts, Clustering, Absatzprognose

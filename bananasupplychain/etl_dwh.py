@@ -123,7 +123,7 @@ def fill_fact_fulfillment(cur):
     Befüllt fact_fulfillment aus den operativen Schemas.
 
     Grain: 1 Endlieferung (= 1 DeliveryCompleted an RETAIL_STORE).
-    Pro Iteration eine Endlieferung → Anzahl Fact-Zeilen = Anzahl Iterationen (aktuell 20).
+    Pro Iteration eine Endlieferung → Anzahl Fact-Zeilen = Anzahl Iterationen (Standard: 10 bei 1× Generator-Run).
     Damit sind alle Finanzkennzahlen (total_value, quantity, unit_price)
     exakt einer Bestellung zugeordnet – kein Umsatz-Inflation durch Hops.
 
