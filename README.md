@@ -65,17 +65,6 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 python3 bananasupplychain/test_data_generator.py
 ```
 
-### Schritt 3b: Timestamps auf realistische Supply-Chain-Zeiträume verteilen
-
-> **Hinweis:** Dieser Schritt ist für korrekte Zeitreihen in Analytics und DWH erforderlich.
-> Der Generator erzeugt alle Timestamps innerhalb von Millisekunden. `patch_timestamps.py`
-> verteilt sie auf KW2–KW11 2026 (7 Tage Abstand je Iteration, route-spezifisch gespreizt).
-> Das Skript ist idempotent und kann beliebig oft ausgeführt werden.
-
-```bash
-python3 bananasupplychain/patch_timestamps.py
-```
-
 ### Schritt 4: ETL Phase 1 (ERP/WMS/TMS → alle Datenbanken)
 
 ```bash
