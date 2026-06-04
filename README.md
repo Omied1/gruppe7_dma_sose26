@@ -61,9 +61,15 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 
 ### Schritt 3: Testdaten generieren (immer aus Repo-Root!)
 
+> **Hinweis:** Der Ordner `shared/` ist bewusst nicht im Repository enthalten – er enthält generierte JSON-Ereignisdaten und gehört nicht ins Versionskontrollsystem. Er wird durch diesen Schritt erzeugt.
+>
+> **Wichtig:** Den Generator **nur einmal** ausführen. Mehrfache Ausführung erzeugt neue UUIDs und verdoppelt die Datensätze beim nächsten ETL-Lauf (statt 10 → 20 fact_fulfillment-Zeilen). Falls `shared/` bereits befüllt ist, erst löschen: `rm -rf shared/erp shared/wms shared/tms`
+
 ```bash
 python3 bananasupplychain/test_data_generator.py
 ```
+
+Erwartete Ausgabe: 50 ERP- / 70 WMS- / 265 TMS-JSON-Dateien in `shared/`.
 
 ### Schritt 4: ETL Phase 1 (ERP/WMS/TMS → alle Datenbanken)
 
