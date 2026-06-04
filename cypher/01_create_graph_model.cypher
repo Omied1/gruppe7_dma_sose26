@@ -245,7 +245,7 @@ MERGE (c)-[:OPERATES_ON {transport_mode: "SEA_FREIGHT"}]->(n);
 // Demonstriert alle 8 Node-Typen und 13 Relationship-Typen in einem
 // durchgehenden Order-to-Delivery-Prozess.
 //
-// Realer Batch aus ERP-Event: BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b
+// Realer Batch aus ERP-Event: BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7
 // Produkt: BAN-108 (Green Banana), Lieferant: SUP-106 (Premium Banana Farms)
 // Kunde:   CUST-109 (AUCHAN, Frankfurt)
 // =============================================================================
@@ -267,50 +267,50 @@ MERGE (o)-[:CONTAINS {quantity: 760, unit_price: 3.09}]->(p);
 
 // --- 7.2 Batch ---
 // Quelle: ERP BatchHarvested-Event (iteration_001)
-MERGE (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+MERGE (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
   SET b.quantity         = 760,
       b.origin_country   = "Ghana",
       b.harvested_at     = "2026-05-12T11:50:40";
 
 // Bestellung löste Ernte aus (TRIGGERED)
 MATCH (o:Order {order_reference: "ORD-DEMO-001"}),
-      (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+      (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
 MERGE (o)-[:TRIGGERED]->(b);
 
 // --- 7.3 PROCESSED_AT – alle 7 Stationen (vollständiger 6-Hop-Pfad) ---
 // Quelle: WMS NodeProcessed-Events + Temperaturen aus tatsächlichen Events
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "BANANA_PLANTATION"})
 MERGE (b)-[:PROCESSED_AT {temperature: 14.2, status: "COMPLETED",
       processed_at: "2026-05-12T11:51:00"}]->(n);
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "COLLECTION_CENTER"})
 MERGE (b)-[:PROCESSED_AT {temperature: 13.8, status: "COMPLETED",
       processed_at: "2026-05-12T15:55:00"}]->(n);
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "QUALITY_CONTROL"})
 MERGE (b)-[:PROCESSED_AT {temperature: 13.5, status: "COMPLETED",
       processed_at: "2026-05-12T17:58:00"}]->(n);
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "AFRICA_COLD_STORAGE"})
 MERGE (b)-[:PROCESSED_AT {temperature: 12.57, status: "COMPLETED",
       processed_at: "2026-05-13T00:15:00"}]->(n);
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "EUROPE_COLD_STORAGE"})
 MERGE (b)-[:PROCESSED_AT {temperature: 12.1, status: "COMPLETED",
       processed_at: "2026-05-23T10:00:00"}]->(n);
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "CENTRAL_WAREHOUSE"})
 MERGE (b)-[:PROCESSED_AT {temperature: 11.9, status: "COMPLETED",
       processed_at: "2026-05-23T18:30:00"}]->(n);
 
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "RETAIL_STORE"})
 MERGE (b)-[:PROCESSED_AT {temperature: 11.5, status: "COMPLETED",
       processed_at: "2026-05-24T09:00:00"}]->(n);
@@ -324,7 +324,7 @@ MERGE (ship:Shipment {shipment_identifier: "SHIP-DEMO-001"})
       ship.completed_at   = "2026-05-23T10:00:00";
 
 // Batch wurde per Schiff transportiert (TRANSPORTED_VIA)
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"}),
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (ship:Shipment {shipment_identifier: "SHIP-DEMO-001"})
 MERGE (b)-[:TRANSPORTED_VIA]->(ship);
 
@@ -367,7 +367,7 @@ MERGE (ship)-[:DELIVERED_TO {
 // --- Q1: Vollständiger Weg eines Batches durch alle Stationen ---
 // Zeigt die 7 Stationen mit Temperatur und Zeitstempel (6-Hop-Pfad)
 //
-// MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+// MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
 //       -[r:PROCESSED_AT]->(n:SupplyChainNode)
 // RETURN b.batch_identifier,
 //        n.sequence_order,

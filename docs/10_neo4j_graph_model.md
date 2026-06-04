@@ -168,7 +168,7 @@ Aus den ERP `ProductCreated`-Events abgeleitete `SUPPLIES`-Beziehungen:
 ### Q1: Vollständiger Weg eines Batches (6-Hop-Pfad)
 
 ```cypher
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
       -[r:PROCESSED_AT]->(n:SupplyChainNode)
 RETURN b.batch_identifier,
        n.sequence_order,
@@ -280,14 +280,14 @@ SELECT n.node_name, np.temperature, np.processed_at
 FROM   erp.batches           b
 JOIN   wms.node_processings  np ON np.batch_reference = b.batch_identifier
 JOIN   wms.supply_chain_nodes n  ON n.node_id = np.node_id
-WHERE  b.batch_identifier = 'BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b'
+WHERE  b.batch_identifier = 'BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7'
 ORDER  BY n.sequence_order;
 -- 2 JOINs, überschaubar – skaliert aber schlecht bei variablen Traversaltiefen
 ```
 
 **Cypher (Neo4j):**
 ```cypher
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
       -[r:PROCESSED_AT]->(n:SupplyChainNode)
 RETURN n.node_name, r.temperature ORDER BY n.sequence_order
 -- nativer Graph-Traversal, keine JOINs, direkt auf Beziehungsstruktur optimiert

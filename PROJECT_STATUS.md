@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Deadline:** 01.07.2026  
-**Zuletzt aktualisiert:** 2026-06-01 (Audit + Korrekturen: Dokumentationskonsistenz hergestellt; Analytics-Status aktualisiert; Sollwerte auf Single-Run-Basis vereinheitlicht: 10 fact_fulfillment-Zeilen, 265 TMS-Events, 34 DQ-Checks, 13 Neo4j-Relationship-Typen)
+**Zuletzt aktualisiert:** 2026-06-04 (Architektur-Bereinigung Option A: shared/ neu generiert mit rohen utcnow()-Timestamps; alle Systeme neu geladen; Batch-ID in docs/10 + cypher/01 aktualisiert; Analytics neu generiert; TMS-Dateianzahl 274)
 
 ---
 
@@ -74,9 +74,9 @@ und getestet.
 
 | Ordner | Dateien | Status |
 |---|---|---|
-| `shared/erp/` | 50 JSON-Events | getestet |
-| `shared/wms/` | 70 JSON-Events | getestet |
-| `shared/tms/` | 265 JSON-Events | getestet |
+| `shared/erp/` | 50 JSON-Events – rohe utcnow()-Timestamps (2026-06-04) | getestet |
+| `shared/wms/` | 70 JSON-Events – rohe utcnow()-Timestamps (2026-06-04) | getestet |
+| `shared/tms/` | 274 JSON-Events – rohe utcnow()-Timestamps (2026-06-04) | getestet |
 
 ### Analytics (`analytics/`)
 
@@ -178,7 +178,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | R-2 | Risiko | PowerBI benoetigt laufende PostgreSQL-Verbindung – Verbindungsparameter muessen vor Abgabe geprueft werden |
 | R-3 | Annahme | [ANNAHME] Docker-Container laufen bei der Abgabe auf dem lokalen Rechner – kein Cloud-Deployment geplant |
 | R-4 | Annahme | [ANNAHME] TMS-Daten enthalten genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell 10 Iterationen) |
-| R-5 | **Risiko** | Alle generierten Events haben Timestamps aus demselben Python-Aufruf (`datetime.utcnow()`). Gesamtspanne aller 10 Iterationen: **39 Millisekunden**. TransportStarted ≈ TransportCompleted ≈ DeliveryCompleted. **Impact Teil 2:** Zeitreihen-Charts, ARIMA/Prophet und KPI „Ø Transportdauer" sind damit fachlich wertlos. Vor Analytics-Arbeiten muss der Datengenerator um realistische Zeitversätze erweitert werden (z.B. `timedelta(days=i*7)` pro Iteration) — oder ein separater Datensatz mit realistischen Timestamps generiert werden. |
+| R-5 | **erledigt 2026-06-04** | shared/ wurde neu generiert (rohe utcnow()-Timestamps). Die Zeitverteilung (Jan–März 2026) wird ausschließlich durch `_apply_ts_offset()` in `etl_load.py` erzeugt – deterministisch, prozesslogisch begründet, kein Patch auf Quelldaten. Quelldaten und ETL-Logik sind klar getrennt (Option A). |
 
 ---
 
