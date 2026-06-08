@@ -101,12 +101,12 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | DQ-Checks `08` + `08b` | 34 Checks; 31/34 PASS; 3 erwartete FAILs: 4.10 (GPS weltweit zufällig), 6.3 (delivery_status vs delay_minutes), 6.4 (Carrier-Typ vs Transportmodus); alle dokumentiert in docs/13_data_quality_results.md §3.7 |
 | WMS warehouse_skus | sku im WMS-Format (BAN_101), erp_product_code normalisiert (BAN-101) – Fix wirksam |
 | erp.batches | kein order_id mehr; harvested_at korrekt aus event.timestamp befuellt |
-| ETL Phase 1 | 385 Events -> PostgreSQL/MongoDB/Redis/Neo4j; 10 Suppliers/Customers/Products, 10 Orders/Batches, 60 NodeProcessings, 60 Shipments |
+| ETL Phase 1 | 395 Events -> PostgreSQL/MongoDB/Redis/Neo4j; 10 Suppliers/Customers/Products, 10 Orders/Batches, 60 NodeProcessings, 60 Shipments |
 | ETL Phase 2 | 10 dim_customer, 10 dim_supplier, 10 dim_product, 5 dim_carrier, 10 fact_fulfillment (nach Grain-Fix) |
-| MongoDB: 4 Collections | 60 shipment_events, 60 node_events, 60 batch_tracking, 10 order_events |
+| MongoDB: 4 Collections | 60 shipment_events, 60 node_events, 10 batch_tracking, 10 order_events |
 | Redis: alle Key-Typen | STRING, HASH, LIST, SORTED SET, COUNTER + TTLs auf allen Keys; load_redis() verarbeitet ERP+TMS; monitoring:temp_violations mit Datumskey + 7-Tage-TTL; active_shipments INCR/DECR; shipment:route Sorted Set; Produktcache; orders_today mit EXPIREAT |
-| Neo4j: Graphmodell | 125+ Nodes, alle Relationships; Pfad PLANTATION->RETAIL in 6 Hops |
-| MinIO: 4 Buckets | 98 Dokumente: 60 Lieferscheine, 8 Rechnungen, 10 B/L, 10 Zollfreigaben, 10 Qualitätszertifikate |
+| Neo4j: Graphmodell | 124 Nodes, alle Relationships; Pfad PLANTATION->RETAIL in 6 Hops |
+| MinIO: 4 Buckets | 97 Dokumente: 60 Lieferscheine, 7 Rechnungen, 10 B/L, 10 Zollfreigaben, 10 Qualitätszertifikate |
 
 ---
 
@@ -179,6 +179,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | R-3 | Annahme | [ANNAHME] Docker-Container laufen bei der Abgabe auf dem lokalen Rechner – kein Cloud-Deployment geplant |
 | R-4 | Annahme | [ANNAHME] TMS-Daten enthalten genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell 10 Iterationen) |
 | R-5 | **erledigt 2026-06-04** | shared/ wurde neu generiert (rohe utcnow()-Timestamps). Die Zeitverteilung (Jan–März 2026) wird ausschließlich durch `_apply_ts_offset()` in `etl_load.py` erzeugt – deterministisch, prozesslogisch begründet, kein Patch auf Quelldaten. Quelldaten und ETL-Logik sind klar getrennt (Option A). |
+| R-6 | **erledigt 2026-06-09** | `verify_all_systems.py` führt die zwei kurzlebigen Redis-Keys `shipment:position:*` und `cache:product:*` (je 1 h TTL, `etl_load.py` expire 3600) als **WARN [TTL-abhängig]** statt FAIL – ein regulär abgelaufener Cache erzeugt keinen Fehlalarm mehr, der Lauf bleibt grün (kein stilles PASS bei 0). Persistente Keys (`shipment:status:*`, `order:status:*`, `shipment:route:*`) lösen weiterhin hart FAIL aus. Verify ist damit zeitunabhängig aussagekräftig. |
 
 ---
 

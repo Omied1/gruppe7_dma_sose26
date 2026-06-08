@@ -35,7 +35,7 @@ Die Banana Supply Chain ist ein **Netzwerk** aus Akteuren (Lieferanten, Kunden, 
 | `Carrier` | tms.carriers | carrier_code, carrier_name | `CAR-101, DHL` |
 | `SupplyChainNode` | wms.supply_chain_nodes | node_code, node_name, node_type, region, sequence_order | `AFRICA_COLD_STORAGE, Cold Storage Accra, COLD_STORAGE, Africa, 4` |
 | `Order` | erp.orders | order_reference, delivery_priority, order_date | `ORD-DEMO-001, NORMAL, 2026-05-12` |
-| `Batch` | erp.batches | batch_identifier, quantity, origin_country, harvested_at | `BATCH-9c6818ad-…, 760, Ghana, 2026-05-12` |
+| `Batch` | erp.batches | batch_identifier, quantity, origin_country, harvested_at | `BATCH-fc6d22f2-…, 760, Ghana, 2026-05-12` |
 | `Shipment` | tms.shipments | shipment_identifier, transport_mode, delay_minutes, started_at, completed_at | `SHIP-DEMO-001, SEA_FREIGHT, 45` |
 
 ### Supply-Chain-Topologie (7 Stationen, 6 Hops)
@@ -272,7 +272,7 @@ ORDER BY bestellungen DESC
 
 ## 7. Neo4j vs. PostgreSQL: Vergleich Pfadabfrage
 
-### Frage: Welchen Weg hat Batch BATCH-9c6818ad durch die Supply Chain genommen?
+### Frage: Welchen Weg hat Batch BATCH-fc6d22f2 durch die Supply Chain genommen?
 
 **SQL (PostgreSQL):**
 ```sql
@@ -311,7 +311,7 @@ MATCH (n:SupplyChainNode) RETURN n.node_name, n.node_type, n.region
 ORDER BY n.sequence_order
 ```
 
-Erwartete Node-Counts nach Skriptausführung:
+Erwartete Node-Counts nach Ausführung von `cypher/01` **allein** (reines Demo-Modell, ohne ETL):
 
 | Node-Typ | Erwartete Anzahl |
 |---|---|
@@ -324,3 +324,5 @@ Erwartete Node-Counts nach Skriptausführung:
 | Batch | 1 (Demo) |
 | Shipment | 1 (Demo) |
 | **Gesamt** | **45** |
+
+> Nach vollständigem Restore (ETL + `cypher/01`) sind es **124 Nodes**: je 10 Supplier/Customer/Product, 7 SupplyChainNode, 5 Carrier, 11 Order (10 ETL + Demo), 10 Batch (der Demo-Batch `fc6d22f2` ist einer der 10 ETL-Batches), 61 Shipment (60 ETL + Demo).

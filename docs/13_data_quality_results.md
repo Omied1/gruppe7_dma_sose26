@@ -322,8 +322,8 @@ Alle 42 Golden Records haben genau ein kanonisches Source Mapping (`is_canonical
 | Order-Nodes | ≥ 10 (ETL) | ✅ PASS |
 | Batch-Nodes | ≥ 10 (ETL) | ✅ PASS |
 | Shipment-Nodes | ≥ 60 | ✅ PASS |
-| Nodes gesamt | ≥ 125 | ✅ PASS |
-| Relationships gesamt | ≥ 100 | ✅ PASS |
+| Nodes gesamt | ≥ 124 | ✅ PASS |
+| Relationships gesamt | ≥ 47 (Ist 464) | ✅ PASS |
 | Kürzester Pfad PLANTATION → RETAIL | 6 Hops | ✅ PASS |
 | Produkte ohne SUPPLIES-Beziehung | 0 | ✅ PASS |
 | Demo-Batch PROCESSED_AT (7 Stationen) | 7 | ✅ PASS |

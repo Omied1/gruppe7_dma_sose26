@@ -1056,17 +1056,19 @@ def _neo4j_load_master_data(erp_events, tms_events, session):
 
         elif et == "ProductCreated":
             supplier_ref = ev.get("supplier_reference")
+            session.run("""
+                MERGE (p:Product {product_code: $pc})
+                  SET p.product_name = $name, p.category = $cat
+            """, pc=normalize_key(ev["product_code"]),
+                 name=ev.get("product_name", ""), cat=ev.get("category", ""))
             if supplier_ref:
                 session.run("""
-                    MERGE (p:Product {product_code: $pc})
-                      SET p.product_name = $name, p.category = $cat
-                    WITH p
-                    MATCH (s:Supplier {supplier_code: $sc})
+                    MATCH (p:Product {product_code: $pc})
+                    MERGE (s:Supplier {supplier_code: $sc})
                     MERGE (s)-[:SUPPLIES]->(p)
                 """, pc=normalize_key(ev["product_code"]),
-                     name=ev.get("product_name", ""), cat=ev.get("category", ""),
                      sc=supplier_ref)
-                count("neo4j.products")
+            count("neo4j.products")
 
     # Carrier aus TMS-Stammdaten + OPERATES_ON
     for ev in tms_events:

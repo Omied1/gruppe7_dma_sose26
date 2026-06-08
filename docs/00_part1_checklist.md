@@ -17,7 +17,7 @@
 | I-1 | Gruppe gebildet und Projektsrepo eingerichtet | ✅ Erfüllt | GitLab-Repo: `gruppe7_dma_sose26` |
 | I-2 | Vorgegebene Folderstruktur hochgeladen | ✅ Erfüllt | `bananasupplychain/`, `databasemodels_logistics_playground/` |
 | I-3 | Docker Container startbar | ✅ Erfüllt | `bananasupplychain/container/docker-compose.yml` (5 Services: PostgreSQL, MongoDB, Redis, Neo4j, MinIO) |
-| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (265) JSON-Dateien erzeugt (10 operative Iterationen) |
+| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (275) JSON-Dateien erzeugt (10 operative Iterationen) |
 
 ---
 
@@ -145,7 +145,7 @@
 |---|---|---|
 | `shared/erp/` | 50 JSON-Dateien | ✅ Erzeugt |
 | `shared/wms/` | 70 JSON-Dateien | ✅ Erzeugt |
-| `shared/tms/` | 265 JSON-Dateien | ✅ Erzeugt |
+| `shared/tms/` | 275 JSON-Dateien | ✅ Erzeugt |
 | `docs/` | 13 Markdown-Dokumente | ✅ Vollständig |
 | `sql/` | 8 SQL-Dateien | ✅ Vollständig |
 | `cypher/` | 1 Cypher-Datei | ✅ Vollständig |
@@ -201,9 +201,9 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
 | Neo4j: Graphmodell | ✅ Nodes + Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
 | MinIO: Buckets + Dokumente | ✅ 4 Buckets | 98 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
-| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 385 Events in PostgreSQL, MongoDB, Redis, Neo4j |
+| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 395 Events in PostgreSQL, MongoDB, Redis, Neo4j |
 
-### ETL-Ergebnis (385 JSON-Events → alle 5 Systeme)
+### ETL-Ergebnis (395 JSON-Events → alle 5 Systeme)
 
 | System | Einträge geladen |
 |---|---|

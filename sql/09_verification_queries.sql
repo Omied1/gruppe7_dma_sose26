@@ -51,7 +51,7 @@ SELECT 'erp.batches',    COUNT(*),
 FROM erp.batches
 UNION ALL
 SELECT 'erp.document_references', COUNT(*),
-       '≥ 66 Dokumentreferenzen (ETL) / 116 mit generate_documents.py'
+       '≥ 90 Dokumentreferenzen nach generate_documents.py (Lieferscheine + B/L + Zollfreigaben + Rechnungen + Qualitaetszertifikate)'
 FROM erp.document_references;
 
 -- FK-Integrität: products.supplier_id muss in suppliers vorhanden sein

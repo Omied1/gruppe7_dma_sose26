@@ -7,7 +7,7 @@
 //   cypher-shell -u neo4j -p password -f cypher/02_verification_queries.cypher
 //
 // Erwartete Ergebnisse (Stand Testlauf 2026-05-14):
-//   Nodes gesamt:          ≥ 125 (10 Sup + 10 Cust + 10 Prod + Carrier + Nodes + Batches + Orders + Shipments)
+//   Nodes gesamt:          ≥ 124 (10 Sup + 10 Cust + 10 Prod + 5 Carrier + 7 Nodes + 10 Batches + 11 Orders + 61 Shipments)
 //   Relationships gesamt:  ≥ 47
 // =============================================================================
 
@@ -27,8 +27,8 @@ ORDER BY anzahl DESC;
 //   SupplyChainNode    7
 //   Carrier            5
 //   Order             11  (10 ETL + 1 DEMO)
-//   Batch             11  (10 ETL + 1 DEMO)
-//   Shipment          62  (61 ETL + 1 DEMO)
+//   Batch             10  (Demo-Batch fc6d22f2 ist einer der 10 ETL-Batches)
+//   Shipment          61  (60 ETL + 1 DEMO)
 
 // =============================================================================
 // 2. NACHWEIS: Relationship-Typen und Anzahl
@@ -92,8 +92,11 @@ RETURN [n IN nodes(path) | n.node_name]              AS stationen,
 // =============================================================================
 
 // 6.1 Batch-Weg durch alle 7 Stationen
-MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+// Hinweis: ETL (WMS-NodeProcessed) und cypher/01 erzeugen parallele PROCESSED_AT-Kanten
+// fuer denselben Demo-Batch. collect(r)[0] waehlt eine Kante je Station -> genau 7 Zeilen.
+MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
       -[r:PROCESSED_AT]->(n:SupplyChainNode)
+WITH b, n, collect(r)[0] AS r
 RETURN b.batch_identifier,
        n.sequence_order AS station_nr,
        n.node_name      AS station,
@@ -138,10 +141,11 @@ ORDER BY anzahl_shipments DESC;
 // =============================================================================
 // 8. NACHWEIS: Kühlketten-Monitoring (Demo-Batch)
 // Alle Temperaturen müssen zwischen 10.0 und 15.0 °C liegen
+// Listet alle PROCESSED_AT-Messungen (ETL- + Demo-Kanten) je Station des Demo-Batch.
 // =============================================================================
 
 MATCH (b:Batch)-[r:PROCESSED_AT]->(n:SupplyChainNode)
-WHERE b.batch_identifier = "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"
+WHERE b.batch_identifier = "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"
 RETURN
     n.node_name                                        AS station,
     r.temperature                                      AS temp_celsius,

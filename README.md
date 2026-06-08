@@ -69,12 +69,20 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 python3 bananasupplychain/test_data_generator.py
 ```
 
-Erwartete Ausgabe: 50 ERP- / 70 WMS- / 265 TMS-JSON-Dateien in `shared/`.
+Erwartete Ausgabe: 50 ERP- / 70 WMS- / 275 TMS-JSON-Dateien in `shared/`.
 
 ### Schritt 4: ETL Phase 1 (ERP/WMS/TMS → alle Datenbanken)
 
 ```bash
 python3 bananasupplychain/etl_load.py
+```
+
+### Schritt 4b: Neo4j-Graphmodell + Demo-Fulfillment laden
+
+> Lädt Constraints, Stammdaten-Topologie und den vollständigen Demo-Vorgang (ORD-DEMO-001 / Demo-Batch über alle 7 Stationen). Ohne diesen Schritt scheitern zwei Neo4j-Checks in Schritt 7.
+
+```bash
+docker exec -i neo4j cypher-shell -u neo4j -p password < cypher/01_create_graph_model.cypher
 ```
 
 ### Schritt 5: Logistikdokumente → MinIO
@@ -118,8 +126,8 @@ python3 analytics/forecast.py
 |            | DWH: 10 fact_fulfillment-Zeilen, 1095 dim_date-Zeilen             |
 | MongoDB    | 60 shipment_events, 60 node_events, 10 batch_tracking, 10 order_events |
 | Redis      | STRING / HASH / LIST / ZSET / COUNTER + TTLs auf allen Keys       |
-| Neo4j      | 125+ Nodes; Pfad PLANTATION → RETAIL in 6 Hops                   |
-| MinIO      | 98 PDFs: 60 Lieferscheine, 8 Rechnungen, 10 Bill of Lading,       |
+| Neo4j      | 124 Nodes; Pfad PLANTATION → RETAIL in 6 Hops                   |
+| MinIO      | 97 PDFs: 60 Lieferscheine, 7 Rechnungen, 10 Bill of Lading,       |
 |            | 10 Zollfreigaben, 10 Qualitätszertifikate                         |
 
 ---
@@ -127,7 +135,7 @@ python3 analytics/forecast.py
 ## Projektstruktur
 
 ```
-shared/                    # ERP/WMS/TMS JSON-Quelldaten (50 + 70 + 265 Dateien)
+shared/                    # ERP/WMS/TMS JSON-Quelldaten (50 + 70 + 275 Dateien)
 sql/                       # PostgreSQL DDL (01–09)
 bananasupplychain/         # ETL-Skripte + Docker-Compose
 analytics/                 # Python Charts, Clustering, Absatzprognose

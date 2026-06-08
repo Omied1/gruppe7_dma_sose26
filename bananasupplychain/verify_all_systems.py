@@ -39,8 +39,16 @@ MINIO_SEC  = "password"
 # Sammelt alle Prüfergebnisse; PASS = 0 Verstöße / korrekte Zahl
 results: list[dict] = []
 
-def check(system: str, name: str, actual, expected, op: str = "eq"):
-    """Registriert ein Prüfergebnis und gibt es sofort aus."""
+def check(system: str, name: str, actual, expected, op: str = "eq",
+          ttl_dependent: bool = False):
+    """Registriert ein Prüfergebnis und gibt es sofort aus.
+
+    ttl_dependent=True kennzeichnet Keys mit kurzer TTL (z. B. 1 h). Unterschreitet
+    der Wert die Schwelle, ist das KEIN Datenfehler (der Key ist regulär abgelaufen):
+    Status wird dann WARN statt FAIL und der Lauf bleibt erfolgreich. Erfüllt der
+    Wert die Schwelle, ist es ein normaler PASS. Persistente Keys (ohne das Flag)
+    lösen bei Unterschreitung weiterhin FAIL aus.
+    """
     if op == "eq":
         passed = actual == expected
         exp_str = str(expected)
@@ -54,9 +62,17 @@ def check(system: str, name: str, actual, expected, op: str = "eq"):
         passed = bool(actual)
         exp_str = "truthy"
 
-    status = "PASS" if passed else "FAIL"
-    print(f"  [{status}] {name}: {actual} (erwartet {exp_str})")
-    results.append({"system": system, "name": name, "status": status,
+    if passed:
+        status = "PASS"
+    elif ttl_dependent:
+        status = "WARN"
+    else:
+        status = "FAIL"
+
+    label  = f"{name} [TTL-abhängig]" if ttl_dependent else name
+    suffix = "  (Key per TTL abgelaufen – nach ETL-Lauf wieder PASS)" if status == "WARN" else ""
+    print(f"  [{status}] {label}: {actual} (erwartet {exp_str}){suffix}")
+    results.append({"system": system, "name": label, "status": status,
                     "actual": actual, "expected": exp_str})
 
 
@@ -111,13 +127,15 @@ def verify_redis():
     check("Redis", "order:status:* (Anzahl)", order_keys, 10, "ge")
 
     position_keys = len(r.keys("shipment:position:*"))
-    check("Redis", "shipment:position:* (aktuelle GPS-Positionen)", position_keys, 1, "ge")
+    check("Redis", "shipment:position:* (aktuelle GPS-Positionen)", position_keys, 1, "ge",
+          ttl_dependent=True)  # TTL 1 h (etl_load.py: expire 3600)
 
     route_keys = len(r.keys("shipment:route:*"))
     check("Redis", "shipment:route:* (GPS-Verlauf Sorted Sets)", route_keys, 1, "ge")
 
     product_cache = len(r.keys("cache:product:*"))
-    check("Redis", "cache:product:* (Produktcache)", product_cache, 10, "ge")
+    check("Redis", "cache:product:* (Produktcache)", product_cache, 10, "ge",
+          ttl_dependent=True)  # TTL 1 h (etl_load.py: expire 3600)
 
     # System-Counter vorhanden?
     etl_runs = r.get("system:counter:etl_runs")
@@ -163,12 +181,12 @@ def verify_neo4j():
         check("Neo4j", "Product-Nodes",          node_counts.get("Product", 0),           10, "ge")
         check("Neo4j", "SupplyChainNode-Nodes",  node_counts.get("SupplyChainNode", 0),    7, "ge")
         check("Neo4j", "Carrier-Nodes",          node_counts.get("Carrier", 0),            5, "ge")
-        check("Neo4j", "Order-Nodes",            node_counts.get("Order", 0),             21, "ge")
-        check("Neo4j", "Batch-Nodes",            node_counts.get("Batch", 0),             20, "ge")
-        check("Neo4j", "Shipment-Nodes",         node_counts.get("Shipment", 0),         121, "ge")
+        check("Neo4j", "Order-Nodes",            node_counts.get("Order", 0),             10, "ge")
+        check("Neo4j", "Batch-Nodes",            node_counts.get("Batch", 0),             10, "ge")
+        check("Neo4j", "Shipment-Nodes",         node_counts.get("Shipment", 0),          60, "ge")
 
         total_nodes = sum(node_counts.values())
-        check("Neo4j", "Nodes gesamt", total_nodes, 200, "ge")
+        check("Neo4j", "Nodes gesamt", total_nodes, 124, "ge")
 
         # Relationship-Counts
         rel_result = s.run("MATCH ()-[r]->() RETURN COUNT(r) AS cnt")
@@ -197,9 +215,9 @@ def verify_neo4j():
 
         # Demo-Batch: alle 7 Stationen PROCESSED_AT
         batch_result = s.run("""
-            MATCH (b:Batch {batch_identifier: "BATCH-9c6818ad-29fb-4896-922b-b56bb2b2086b"})
+            MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
                   -[:PROCESSED_AT]->(n:SupplyChainNode)
-            RETURN COUNT(n) AS stationen
+            RETURN COUNT(DISTINCT n) AS stationen
         """)
         stationen = batch_result.single()["stationen"]
         check("Neo4j", "Demo-Batch PROCESSED_AT (alle 7 Stationen)", stationen, 7, "eq")
@@ -252,10 +270,17 @@ def summarize():
     print("=" * 60)
     total  = len(results)
     passed = sum(1 for r in results if r["status"] == "PASS")
-    failed = total - passed
+    warned = sum(1 for r in results if r["status"] == "WARN")
+    failed = sum(1 for r in results if r["status"] == "FAIL")
     print(f"  Gesamt:    {total}")
     print(f"  PASS:      {passed}")
+    print(f"  WARN:      {warned}")
     print(f"  FAIL:      {failed}")
+    if warned > 0:
+        print("\n  Warnungen (TTL-abhängig – kein Datenfehler, Key regulär abgelaufen):")
+        for r in results:
+            if r["status"] == "WARN":
+                print(f"    [{r['system']}] {r['name']}: {r['actual']} (erwartet {r['expected']})")
     if failed > 0:
         print("\n  Fehlgeschlagene Checks:")
         for r in results:

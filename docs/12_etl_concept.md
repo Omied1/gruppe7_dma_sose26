@@ -136,6 +136,33 @@ def safe_float(val) -> float | None:
         return None
 ```
 
+**Schritt 2b: Timestamp-Verteilung (Zeitreihen-Normalisierung)**
+
+Der vorgegebene Datengenerator (`test_data_generator.py`) erzeugt JSON-Events ohne temporale Streuung über Wochen hinweg – alle Events einer Iteration tragen denselben Basisstempel. Für die Analytics-Anforderungen in Teil 2 (Absatzprognose, Zeitreihen-Charts, `dim_date`-Verknüpfung im DWH) ist eine realistische Zeitreihe über mehrere Wochen zwingend erforderlich.
+
+Die Transform-Phase überlagert daher den aus dem JSON gelesenen `timestamp`-Wert deterministisch mit einem supply-chain-realistischen Versatz:
+
+```python
+# Basiswoche: Iteration 001 → KW2 2026 (05.01.2026), jede weitere Iteration +7 Tage
+_ITER_BASE = datetime(2026, 1, 5, 6, 0, 0)
+
+def _apply_ts_offset(event: dict, filename: str) -> dict:
+    """Setzt supply-chain-realistische Timestamps für Analytics-Auswertbarkeit."""
+    # Iterationsnummer bestimmt die Woche; Dateiname-Seed garantiert Reproduzierbarkeit
+    iteration = int(filename.split("_iteration_")[1].split("_")[0])
+    base = _ITER_BASE + timedelta(days=(iteration - 1) * 7)
+    rng  = random.Random(_seed_from_filename(filename))
+    # Event-Typ und Route/Node bestimmen den Versatz innerhalb der Woche:
+    # OrderCreated: Tag 0 + 7–10h | TransportStarted: routenabhängig Tag 0.6–12
+    # NodeProcessed: knotenabhängig Tag 1–15 | TransportCompleted: am Zielknoten
+```
+
+**Warum in der Transform-Phase und nicht im Generator:**  
+Der Generator ist eine vorgegebene Systemkomponente (Aufgabenstellung: „Ausführung des Datengenerators") und wird nicht verändert. Die Zeitreihen-Normalisierung ist fachlich eine Transformation der Quelldaten, analog zur MDM-Schlüsselharmonisierung. Beide Schritte gleichen eine strukturelle Schwäche der Quelldaten aus, ohne die Quellsysteme selbst zu ändern.
+
+**Determinismus und Reproduzierbarkeit:**  
+Der Seed wird aus dem Dateinamen berechnet (`_seed_from_filename()`), sodass identische Quelldateien immer identische Timestamps erzeugen. Die ETL-Idempotenz bleibt vollständig erhalten.
+
 **Schritt 3: Qualitätsvalidierung**
 ```python
 def validate_event(event: dict) -> tuple[bool, list[str]]:
@@ -429,9 +456,9 @@ se.update_one(
 
 ---
 
-## 7. ETL-Nachweis (aktualisiert 2026-05-15, Datenstand: 377 Events, 10 Iterationen)
+## 7. ETL-Nachweis (aktualisiert 2026-06-01, Datenstand: 395 Events, 10 Iterationen)
 
-Erwartetes ETL-Ergebnis auf Basis des aktuellen Datenbestands (377 JSON-Events, 10 operative Iterationen + Stammdaten).
+Erwartetes ETL-Ergebnis auf Basis des aktuellen Datenbestands (395 JSON-Events, 10 operative Iterationen + Stammdaten).
 
 | System | Ziel-Tabelle / Collection | Geladene Datensätze |
 |---|---|---|
