@@ -7,13 +7,14 @@
 
 ## 1. Architekturüberblick
 
-Die Datenplattform der Banana Supply Chain besteht aus fünf Datenspeichersystemen, die jeweils für eine spezifische Datenkategorie und Nutzungscharakteristik ausgewählt wurden. Die Daten fließen vom Datengenerator (simuliert ERP, WMS, TMS) über JSON-Dateien in die jeweiligen Zielsysteme. Ein späterer ETL-Prozess überführt ausgewählte operative Daten in das Data Warehouse.
+Die Datenplattform der Banana Supply Chain besteht aus fünf Datenspeichersystemen, die jeweils für eine spezifische Datenkategorie und Nutzungscharakteristik ausgewählt wurden. Die Daten fließen vom Datengenerator (simuliert ERP, WMS, TMS) über JSON-Dateien in die jeweiligen Zielsysteme. Ein späterer ETL-Prozess überführt ausgewählte operative Daten in das Data Warehouse. Power BI nutzt anschließend das DWH-Sternschema als analytische Datenbasis.
 
 ---
 
 ## 2. Architekturdiagramm
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#ffffff", "primaryBorderColor": "#666666", "primaryTextColor": "#111111", "lineColor": "#555555", "secondaryColor": "#f2f2f2", "tertiaryColor": "#ffffff", "clusterBkg": "#f4f4f4", "clusterBorder": "#8a8a8a", "edgeLabelBackground": "#ffffff"}}}%%
 flowchart TD
     subgraph Generator["Datengenerator (Simulation)"]
         G[test_data_generator.py]
@@ -39,6 +40,7 @@ flowchart TD
 
     subgraph DWH["Analytics-Schicht (ETL-getrieben)"]
         DW["PostgreSQL DWH-Schema\nSternschema"]
+        PBI["Power BI\nDashboard & Analyse"]
     end
 
     G --> ERP
@@ -56,6 +58,20 @@ flowchart TD
     LOAD --> MINIO
 
     PG -->|"ETL-Prozess\n(Teil 2)"| DW
+    DW --> PBI
+
+    classDef app fill:#ffffff,stroke:#666666,stroke-width:1.5px,color:#111111;
+    classDef source fill:#ffffff,stroke:#666666,stroke-width:1.5px,color:#111111;
+    classDef store fill:#ffffff,stroke:#666666,stroke-width:1.5px,color:#111111;
+    class G,LOAD,DW,PBI app;
+    class ERP,WMS,TMS source;
+    class PG,MONGO,REDIS,NEO,MINIO store;
+
+    style Generator fill:#f4f4f4,stroke:#8a8a8a,color:#111111
+    style Quellsysteme fill:#f4f4f4,stroke:#8a8a8a,color:#111111
+    style ETL fill:#eeeeee,stroke:#8a8a8a,color:#111111
+    style Zielsysteme fill:#f4f4f4,stroke:#8a8a8a,color:#111111
+    style DWH fill:#eeeeee,stroke:#8a8a8a,color:#111111
 ```
 
 ---
@@ -203,15 +219,22 @@ test_data_generator.py
 - Graph-Relationen → Neo4j Nodes + Edges
 - Dokumente → MinIO Buckets
 
+**Zeitstempel (System of Record):** Die echten Event-Zeitstempel werden seit 2026-07-01 **im Generator** gesetzt (`test_data_generator.py`, Funktion `_assign_timestamp`) – `shared/` ist damit die wahrheitsgetreue Quelle **inklusive Zeitachse**. Die ETL leitet Zeiten **nicht mehr** ab (früher „Option A": nachträgliche Verteilung im ETL via `_apply_ts_offset`), sondern lädt die Events **chronologisch**. Daraus folgt die Wahrheitshierarchie: `shared/` = Ursprungswahrheit, PostgreSQL = führendes operatives System, MongoDB/Redis/Neo4j/MinIO = daraus abgeleitete Projektionen.
+
 ### Phase 3: DWH (nur über ETL, nicht direkt)
 
 ```
 PostgreSQL (erp.orders + wms.node_processings + tms.deliveries)
    → ETL-Prozess (Teil 2)
    → PostgreSQL (dwh.fact_fulfillment + dwh.dim_*)
+   → Power BI (Dashboard + analytische Auswertungen)
 ```
 
 > **Wichtig:** ERP, WMS und TMS sind operative Quellsysteme. Das DWH-Schema wird ausschließlich durch ETL-Prozesse befüllt – es gibt **keine direkte Verbindung** zwischen operativen Schemas und dem DWH. Diese Trennung ist architektonisch essentiell.
+
+### Phase 4: BI-Nutzung
+
+Power BI verbindet sich mit PostgreSQL und liest das `dwh`-Schema als semantische Analysebasis. Die operativen Schemas bleiben dadurch von Reporting-Logik entkoppelt.
 
 ---
 

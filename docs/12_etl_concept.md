@@ -136,29 +136,27 @@ def safe_float(val) -> float | None:
         return None
 ```
 
-**Schritt 2b: Timestamp-Verteilung (Zeitreihen-Normalisierung)**
+**Schritt 2b: Event-Zeitstempel (im Generator gesetzt)**
 
-Der vorgegebene Datengenerator (`test_data_generator.py`) erzeugt JSON-Events ohne temporale Streuung über Wochen hinweg – alle Events einer Iteration tragen denselben Basisstempel. Für die Analytics-Anforderungen in Teil 2 (Absatzprognose, Zeitreihen-Charts, `dim_date`-Verknüpfung im DWH) ist eine realistische Zeitreihe über mehrere Wochen zwingend erforderlich.
+Ein Datengenerator ohne Zeitlogik würde JSON-Events ohne temporale Streuung erzeugen (alle Events einer Iteration mit demselben „Jetzt"-Stempel). Für die Analytics-Anforderungen in Teil 2 (Absatzprognose, Zeitreihen-Charts, `dim_date`-Verknüpfung im DWH) ist eine realistische Zeitreihe über mehrere Wochen zwingend erforderlich.
 
-Die Transform-Phase überlagert daher den aus dem JSON gelesenen `timestamp`-Wert deterministisch mit einem supply-chain-realistischen Versatz:
+Diese Zeitreihe wird **direkt im Generator** erzeugt (`test_data_generator.py`, Funktion `_assign_timestamp`): Jede Iteration ist eine Woche (`_ITER_BASE` + (Woche − 1) · 7 Tage; der Anker ist so gewählt, dass die 52-Wochen-Reihe etwa am heutigen Tag endet). Innerhalb der Woche wird jeder Bestellvorgang um einen Tages-Offset gestreut, und je Eventtyp ein supply-chain-realistischer Versatz addiert:
 
 ```python
-# Basiswoche: Iteration 001 → KW2 2026 (05.01.2026), jede weitere Iteration +7 Tage
-_ITER_BASE = datetime(2026, 1, 5, 6, 0, 0)
-
-def _apply_ts_offset(event: dict, filename: str) -> dict:
-    """Setzt supply-chain-realistische Timestamps für Analytics-Auswertbarkeit."""
-    # Iterationsnummer bestimmt die Woche; Dateiname-Seed garantiert Reproduzierbarkeit
-    iteration = int(filename.split("_iteration_")[1].split("_")[0])
-    base = _ITER_BASE + timedelta(days=(iteration - 1) * 7)
-    rng  = random.Random(_seed_from_filename(filename))
-    # Event-Typ und Route/Node bestimmen den Versatz innerhalb der Woche:
-    # OrderCreated: Tag 0 + 7–10h | TransportStarted: routenabhängig Tag 0.6–12
-    # NodeProcessed: knotenabhängig Tag 1–15 | TransportCompleted: am Zielknoten
+# test_data_generator.py – echte Eventzeit beim Schreiben gesetzt
+def _assign_timestamp(event, iteration, filename, day_offset=0.0):
+    base = _ITER_BASE + timedelta(days=(iteration - 1) * 7 + day_offset)
+    # + eventtyp-/routen-/knotenabhängiger Versatz:
+    #   OrderCreated früh am Tag | NodeProcessed knotenabhängig
+    #   DeliveryCompleted ~15 Tage nach der Bestellung
 ```
 
-**Warum in der Transform-Phase und nicht im Generator:**  
-Der Generator ist eine vorgegebene Systemkomponente (Aufgabenstellung: „Ausführung des Datengenerators") und wird nicht verändert. Die Zeitreihen-Normalisierung ist fachlich eine Transformation der Quelldaten, analog zur MDM-Schlüsselharmonisierung. Beide Schritte gleichen eine strukturelle Schwäche der Quelldaten aus, ohne die Quellsysteme selbst zu ändern.
+Damit enthält `shared/` **echte Zeitstempel** – die Quelle ist zeitlich wahrheitsgetreu.
+
+**Rolle der ETL:** Die ETL **transformiert Zeiten nicht** mehr. Sie liest den `timestamp` aus dem JSON und lädt die Events **chronologisch** (`sorted(tms_events, key=timestamp)`), damit Lifecycle-Logik korrekt bleibt (z. B. `active_shipments`: SADD vor SREM). Der frühere Transform-Schritt `_apply_ts_offset` wurde entfernt.
+
+**Warum im Generator und nicht mehr in der Transform-Phase (früher „Option A"):**  
+Solange der Generator als unveränderlich galt, wurde die Zeitverteilung nachträglich im ETL erzeugt. Seit der Generator angepasst werden darf, gehört die Eventzeit als **Geschäftsfaktum** an die Quelle; die ETL bleibt reiner Loader. Das ist konsistent mit dem Single-Source-of-Truth-Prinzip: `shared/` = Ursprungswahrheit, PostgreSQL = führendes operatives System.
 
 **Determinismus und Reproduzierbarkeit:**  
 Der Seed wird aus dem Dateinamen berechnet (`_seed_from_filename()`), sodass identische Quelldateien immer identische Timestamps erzeugen. Die ETL-Idempotenz bleibt vollständig erhalten.

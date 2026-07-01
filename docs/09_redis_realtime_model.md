@@ -293,6 +293,8 @@ Beispiel:
 
 **Warum SET zusätzlich zum Counter:** Der Integer-Zähler `system:counter:active_shipments` beantwortet „wie viele Transporte laufen?", aber nicht „welche?". Das SET liefert beide Antworten (`SCARD` = Anzahl, `SMEMBERS` = IDs) und prüft Mitgliedschaft in O(1) (`SISMEMBER`). Zusätzlich ist es gegen Doppelzählung robust: Ein versehentlich doppeltes `TransportStarted` erhöht den Zähler zweimal, fügt dem SET aber nur einen Member hinzu – `SCARD` bleibt korrekt. Der Name `active_shipments` (ohne Namespace-Präfix) entspricht bewusst der Ziel-Struktur aus Kapitel 5, Folie 7.
 
+**Konsistenz SET ↔ Zähler:** Die ETL verarbeitet die TMS-Events **chronologisch** (nach `timestamp` sortiert). Nur dadurch wird jede Sendung zuerst per `SADD`/`INCR` aufgenommen und erst danach bei `DeliveryCompleted` per `SREM`/`DECR` entfernt – ohne chronologische Reihenfolge (z. B. Dateinamen-Sortierung: `deliverycompleted` vor `transportstarted`) liefe das `SREM` ins Leere und `SCARD` liefe vom Zähler weg. `verify_all_systems.py` prüft die Gleichheit `SCARD active_shipments == system:counter:active_shipments` (und `ZCARD live_etas == SCARD`).
+
 ---
 
 ### 3.7 Geschätzte Ankunftszeiten – `TransportStarted` / `DeliveryCompleted`
