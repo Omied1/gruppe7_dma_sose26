@@ -558,9 +558,10 @@ python3 bananasupplychain/verify_all_systems.py
 
 ### `test_data_generator.py` – Datengenerator (anpassbar, mit Dokumentationspflicht)
 
-Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen und Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty`. Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
+Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen, Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty` sowie das **Transport-Kern-Set [ANPASSUNG 2026-07-01]**: Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist = Plan + `delay_minutes`, carrier-spezifische Verzögerung) und Verspätungsgrund (`delay_reason`). Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
 ```bash
-rm -rf shared/erp/* shared/wms/* shared/tms/*
+# ganze Verzeichnisse löschen (nicht per Glob shared/erp/* – bei ~6.000 Dateien sonst "argument list too long")
+rm -rf shared/erp shared/wms shared/tms
 python3 bananasupplychain/test_data_generator.py
 ```
 

@@ -2,7 +2,7 @@
 -- 08b_dq_audit.sql
 -- Konsolidierte Datenqualitäts-Auditierung
 --
--- Liefert EINE Ergebnistabelle mit allen 34 DQ-Checks aus 08_data_quality_checks.sql
+-- Liefert EINE Ergebnistabelle mit allen 38 DQ-Checks aus 08_data_quality_checks.sql
 -- für eine schnelle Übersicht. Sortiert nach Dimension und Verstössen.
 -- Hinweis: Regel 5.0 (Stammdaten event_timestamp) prüft 4 Tabellen → 4 Zeilen (pos 24–27).
 --
@@ -129,8 +129,8 @@ WITH dq AS (
            (SELECT COUNT(*) FROM erp.orders
             WHERE delivery_priority NOT IN ('HIGH','NORMAL','LOW'))
     UNION ALL SELECT 21, 'PLAUSIBILITÄT', '4.8',
-           'tms.transport_completions', 'delay_minutes > 180',
-           (SELECT COUNT(*) FROM tms.transport_completions WHERE delay_minutes > 180)
+           'tms.transport_completions', 'delay_minutes > 600 (unplausibel je Leg)',
+           (SELECT COUNT(*) FROM tms.transport_completions WHERE delay_minutes > 600)
     UNION ALL SELECT 22, 'PLAUSIBILITÄT', '4.9',
            'tms.shipment_positions', 'speed_kmh > 200 oder < 0',
            (SELECT COUNT(*) FROM tms.shipment_positions
@@ -227,15 +227,33 @@ WITH dq AS (
             JOIN tms.transport_completions tc ON tc.shipment_id = d.shipment_id
             WHERE (d.delivery_status = 'SUCCESSFUL' AND tc.delay_minutes > 60)
                OR (d.delivery_status = 'DELAYED'    AND tc.delay_minutes <= 60))
-    -- Check 6.4: Carrier/Transport-Mode-Inkonsistenz (Datengenerator-Bug).
-    -- Reedereien (CAR-102/103/105) dürfen nicht auf TRUCK-Strecken erscheinen;
-    -- Landcarrier (CAR-101/104) nicht auf SEA_FREIGHT-Strecken.
+    -- Check 6.4: Carrier/Transport-Mode-Konsistenz.
+    -- [ANPASSUNG 2026-07-01] Der Generator wählt Carrier jetzt modusgerecht -> erwartet 0 (vormals Bug).
     UNION ALL SELECT 34, 'KONSISTENZ', '6.4',
            'tms.shipments', 'Seefracht-Carrier auf TRUCK-Route oder Landcarrier auf SEA_FREIGHT',
            (SELECT COUNT(*) FROM tms.shipments s
             JOIN tms.carriers c ON c.carrier_id = s.carrier_id
             WHERE (c.carrier_code IN ('CAR-102','CAR-103','CAR-105') AND s.transport_mode = 'TRUCK')
                OR (c.carrier_code IN ('CAR-101','CAR-104') AND s.transport_mode = 'SEA_FREIGHT'))
+
+    -- ── 7. KERN-SET-CHECKS (neue Transport-Kennzahlen) ────────────────────────
+    -- [ANPASSUNG 2026-07-01] Distanz, Kosten, Verspätungsgrund, Plan/Ist.
+    UNION ALL SELECT 35, 'PLAUSIBILITÄT', '7.1',
+           'tms.shipments', 'distance_km NULL oder <= 0',
+           (SELECT COUNT(*) FROM tms.shipments WHERE distance_km IS NULL OR distance_km <= 0)
+    UNION ALL SELECT 36, 'PLAUSIBILITÄT', '7.2',
+           'tms.shipments', 'transport_cost NULL oder <= 0',
+           (SELECT COUNT(*) FROM tms.shipments WHERE transport_cost IS NULL OR transport_cost <= 0)
+    UNION ALL SELECT 37, 'KONSISTENZ', '7.3',
+           'tms.transport_completions', 'delay_reason gesetzt XOR delay_minutes > 30',
+           (SELECT COUNT(*) FROM tms.transport_completions
+            WHERE (delay_minutes > 30 AND delay_reason IS NULL)
+               OR (delay_minutes <= 30 AND delay_reason IS NOT NULL))
+    UNION ALL SELECT 38, 'KONSISTENZ', '7.4',
+           'tms.shipments + tms.transport_completions', 'completed_at < estimated_arrival (Ist vor Plan)',
+           (SELECT COUNT(*) FROM tms.shipments s
+            JOIN tms.transport_completions tc ON tc.shipment_id = s.shipment_id
+            WHERE s.estimated_arrival IS NOT NULL AND tc.completed_at < s.estimated_arrival)
 )
 SELECT
     dimension,

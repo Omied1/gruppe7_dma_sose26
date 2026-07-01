@@ -194,6 +194,11 @@ CREATE TABLE IF NOT EXISTS dwh.fact_fulfillment (
     num_supply_chain_hops   INT             DEFAULT 6,      -- Anzahl durchlaufener Knoten (Standard: 6)
     delivery_priority_code  VARCHAR(10),                    -- HIGH / NORMAL / LOW
 
+    -- [ANPASSUNG 2026-07-01] Transport-Kennzahlen (Kern-Set)
+    transport_cost          NUMERIC(12,2),                  -- Gesamt-Transportkosten je Fulfillment (Route, EUR)
+    distance_km             NUMERIC(10,2),                  -- Gesamt-Transportdistanz je Fulfillment (km)
+    delay_reason            VARCHAR(30),                    -- Verspätungsgrund des finalen Legs (NULL = pünktlich)
+
     -- Abgeleitete KPI-Flags (berechnet im ETL, vermeidet redundante CASE-Logik in Analytics)
     on_time_flag            BOOLEAN,                        -- TRUE = delay_minutes <= 60 (SLA-konform)
 
@@ -229,6 +234,14 @@ CREATE INDEX IF NOT EXISTS idx_dwh_fact_status          ON dwh.fact_fulfillment(
 -- (harmlos, wenn die Tabelle gerade neu angelegt wurde)
 -- -----------------------------------------------------------------------------
 ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS on_time_flag BOOLEAN;
+-- [ANPASSUNG 2026-07-01] Transport-Kennzahlen des Kern-Sets
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(12,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS distance_km    NUMERIC(10,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS delay_reason   VARCHAR(30);
+
+COMMENT ON COLUMN dwh.fact_fulfillment.transport_cost IS 'Geschätzte Gesamt-Transportkosten je Fulfillment (Summe der 6 Routen-Legs, EUR). [ANNAHME]: da TMS-Shipments nicht an eine Bestellung gebunden sind, Ø je Leg-Typ pro Produkt, über die Route summiert.';
+COMMENT ON COLUMN dwh.fact_fulfillment.distance_km    IS 'Geschätzte Gesamt-Transportdistanz je Fulfillment (Summe der 6 Routen-Legs, km). Dominiert von der Seefracht Afrika->Europa.';
+COMMENT ON COLUMN dwh.fact_fulfillment.delay_reason   IS 'Verspätungsgrund des finalen Transport-Legs (NULL = pünktlich). Slicer-Dimension für Ursachenanalyse.';
 
 -- =============================================================================
 -- ANALYTISCHE VIEWS

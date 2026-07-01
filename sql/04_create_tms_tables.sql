@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS tms.shipments (
     carrier_id                  INT             NOT NULL REFERENCES tms.carriers(carrier_id),
     -- NOT NULL: Jedes TransportStarted-Event enthält ein eingebettetes carrier-Objekt (carrier.carrier_id)
     estimated_arrival           TIMESTAMP,
+    distance_km                 NUMERIC(9,2),                    -- [ANPASSUNG 2026-07-01] Streckenlänge je Leg (km)
+    transport_cost              NUMERIC(12,2),                   -- [ANPASSUNG 2026-07-01] Transportkosten je Leg (EUR)
+    currency                    VARCHAR(3)      DEFAULT 'EUR',   -- [ANPASSUNG 2026-07-01] Währung der Kosten
     started_at                  TIMESTAMP       NOT NULL,
     created_at                  TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event                VARCHAR(50)     NOT NULL DEFAULT 'TransportStarted'
@@ -114,14 +117,25 @@ CREATE TABLE IF NOT EXISTS tms.transport_completions (
     shipment_id             INT             NOT NULL REFERENCES tms.shipments(shipment_id),
     arrival_node            VARCHAR(50)     NOT NULL,
     delay_minutes           INT             NOT NULL DEFAULT 0 CHECK (delay_minutes >= 0),
+    delay_reason            VARCHAR(30),                        -- [ANPASSUNG 2026-07-01] Verspätungsgrund (NULL = pünktlich)
     completed_at            TIMESTAMP       NOT NULL,
     created_at              TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event            VARCHAR(50)     NOT NULL DEFAULT 'TransportCompleted',
     CONSTRAINT uq_tms_completion_per_shipment UNIQUE (shipment_id)
 );
 
-COMMENT ON TABLE  tms.transport_completions IS 'Abschlüsse von Transportvorgängen. delay_minutes ist zentrale KPI (0-180 Min laut Datengenerator). Jedes Shipment hat genau einen Abschluss.';
-COMMENT ON COLUMN tms.transport_completions.delay_minutes IS 'Tatsächliche Verzögerung in Minuten. 0 = pünktlich. KPI: durchschnittliche Verzögerung pro Route/Carrier.';
+COMMENT ON TABLE  tms.transport_completions IS 'Abschlüsse von Transportvorgängen. delay_minutes ist zentrale KPI. Jedes Shipment hat genau einen Abschluss.';
+COMMENT ON COLUMN tms.transport_completions.delay_minutes IS 'Tatsächliche Verzögerung in Minuten. 0 = pünktlich. [ANPASSUNG 2026-07-01] Carrier-spezifisch verteilt (Land kurz/stabil, See lang/streuend), nicht mehr uniform 0-180.';
+
+-- [ANPASSUNG 2026-07-01] Idempotente Ergänzung der neuen Transport-Spalten für bereits bestehende DBs
+ALTER TABLE tms.shipments             ADD COLUMN IF NOT EXISTS distance_km    NUMERIC(9,2);
+ALTER TABLE tms.shipments             ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(12,2);
+ALTER TABLE tms.shipments             ADD COLUMN IF NOT EXISTS currency       VARCHAR(3) DEFAULT 'EUR';
+ALTER TABLE tms.transport_completions ADD COLUMN IF NOT EXISTS delay_reason   VARCHAR(30);
+
+COMMENT ON COLUMN tms.shipments.distance_km               IS 'Streckenlänge des Transport-Legs in km (deterministisch je Route). Basis für Kosten-/Geschwindigkeitsanalysen.';
+COMMENT ON COLUMN tms.shipments.transport_cost           IS 'Transportkosten des Legs in EUR: Fixkosten(Modus) + distance_km × Carrier-Satz + Menge × Stücksatz.';
+COMMENT ON COLUMN tms.transport_completions.delay_reason IS 'Verspätungsgrund (nur wenn verspätet, sonst NULL). SEA: CUSTOMS/PORT_CONGESTION/WEATHER/COLD_CHAIN_INCIDENT; Land: TRAFFIC/MECHANICAL/WEATHER/COLD_CHAIN_INCIDENT.';
 
 -- -----------------------------------------------------------------------------
 -- Lieferabschlüsse

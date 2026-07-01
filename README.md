@@ -66,6 +66,8 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 > **Wichtig:** Den Generator **nur einmal** ausführen. Mehrfache Ausführung erzeugt neue UUIDs und verdoppelt die Datensätze beim nächsten ETL-Lauf. Falls `shared/` bereits befüllt ist, erst löschen: `rm -rf shared/erp shared/wms shared/tms`
 >
 > **Generator anpassbar:** `test_data_generator.py` darf geändert werden. Jede Änderung muss in `PROJECT_STATUS.md`, dieser README und `PROJEKTANLEITUNG.md` dokumentiert werden; danach `shared/` neu generieren und den vollständigen ETL-Lauf wiederholen (`shared/` ist der Ursprung aller fünf Zielsysteme).
+>
+> **Aktuelle Generator-Anpassungen (Transport-Kern-Set, [ANPASSUNG 2026-07-01]):** Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist-Ankunft = Plan + carrier-spezifisches `delay_minutes`) und Verspätungsgrund (`delay_reason`). Diese Felder fließen über `etl_load.py` in `tms.shipments`/`tms.transport_completions` und über `etl_dwh.py` als Measures/Slicer in `dwh.fact_fulfillment` (für Power BI). Getestet: `verify_all_systems` 43/43, DQ-Check 6.4 → PASS, neue Checks 7.1–7.4 PASS.
 
 ```bash
 python3 bananasupplychain/test_data_generator.py

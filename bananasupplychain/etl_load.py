@@ -318,17 +318,22 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             crow = cur.fetchone()
             carrier_id = crow[0] if crow else None
             tms_ref = ev["cargo_product_reference"]  # TMS-Format beibehalten: ban-101
+            # [ANPASSUNG 2026-07-01] distance_km, transport_cost, currency aus TransportStarted mitladen
             cur.execute("""
                 INSERT INTO tms.shipments
                     (shipment_identifier, carrier_id, cargo_product_reference,
                      source_node, target_node, transport_mode,
-                     started_at, estimated_arrival)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     started_at, estimated_arrival,
+                     distance_km, transport_cost, currency)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (shipment_identifier) DO NOTHING
             """, (ev["shipment_identifier"], carrier_id, tms_ref,
                   ev.get("source_node"), ev.get("target_node"),
                   ev.get("transport_mode"),
-                  ev.get("timestamp"), ev.get("estimated_arrival")))
+                  ev.get("timestamp"), ev.get("estimated_arrival"),
+                  safe_float(ev.get("distance_km")),
+                  safe_float(ev.get("transport_cost")),
+                  ev.get("currency", "EUR")))
             count("pg.shipments")
 
         elif et == "ShipmentPositionUpdated":
@@ -360,13 +365,15 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             if not srow:
                 count("pg.completions_skipped")
                 continue
+            # [ANPASSUNG 2026-07-01] delay_reason aus TransportCompleted mitladen (NULL wenn pünktlich)
             cur.execute("""
                 INSERT INTO tms.transport_completions
-                    (shipment_id, arrival_node, delay_minutes, completed_at)
-                VALUES (%s, %s, %s, %s)
+                    (shipment_id, arrival_node, delay_minutes, delay_reason, completed_at)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (shipment_id) DO NOTHING
             """, (srow[0], ev.get("arrival_node"),
                   safe_int(ev.get("delay_minutes")),
+                  ev.get("delay_reason"),
                   ev.get("timestamp")))
             count("pg.completions")
 

@@ -260,14 +260,16 @@ FROM erp.orders
 WHERE delivery_priority NOT IN ('HIGH', 'NORMAL', 'LOW')
 GROUP BY delivery_priority;
 
--- 4.8 TMS: Unplausible Verzögerungen (> 180 Min = Maximum laut Datengenerator)
+-- 4.8 TMS: Unplausible Verzögerungen (> 600 Min = 10 h je Leg)
+-- [ANPASSUNG 2026-07-01] delay_minutes ist jetzt carrier-spezifisch verteilt (See deutlich höher als
+-- der alte Uniform-Cap 180). Schwellenwert daher auf 600 Min (10 h) angehoben = echte Ausreißer je Leg.
 SELECT
     'PLAUSIBILITÄT'              AS dimension,
     'tms.transport_completions'  AS tabelle,
-    'delay_minutes > 180 (außerhalb erwartetem Bereich)' AS regel,
+    'delay_minutes > 600 (unplausibel hohe Verzögerung je Leg)' AS regel,
     COUNT(*)                     AS verstösse
 FROM tms.transport_completions
-WHERE delay_minutes > 180;
+WHERE delay_minutes > 600;
 
 -- 4.9 TMS: Unplausible Geschwindigkeit (> 200 km/h oder negativ)
 SELECT
@@ -446,8 +448,8 @@ WHERE (d.delivery_status = 'SUCCESSFUL' AND tc.delay_minutes > 60)
 -- 6.4 TMS: Carrier-Transportmodus-Inkonsistenz
 -- Prüft ob ein Seefracht-Carrier (Maersk, MSC, Hapag Lloyd = CAR-102/103/105) auf einer
 -- TRUCK-Strecke eingesetzt wird oder umgekehrt ein Landcarrier auf SEA_FREIGHT.
--- Ursache: Datengenerator verknüpft Carrier und Transportmodus unabhängig.
--- Verstösse sind ein bekannter Datengenerator-Bug und werden hier dokumentiert.
+-- [ANPASSUNG 2026-07-01] Der Generator wählt Carrier jetzt modusgerecht (Land->TRUCK, See->SEA_FREIGHT)
+-- und setzt eine konsistente carrier_id. Dieser Check muss daher 0 Verstösse liefern (vormals bekannter Bug).
 SELECT
     'KONSISTENZ'      AS dimension,
     'tms.shipments'   AS tabelle,
@@ -463,14 +465,62 @@ WHERE
     (c.carrier_code IN ('CAR-101', 'CAR-104') AND s.transport_mode = 'SEA_FREIGHT');
 
 -- =============================================================================
+-- 7. KERN-SET-CHECKS (neue Transport-Kennzahlen: Distanz, Kosten, Plan/Ist, Grund)
+-- [ANPASSUNG 2026-07-01] Validieren die im Datengenerator ergänzten Transport-Felder.
+-- =============================================================================
+
+-- 7.1 TMS: Shipments ohne / mit unplausibler Distanz
+SELECT
+    'PLAUSIBILITÄT'   AS dimension,
+    'tms.shipments'   AS tabelle,
+    'distance_km NULL oder <= 0' AS regel,
+    COUNT(*)          AS verstösse
+FROM tms.shipments
+WHERE distance_km IS NULL OR distance_km <= 0;
+
+-- 7.2 TMS: Shipments ohne / mit unplausiblen Transportkosten
+SELECT
+    'PLAUSIBILITÄT'   AS dimension,
+    'tms.shipments'   AS tabelle,
+    'transport_cost NULL oder <= 0' AS regel,
+    COUNT(*)          AS verstösse
+FROM tms.shipments
+WHERE transport_cost IS NULL OR transport_cost <= 0;
+
+-- 7.3 TMS: Verspätungsgrund inkonsistent zur Verspätung
+-- Fachlich: delay_reason muss genau dann gesetzt sein, wenn das Leg verspätet ist
+-- (Schwellenwert Generator: delay_minutes > 30). Sonst Inkonsistenz.
+SELECT
+    'KONSISTENZ'                  AS dimension,
+    'tms.transport_completions'   AS tabelle,
+    'delay_reason gesetzt XOR delay_minutes > 30' AS regel,
+    COUNT(*)                      AS verstösse
+FROM tms.transport_completions
+WHERE (delay_minutes >  30 AND delay_reason IS NULL)
+   OR (delay_minutes <= 30 AND delay_reason IS NOT NULL);
+
+-- 7.4 TMS: Ist-Ankunft vor Plan-Ankunft (Plan/Ist-Konsistenz)
+-- Fachlich: Ist-Ankunft (completed_at) = Plan (estimated_arrival) + delay_minutes,
+-- also niemals vor dem Plan. Verstösse deuten auf fehlerhafte Zeitlogik.
+SELECT
+    'KONSISTENZ'                                AS dimension,
+    'tms.shipments + tms.transport_completions' AS tabelle,
+    'completed_at < estimated_arrival (Ist vor Plan)' AS regel,
+    COUNT(*)                                    AS verstösse
+FROM tms.shipments s
+JOIN tms.transport_completions tc ON tc.shipment_id = s.shipment_id
+WHERE s.estimated_arrival IS NOT NULL
+  AND tc.completed_at < s.estimated_arrival;
+
+-- =============================================================================
 -- ZUSAMMENFASSUNG: Qualitäts-Score pro Dimension
 -- Gibt eine kompakte Übersicht aller Verstösse (0 = perfekt)
--- Gesamt: 34 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query)
+-- Gesamt: 38 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query; +4 Kern-Set-Checks in Abschnitt 7)
 -- Konsolidierte Übersicht mit PASS/FAIL: sql/08b_dq_audit.sql
 -- =============================================================================
 DO $$
 BEGIN
-    RAISE NOTICE '=== DQ-Check abgeschlossen (34 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
+    RAISE NOTICE '=== DQ-Check abgeschlossen (38 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
 END $$;
 
 -- Nachweis: Datenbasis für DQ-Checks

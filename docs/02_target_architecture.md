@@ -15,12 +15,13 @@ Die Datenplattform der Banana Supply Chain besteht aus fünf Datenspeichersystem
 
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#ffffff", "primaryBorderColor": "#666666", "primaryTextColor": "#111111", "lineColor": "#555555", "secondaryColor": "#f2f2f2", "tertiaryColor": "#ffffff", "clusterBkg": "#f4f4f4", "clusterBorder": "#8a8a8a", "edgeLabelBackground": "#ffffff"}}}%%
-flowchart TD
+flowchart TB
     subgraph Generator["Datengenerator (Simulation)"]
         G[test_data_generator.py]
     end
 
     subgraph Quellsysteme["Operative Quellsysteme (JSON-Dateien)"]
+        direction LR
         ERP["shared/erp/\nSupplier, Customer, Product\nOrder, Batch"]
         WMS["shared/wms/\nWarehouseSKU\nNodeProcessed"]
         TMS["shared/tms/\nCarrier, TransportRef\nTransport, GPS, Delivery"]
@@ -31,6 +32,7 @@ flowchart TD
     end
 
     subgraph Zielsysteme["Zielsysteme"]
+        direction LR
         PG["PostgreSQL\noperativer Kern"]
         MONGO["MongoDB\nEvent-Store"]
         REDIS["Redis\nEchtzeit-Cache"]
@@ -39,25 +41,26 @@ flowchart TD
     end
 
     subgraph DWH["Analytics-Schicht (ETL-getrieben)"]
+        direction LR
         DW["PostgreSQL DWH-Schema\nSternschema"]
         PBI["Power BI\nDashboard & Analyse"]
     end
 
-    G --> ERP
     G --> WMS
+    G --> ERP
     G --> TMS
 
-    ERP --> LOAD
     WMS --> LOAD
+    ERP --> LOAD
     TMS --> LOAD
 
+    LOAD --> REDIS
     LOAD --> PG
     LOAD --> MONGO
-    LOAD --> REDIS
     LOAD --> NEO
     LOAD --> MINIO
 
-    PG -->|"ETL-Prozess\n(Teil 2)"| DW
+    PG -->|"ETL Teil 2"| DW
     DW --> PBI
 
     classDef app fill:#ffffff,stroke:#666666,stroke-width:1.5px,color:#111111;

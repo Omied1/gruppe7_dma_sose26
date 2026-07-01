@@ -193,7 +193,8 @@ def fill_fact_fulfillment(cur):
                      ELSE 'DELAYED'
                 END                                         AS delivery_status,
                 TO_CHAR(d.delivered_at, 'YYYYMMDD')::INT    AS delivery_date_sk,
-                COALESCE(tc.delay_minutes, 0)               AS delay_minutes
+                COALESCE(tc.delay_minutes, 0)               AS delay_minutes,
+                tc.delay_reason                             AS delay_reason  -- [ANPASSUNG 2026-07-01] finales Leg
             FROM  tms.shipments                 sh
             JOIN  tms.deliveries                d  ON d.shipment_id  = sh.shipment_id
             LEFT JOIN tms.carriers              ca ON ca.carrier_id  = sh.carrier_id
@@ -221,6 +222,27 @@ def fill_fact_fulfillment(cur):
             FROM  erp.batches  b
             JOIN  erp.products p ON p.product_id = b.product_id
             ORDER BY p.product_code, b.harvested_at, b.batch_id
+        ),
+
+        -- [ANPASSUNG 2026-07-01] Transportkosten/-distanz je Fulfillment (Gesamt-Route).
+        -- TMS-Shipments sind nicht an eine einzelne Bestellung gebunden -> pro Produkt den
+        -- Durchschnitt je Routen-Leg (source->target) bilden und über die 6 Legs summieren.
+        route_metrics_per_product AS (
+            SELECT
+                product_code,
+                ROUND(SUM(leg_cost), 2)     AS transport_cost,
+                ROUND(SUM(leg_distance), 2) AS distance_km
+            FROM (
+                SELECT
+                    UPPER(cargo_product_reference) AS product_code,
+                    source_node,
+                    target_node,
+                    AVG(transport_cost) AS leg_cost,
+                    AVG(distance_km)    AS leg_distance
+                FROM tms.shipments
+                GROUP BY UPPER(cargo_product_reference), source_node, target_node
+            ) legs
+            GROUP BY product_code
         )
 
         INSERT INTO dwh.fact_fulfillment (
@@ -229,6 +251,7 @@ def fill_fact_fulfillment(cur):
             order_reference, batch_identifier, shipment_identifier,
             quantity, unit_price, total_value,
             delay_minutes, avg_temperature, num_supply_chain_hops, delivery_priority_code,
+            transport_cost, distance_km, delay_reason,
             on_time_flag
         )
         SELECT
@@ -250,6 +273,9 @@ def fill_fact_fulfillment(cur):
             pt.avg_temperature,
             6                                       AS num_supply_chain_hops,
             op.delivery_priority                    AS delivery_priority_code,
+            rmp.transport_cost,
+            rmp.distance_km,
+            se.delay_reason,
             -- Liefertreue-Flag: TRUE wenn delay_minutes <= 60 (SLA-Schwellenwert).
             -- Einheitliche Logik mit delivery_status-Ableitung oben:
             -- beide Felder basieren auf demselben Schwellenwert → kein Widerspruch.
@@ -266,6 +292,7 @@ def fill_fact_fulfillment(cur):
                                             AND op.order_rn      = 1
         JOIN  product_temperature        pt  ON pt.product_code  = se.product_code
         LEFT JOIN first_batch_per_product fb ON fb.product_code  = se.product_code
+        LEFT JOIN route_metrics_per_product rmp ON rmp.product_code = se.product_code
         JOIN  dwh.dim_customer           dc  ON dc.customer_number = op.customer_number
         JOIN  dwh.dim_product            dp  ON dp.product_code    = se.product_code
         JOIN  dwh.dim_supplier           ds  ON ds.supplier_code   = op.supplier_code

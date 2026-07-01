@@ -481,6 +481,42 @@ _NODE_ARRIVAL_DAYS = {
     "retail_store":         (14.50, 15.00),
 }
 
+# [ANPASSUNG 2026-07-01] Distanz je Route (km, deterministisch) -> Basis für Transportkosten & Speed-Auswertung.
+# Werte plausibel für Bananen-Lieferkette Ghana -> Deutschland ([ANNAHME]: Richtwerte, keine exakten Geodaten).
+_ROUTE_DISTANCE_KM = {
+    "banana_plantation_to_collection_center":       45,
+    "collection_center_to_quality_control":         70,
+    "quality_control_to_africa_cold_storage":      130,
+    "africa_cold_storage_to_europe_cold_storage": 6800,   # Seefracht Tema -> Rotterdam
+    "europe_cold_storage_to_central_warehouse":    520,
+    "central_warehouse_to_retail_store":            85,
+}
+
+# [ANPASSUNG 2026-07-01] Carrier-Profile: modusgerechte Zuordnung (Land vs. See), carrier_id konsistent
+# zum Namen (behebt bisherige id/name-Entkopplung), delay & Kosten carrier-spezifisch (statt uniform 0-180).
+# Tupel: (carrier_id, mode, delay_mean_min, delay_sd_min, cost_per_km_eur)
+_CARRIER_PROFILE = {
+    "DHL":         ("CAR-101", "land", 18, 15, 0.140),
+    "Maersk":      ("CAR-102", "sea",  75, 55, 0.020),
+    "MSC":         ("CAR-103", "sea",  90, 65, 0.018),
+    "DB Schenker": ("CAR-104", "land", 25, 20, 0.110),
+    "Hapag Lloyd": ("CAR-105", "sea",  70, 50, 0.022),
+}
+# Land-Carrier fahren TRUCK-Legs, See-Carrier die SEA_FREIGHT-Strecke (Afrika -> Europa).
+_CARRIERS_BY_MODE = {
+    "TRUCK":       ["DHL", "DB Schenker"],
+    "SEA_FREIGHT": ["Maersk", "MSC", "Hapag Lloyd"],
+}
+_COST_BASE = {"TRUCK": 120.0, "SEA_FREIGHT": 750.0}   # Fixkosten je Transport (Handling/Umschlag)
+_COST_PER_UNIT = 0.05                                  # €/Einheit (mengen-/gewichtsabhängiger Anteil)
+DELAY_LATE_THRESHOLD_MIN = 30                          # ab hier gilt ein Leg als verspätet -> Grund gesetzt
+
+# Zielknoten -> Routen-Key (für Plan/Ist-Rekonstruktion in _assign_timestamp; Ziele sind im Flow eindeutig).
+_ROUTE_BY_TARGET = {
+    tgt.lower(): f"{src.lower()}_to_{tgt.lower()}"
+    for (src, tgt, _mode) in SUPPLY_CHAIN_FLOW
+}
+
 
 def _find_route(filename):
     lower = filename.lower()
@@ -522,12 +558,15 @@ def _assign_timestamp(event, iteration, filename, day_offset=0.0):
             src = event.get("source_node", "").lower().replace(" ", "_")
             tgt = event.get("target_node", "").lower().replace(" ", "_")
             route = f"{src}_to_{tgt}"
-        start_days = random.uniform(*_ROUTE_START_DAYS.get(route, (0.5, 1.0)))
-        ts = base + timedelta(days=start_days, minutes=random.randint(0, 90))
+        # [ANPASSUNG 2026-07-01] Plan/Ist konsistent: Start & Plan-Ankunft deterministisch je Route,
+        # damit estimated_arrival exakt der Plan ist (Abweichung = delay_minutes der TransportCompleted).
+        lo, hi = _ROUTE_START_DAYS.get(route, (0.5, 1.0))
+        start_days = (lo + hi) / 2.0
+        travel = _ROUTE_TRAVEL_DAYS.get(route, 2.0)
+        ts = base + timedelta(days=start_days)
         event["timestamp"] = ts.isoformat()
         if "estimated_arrival" in event:
-            travel = _ROUTE_TRAVEL_DAYS.get(route, 2.0)
-            event["estimated_arrival"] = (ts + timedelta(days=travel, hours=random.uniform(-3, 3))).isoformat()
+            event["estimated_arrival"] = (ts + timedelta(days=travel)).isoformat()
 
     elif et == "ShipmentPositionUpdated":
         rd = event.get("current_route", {})
@@ -545,9 +584,18 @@ def _assign_timestamp(event, iteration, filename, day_offset=0.0):
         event["timestamp"] = (base + timedelta(days=days, hours=random.uniform(8, 18))).isoformat()
 
     elif et == "TransportCompleted":
-        node = event.get("arrival_node", "").lower().replace(" ", "_")
-        days = random.uniform(*_NODE_ARRIVAL_DAYS.get(node, (2.0, 3.0)))
-        event["timestamp"] = (base + timedelta(days=days, hours=random.uniform(10, 20))).isoformat()
+        # [ANPASSUNG 2026-07-01] Ist-Ankunft = Plan-Ankunft + delay_minutes (konsistent zu estimated_arrival).
+        tgt = event.get("arrival_node", "").lower().replace(" ", "_")
+        route = _ROUTE_BY_TARGET.get(tgt)
+        if route:
+            lo, hi = _ROUTE_START_DAYS.get(route, (0.5, 1.0))
+            planned = base + timedelta(
+                days=(lo + hi) / 2.0 + _ROUTE_TRAVEL_DAYS.get(route, 2.0)
+            )
+        else:
+            planned = base + timedelta(days=2.0)
+        delay = event.get("delay_minutes", 0) or 0
+        event["timestamp"] = (planned + timedelta(minutes=delay)).isoformat()
 
     elif et == "DeliveryCompleted":
         node = _find_node(filename) or event.get("supply_chain_node", "").lower().replace(" ", "_")
@@ -1130,8 +1178,30 @@ class TMSService:
         source_node,
         target_node,
         cargo_reference,
-        transport_mode
+        transport_mode,
+        quantity
     ):
+
+        # [ANPASSUNG 2026-07-01] Carrier modusgerecht wählen (Land vs. See) + konsistente carrier_id;
+        # Distanz & Transportkosten je Leg aus Route / Modus / Menge ableiten.
+        carrier_name = random.choice(
+            _CARRIERS_BY_MODE.get(
+                transport_mode,
+                list(_CARRIER_PROFILE)
+            )
+        )
+        carrier_id, _mode, _dmean, _dsd, cost_per_km = (
+            _CARRIER_PROFILE[carrier_name]
+        )
+
+        route = f"{source_node.lower()}_to_{target_node.lower()}"
+        distance_km = _ROUTE_DISTANCE_KM.get(route, 100)
+        transport_cost = round(
+            _COST_BASE.get(transport_mode, 150.0)
+            + distance_km * cost_per_km
+            + quantity * _COST_PER_UNIT,
+            2
+        )
 
         return {
 
@@ -1159,17 +1229,21 @@ class TMSService:
             "carrier": {
 
                 "carrier_id":
-                    f"CAR-{random.randint(101,105)}",
+                    carrier_id,
 
                 "carrier_name":
-                    random.choice([
-                        "DHL",
-                        "Maersk",
-                        "MSC",
-                        "DB Schenker",
-                        "Hapag Lloyd"
-                    ])
+                    carrier_name
             },
+
+            # [ANPASSUNG 2026-07-01] neue Transport-Kennzahlen (Distanz/Kosten je Leg)
+            "distance_km":
+                distance_km,
+
+            "transport_cost":
+                transport_cost,
+
+            "currency":
+                "EUR",
 
             "estimated_arrival":
                 future_timestamp(
@@ -1255,6 +1329,39 @@ class TMSService:
         shipment_event
     ):
 
+        # [ANPASSUNG 2026-07-01] delay carrier-spezifisch (Normalverteilung je Profil, statt uniform 0-180);
+        # Verspätungsgrund nur wenn verspätet, Grund abhängig vom Transportmodus.
+        carrier_name = (
+            shipment_event.get("carrier", {}).get("carrier_name", "")
+        )
+        profile = _CARRIER_PROFILE.get(carrier_name)
+        if profile:
+            _cid, _mode, delay_mean, delay_sd, _ck = profile
+            delay_minutes = max(
+                0,
+                round(random.gauss(delay_mean, delay_sd))
+            )
+        else:
+            delay_minutes = random.randint(0, 60)
+
+        if delay_minutes > DELAY_LATE_THRESHOLD_MIN:
+            if shipment_event.get("transport_mode") == "SEA_FREIGHT":
+                delay_reason = random.choice([
+                    "CUSTOMS",
+                    "PORT_CONGESTION",
+                    "WEATHER",
+                    "COLD_CHAIN_INCIDENT"
+                ])
+            else:
+                delay_reason = random.choice([
+                    "TRAFFIC",
+                    "MECHANICAL",
+                    "WEATHER",
+                    "COLD_CHAIN_INCIDENT"
+                ])
+        else:
+            delay_reason = None
+
         return {
 
             "event_type":
@@ -1276,7 +1383,11 @@ class TMSService:
                 ],
 
             "delay_minutes":
-                random.randint(0, 180),
+                delay_minutes,
+
+            # [ANPASSUNG 2026-07-01] Verspätungsgrund (None wenn pünktlich)
+            "delay_reason":
+                delay_reason,
 
             "timestamp":
                 timestamp()
@@ -1437,7 +1548,10 @@ class BananaSupplyChainProcess:
                     cargo_reference=product[
                         "product_code"
                     ],
-                    transport_mode=transport_mode
+                    transport_mode=transport_mode,
+                    quantity=batch_event[
+                        "quantity"
+                    ]
                 )
             )
 

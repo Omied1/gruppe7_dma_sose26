@@ -236,14 +236,18 @@ def verify_neo4j():
         bad_supplier = supplier_result.single()["cnt"]
         check("Neo4j", "Produkte ohne genau 1 Lieferanten (Soll: 0)", bad_supplier, 0, "eq")
 
-        # Demo-Batch: alle 7 Stationen PROCESSED_AT
+        # Batch-Durchlauf: ein Batch wird an allen NodeProcessed-Stationen verarbeitet.
+        # [ANPASSUNG 2026-07-01] Vorher hartkodierte Batch-UUID -> brach nach jeder Neu-Generierung
+        # (uuid4 ist nicht seed-stabil). Jetzt dynamisch: maximale Stationszahl über alle Batches.
+        # Soll = 6 Knoten (BANANA_PLANTATION..CENTRAL_WAREHOUSE); RETAIL_STORE erhält
+        # DeliveryCompleted statt NodeProcessed, ist also kein PROCESSED_AT-Ziel.
         batch_result = s.run("""
-            MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
-                  -[:PROCESSED_AT]->(n:SupplyChainNode)
-            RETURN COUNT(DISTINCT n) AS stationen
+            MATCH (b:Batch)-[:PROCESSED_AT]->(n:SupplyChainNode)
+            WITH b, COUNT(DISTINCT n) AS stationen
+            RETURN COALESCE(MAX(stationen), 0) AS stationen
         """)
         stationen = batch_result.single()["stationen"]
-        check("Neo4j", "Demo-Batch PROCESSED_AT (alle 7 Stationen)", stationen, 7, "eq")
+        check("Neo4j", "Batch PROCESSED_AT max. Stationen (Soll 6)", stationen, 6, "eq")
 
     driver.close()
 
