@@ -319,41 +319,41 @@ WHERE NOT (
 -- =============================================================================
 -- 5. AKTUALITÄT (Timeliness)
 -- Zeitliche Plausibilität: Events müssen in logischer Reihenfolge liegen
--- und event_timestamp muss innerhalb der Projektlaufzeit (2026) liegen
+-- und event_timestamp muss innerhalb der Projektlaufzeit (2025-2026) liegen
 -- =============================================================================
 
 -- 5.0 Stammdaten: event_timestamp ausserhalb der Projektlaufzeit
 SELECT
     'AKTUALITÄT'        AS dimension,
     'erp.suppliers'     AS tabelle,
-    'event_timestamp ausserhalb 2026' AS regel,
+    'event_timestamp ausserhalb 2025-2026' AS regel,
     COUNT(*)            AS verstösse
 FROM erp.suppliers
-WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
 
 SELECT
     'AKTUALITÄT'        AS dimension,
     'erp.customers'     AS tabelle,
-    'event_timestamp ausserhalb 2026' AS regel,
+    'event_timestamp ausserhalb 2025-2026' AS regel,
     COUNT(*)            AS verstösse
 FROM erp.customers
-WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
 
 SELECT
     'AKTUALITÄT'        AS dimension,
     'erp.products'      AS tabelle,
-    'event_timestamp ausserhalb 2026' AS regel,
+    'event_timestamp ausserhalb 2025-2026' AS regel,
     COUNT(*)            AS verstösse
 FROM erp.products
-WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
 
 SELECT
     'AKTUALITÄT'        AS dimension,
     'tms.carriers'      AS tabelle,
-    'event_timestamp ausserhalb 2026' AS regel,
+    'event_timestamp ausserhalb 2025-2026' AS regel,
     COUNT(*)            AS verstösse
 FROM tms.carriers
-WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
+WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day';
 
 -- 5.1 TMS: Transportabschluss vor Transportstart
 SELECT
@@ -371,10 +371,10 @@ WHERE tc.completed_at < s.started_at;
 SELECT
     'AKTUALITÄT'   AS dimension,
     'erp.batches'  AS tabelle,
-    'harvested_at ausserhalb Projektlaufzeit (2026)' AS regel,
+    'harvested_at ausserhalb Projektlaufzeit (2025-2026)' AS regel,
     COUNT(*)       AS verstösse
 FROM erp.batches
-WHERE harvested_at < '2026-01-01'
+WHERE harvested_at < '2025-01-01'
    OR harvested_at > NOW() + INTERVAL '1 day';
 
 -- 5.3 Veraltete aktive Orders (älter als 90 Tage ohne zugehörige Delivery)

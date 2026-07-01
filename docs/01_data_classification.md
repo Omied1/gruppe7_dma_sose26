@@ -1,19 +1,21 @@
 # Datenklassifikation – Banana Supply Chain
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
-**Stand:** 2026-05-15  
-**Grundlage:** Analyse der generierten JSON-Dateien in `shared/erp/`, `shared/wms/`, `shared/tms/`
+**Stand:** 2026-07-01  
+**Grundlage:** Aktueller Datengenerator `bananasupplychain/test_data_generator.py`; `shared/`-Refresh nach Generatoränderungen ausstehend
 
 ---
 
 ## 1. Überblick: Quellsysteme und Eventmengen
 
+Erwartete Größenordnung nach Neugenerierung mit dem aktuellen Generatorstand:
+
 | Quellsystem | Anzahl JSON-Dateien | Eventtypen | Beschreibung |
 |---|---|---|---|
-| ERP | 50 | 5 | Enterprise Resource Planning – Stamm- und Bewegungsdaten |
-| WMS | 70 | 2 | Warehouse Management System – Lager- und Knotenverarbeitung |
-| TMS | 257 | 6 | Transport Management System – Carrier, Transporte, GPS, Lieferungen |
-| **Gesamt** | **377** | **13** | Alle verarbeitbaren Ereignisse in der Supply Chain (10 operative Iterationen + Stammdaten) |
+| ERP | ca. 560 | 5 | Enterprise Resource Planning – Stamm- und Bewegungsdaten |
+| WMS | ca. 1.600 | 2 | Warehouse Management System – Lager- und Knotenverarbeitung |
+| TMS | ca. 6.650 | 6 | Transport Management System – Carrier, Transporte, GPS, Lieferungen |
+| **Gesamt** | **ca. 8.810** | **13** | Alle verarbeitbaren Ereignisse in der Supply Chain (52 Wochen + Stammdaten) |
 
 ---
 
@@ -119,14 +121,14 @@ Kunden sind Einzelhandelsketten (ALDI, AUCHAN, REWE etc.) als Endpunkte der Fulf
   "event_type": "ProductCreated",
   "product_code": "BAN-101",
   "product_name": "Cavendish Banana",
-  "category": "Fresh Fruit",
+  "category": "Standard",
   "supplier_reference": "SUP-104",
   "timestamp": "2026-05-12T11:50:40.901793"
 }
 ```
 
 **Fachliche Begründung:**  
-`BAN-101` ist das zentrale Objekt der gesamten Supply Chain. Die **systemübergreifende Produktcode-Inkonsistenz** (ERP: `BAN-101`, WMS: `BAN_101`, TMS: `ban-101`) macht diesen Eventtyp zum Ausgangspunkt des MDM. `supplier_reference: SUP-104` verknüpft das Produkt mit dem Lieferanten im ERP.
+`BAN-101` ist das zentrale Objekt der gesamten Supply Chain. Die Produktkategorie wird im Generator als analytisches Segment gepflegt (`Standard`, `Sustainable`, `Premium`, `Specialty`) und kann im DWH/Power BI direkt als Filterdimension genutzt werden. Die **systemübergreifende Produktcode-Inkonsistenz** (ERP: `BAN-101`, WMS: `BAN_101`, TMS: `ban-101`) macht diesen Eventtyp zum Ausgangspunkt des MDM. `supplier_reference: SUP-104` verknüpft das Produkt mit dem Lieferanten im ERP.
 
 **Begründung PostgreSQL + MDM:** PostgreSQL für operative Stammdaten; MDM-Schema speichert den Golden Record mit drei `source_mappings`-Einträgen (ERP/WMS/TMS je Produkt), die von `mdm.resolve_canonical_key()` aufgelöst werden.
 

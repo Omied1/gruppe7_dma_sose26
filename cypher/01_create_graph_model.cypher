@@ -191,20 +191,10 @@ MERGE (p:Product {product_code: "BAN-108"}) SET p.product_name = "Green Banana",
 MERGE (p:Product {product_code: "BAN-109"}) SET p.product_name = "Yellow Banana",    p.category = "Fresh Fruit";
 MERGE (p:Product {product_code: "BAN-110"}) SET p.product_name = "Tropical Banana",  p.category = "Fresh Fruit";
 
-// SUPPLIES-Beziehungen: aus ERP ProductCreated supplier_reference abgeleitet
-// BAN-101 → SUP-103, BAN-102 → SUP-106, BAN-103 → SUP-102, BAN-104 → SUP-108
-// BAN-105 → SUP-108, BAN-106 → SUP-109, BAN-107 → SUP-107, BAN-108 → SUP-106
-// BAN-109 → SUP-104, BAN-110 → SUP-101
-MATCH (sup:Supplier {supplier_code: "SUP-103"}), (p:Product {product_code: "BAN-101"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-106"}), (p:Product {product_code: "BAN-102"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-102"}), (p:Product {product_code: "BAN-103"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-108"}), (p:Product {product_code: "BAN-104"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-108"}), (p:Product {product_code: "BAN-105"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-109"}), (p:Product {product_code: "BAN-106"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-107"}), (p:Product {product_code: "BAN-107"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-106"}), (p:Product {product_code: "BAN-108"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-104"}), (p:Product {product_code: "BAN-109"}) MERGE (sup)-[:SUPPLIES]->(p);
-MATCH (sup:Supplier {supplier_code: "SUP-101"}), (p:Product {product_code: "BAN-110"}) MERGE (sup)-[:SUPPLIES]->(p);
+// [ANPASSUNG 2026-07-01] SUPPLIES werden hier NICHT mehr hardcodiert (war die F-12-Wurzel:
+// nach Daten-Neugenerierung drifteten die fixen Zuordnungen vom ERP-Mapping ab -> 2 Lieferanten/Produkt).
+// SUPPLIES erzeugt ausschliesslich der ETL (load_neo4j) aus ProductCreated.supplier_reference.
+// verify_all_systems.py prueft weiterhin "genau 1 Lieferant je Produkt".
 
 // =============================================================================
 // 6. CARRIER-STAMMDATEN
@@ -246,7 +236,7 @@ MERGE (c)-[:OPERATES_ON {transport_mode: "SEA_FREIGHT"}]->(n);
 // durchgehenden Order-to-Delivery-Prozess.
 //
 // Realer Batch aus ERP-Event: BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7
-// Produkt: BAN-108 (Green Banana), Lieferant: SUP-106 (Premium Banana Farms)
+// Produkt: BAN-108 (Green Banana), Lieferant: SUP-108 (Sunshine Produce)
 // Kunde:   CUST-109 (AUCHAN, Frankfurt)
 // =============================================================================
 

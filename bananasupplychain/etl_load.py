@@ -186,7 +186,7 @@ def extract_events(system: str) -> list:
     for f in files:
         try:
             data = json.load(open(f, encoding='utf-8'))
-            events.append(_apply_ts_offset(data, os.path.basename(f)))
+            events.append(data)   # [ANPASSUNG 2026-07-01] Zeitstempel kommen jetzt aus dem Generator (kein _apply_ts_offset mehr)
         except Exception as exc:
             print(f"  WARNUNG: {f} konnte nicht gelesen werden: {exc}")
     return events
@@ -872,6 +872,12 @@ def load_redis(erp_events, tms_events, r):
     for status in ("successful", "delayed", "failed"):
         r.set(f"system:counter:deliveries_{status}", 0)
 
+    # SET der aktiven Sendungen leeren (Idempotenz): zeigt WELCHE Sendungen
+    # unterwegs sind – Counter oben zeigt nur WIE VIELE. Beide parallel gepflegt.
+    r.delete("active_shipments")
+    # SORTED SET der geschätzten Ankunftszeiten leeren (Idempotenz).
+    r.delete("live_etas")
+
     # ── ERP: ProductCreated → Produktcache (alle 10 Produkte, unabhängig von Orders) ──
     for ev in erp_events:
         if ev.get("event_type") != "ProductCreated":
@@ -924,8 +930,12 @@ def load_redis(erp_events, tms_events, r):
                 r.expire(f"cache:product:{pcode}", 3600)  # 1 Stunde
         count("redis.orders")
 
-    # ── TMS-Events ────────────────────────────────────────────────────────────
-    for ev in tms_events:
+    # ── TMS-Events (chronologisch verarbeiten) ──────────────────────────────────
+    # [ANPASSUNG 2026-07-01] nach timestamp sortiert. Sonst wird wegen der Dateinamen-
+    # Sortierung DeliveryCompleted VOR TransportStarted verarbeitet -> SREM/DECR vor
+    # SADD/INCR -> active_shipments-SET und Zähler driften auseinander. Chronologisch
+    # ist zudem die zuletzt geschriebene shipment:position wirklich die letzte.
+    for ev in sorted(tms_events, key=lambda e: e.get("timestamp", "")):
         et  = ev.get("event_type")
         sid = ev.get("shipment_identifier", "")
 
@@ -942,6 +952,13 @@ def load_redis(erp_events, tms_events, r):
             r.expire(f"shipment:info:{sid}", 86400 * 7)
             # Aktive Transporte für Dashboard-Counter hochzählen
             r.incr("system:counter:active_shipments")
+            # Sendungs-ID in das SET der aktiven Transporte aufnehmen (welche, nicht nur wie viele)
+            r.sadd("active_shipments", sid)
+            # Geschätzte Ankunftszeit aus dem Event als Score in SORTED SET ablegen,
+            # damit aktive Sendungen nach ETA sortiert abrufbar sind (live_etas, Folie 7).
+            eta = ev.get("estimated_arrival", "")
+            if eta:
+                r.zadd("live_etas", {sid: int(datetime.fromisoformat(eta).timestamp())})
             count("redis.status_set")
 
         elif et == "ShipmentPositionUpdated":
@@ -989,6 +1006,10 @@ def load_redis(erp_events, tms_events, r):
             current = r.get("system:counter:active_shipments")
             if current and int(current) > 0:
                 r.decr("system:counter:active_shipments")
+            # Sendungs-ID aus dem SET der aktiven Transporte entfernen (Sendung ist zugestellt)
+            r.srem("active_shipments", sid)
+            # ETA-Eintrag entfernen – zugestellte Sendung hat keine offene Ankunft mehr
+            r.zrem("live_etas", sid)
             count("redis.delivery_status")
 
     r.incr("system:counter:etl_runs")
@@ -1097,6 +1118,10 @@ def load_neo4j(erp_events, wms_events, tms_events, driver):
         _neo4j_setup_schema(session)
         _neo4j_load_master_data(erp_events, tms_events, session)
 
+        # Reihenfolge-Sicherung: Beziehungen werden in geordneten Pässen angelegt, damit
+        # jeder Pfad-Vorgänger schon existiert. Sonst ist der Graph reihenfolgeabhängig
+        # (Event-Dateireihenfolge) und ein Einzellauf unvollständig/nicht idempotent.
+        # Pass 1: erst alle Bestellungen (Order, PLACED, CONTAINS).
         for ev in erp_events:
             if ev.get("event_type") == "OrderCreated":
                 order_ref  = ev["order_reference"]
@@ -1121,7 +1146,10 @@ def load_neo4j(erp_events, wms_events, tms_events, driver):
                          price=safe_float(item.get("unit_price")))
                 count("neo4j.orders")
 
-            elif ev.get("event_type") == "BatchHarvested":
+        # Pass 2: dann alle Chargen (Batch, TRIGGERED) – jetzt existiert der CONTAINS-Pfad,
+        #         den TRIGGERED zum Verknüpfen mit der auslösenden Bestellung braucht.
+        for ev in erp_events:
+            if ev.get("event_type") == "BatchHarvested":
                 session.run("""
                     MERGE (b:Batch {batch_identifier: $bid})
                       SET b.quantity = $qty, b.origin_country = $oc, b.product_code = $pc
@@ -1137,6 +1165,7 @@ def load_neo4j(erp_events, wms_events, tms_events, driver):
                      pc=normalize_key(ev["product_code"]))
                 count("neo4j.batches")
 
+        # Pass 3: erst alle Transporte (Shipment, FROM/TO, TRANSPORTED_BY, TRANSPORTED_VIA).
         for ev in tms_events:
             et = ev.get("event_type")
             if et == "TransportStarted":
@@ -1166,7 +1195,12 @@ def load_neo4j(erp_events, wms_events, tms_events, driver):
                 """, prod=prod_code, sid=sid)
                 count("neo4j.shipments")
 
-            elif et == "DeliveryCompleted":
+        # Pass 4: dann alle Lieferungen (DELIVERED_TO) – jetzt existiert der
+        #         TRANSPORTED_VIA-Pfad (Pass 3) und TRIGGERED (Pass 2), den DELIVERED_TO
+        #         zum Auffinden des Kunden braucht.
+        for ev in tms_events:
+            et = ev.get("event_type")
+            if et == "DeliveryCompleted":
                 session.run("""
                     MATCH (s:Shipment {shipment_identifier: $sid})
                     MATCH (c:Customer)

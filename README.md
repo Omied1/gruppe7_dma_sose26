@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Gruppe:** 7  
-**Deadline:** 01.07.2026
+**Deadline:** 06.07.2026
 
 ---
 
@@ -63,13 +63,15 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 
 > **Hinweis:** Der Ordner `shared/` ist bewusst nicht im Repository enthalten – er enthält generierte JSON-Ereignisdaten und gehört nicht ins Versionskontrollsystem. Er wird durch diesen Schritt erzeugt.
 >
-> **Wichtig:** Den Generator **nur einmal** ausführen. Mehrfache Ausführung erzeugt neue UUIDs und verdoppelt die Datensätze beim nächsten ETL-Lauf (statt 10 → 20 fact_fulfillment-Zeilen). Falls `shared/` bereits befüllt ist, erst löschen: `rm -rf shared/erp shared/wms shared/tms`
+> **Wichtig:** Den Generator **nur einmal** ausführen. Mehrfache Ausführung erzeugt neue UUIDs und verdoppelt die Datensätze beim nächsten ETL-Lauf. Falls `shared/` bereits befüllt ist, erst löschen: `rm -rf shared/erp shared/wms shared/tms`
+>
+> **Generator anpassbar:** `test_data_generator.py` darf geändert werden. Jede Änderung muss in `PROJECT_STATUS.md`, dieser README und `PROJEKTANLEITUNG.md` dokumentiert werden; danach `shared/` neu generieren und den vollständigen ETL-Lauf wiederholen (`shared/` ist der Ursprung aller fünf Zielsysteme).
 
 ```bash
 python3 bananasupplychain/test_data_generator.py
 ```
 
-Erwartete Ausgabe: 50 ERP- / 70 WMS- / 275 TMS-JSON-Dateien in `shared/`.
+Erwartete Ausgabe beim aktuellen Generatorstand: ca. 560 ERP- / 1.600 WMS- / 6.650 TMS-JSON-Dateien in `shared/`.
 
 ### Schritt 4: ETL Phase 1 (ERP/WMS/TMS → alle Datenbanken)
 
@@ -135,7 +137,7 @@ python3 analytics/forecast.py
 ## Projektstruktur
 
 ```
-shared/                    # ERP/WMS/TMS JSON-Quelldaten (50 + 70 + 275 Dateien)
+shared/                    # ERP/WMS/TMS JSON-Quelldaten (aktuell ca. 560 + 1.600 + 6.650 Dateien)
 sql/                       # PostgreSQL DDL (01–09)
 bananasupplychain/         # ETL-Skripte + Docker-Compose
 analytics/                 # Python Charts, Clustering, Absatzprognose

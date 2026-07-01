@@ -138,7 +138,7 @@ story += [sp(2), Paragraph("Projektanleitung", title_s),
           hr(), sp(0.3)]
 
 meta = [["Modul:", "Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck"],
-        ["Deadline:", "01.07.2026"],
+        ["Deadline:", "06.07.2026"],
         ["Stand:", "2026-05-13"],
         ["Zweck:", "Erklärt das gesamte Projekt: Aufgabe, Dateien, Datenbanken, Datenfluss und nächste Schritte"]]
 mt = Table(meta, colWidths=[3*cm, 14.1*cm])
@@ -564,7 +564,7 @@ story.append(PageBreak())
 story.append(Paragraph("8. Teil 2 – Was kommt noch?", h1_s))
 story.append(hr())
 story.append(box(
-    "Teil 2 (Analytics) ist vollstaendig offen. Deadline: 01.07.2026. "
+    "Teil 2 (Analytics) ist vollstaendig offen. Deadline: 06.07.2026. "
     "Voraussetzung: ETL Phase 2 muss zuerst implementiert werden (PostgreSQL -> DWH befuellen).",
     colors.HexColor("#fdedec")))
 story.append(sp(0.3))

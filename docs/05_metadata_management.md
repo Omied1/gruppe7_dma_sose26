@@ -231,7 +231,7 @@ Die drei explizit in der Aufgabenstellung geforderten Spalten sind **fett** mark
 | erp    | customers                    | city                        | NOMINAL      | Stadtname; keine inhärente Reihenfolge                                                         |
 | erp    | customers                    | country                     | NOMINAL      | ISO-Ländername; Europa-Märkte ohne Reihenfolge                                                 |
 | erp    | products                     | product_code                | NOMINAL      | Business Key BAN-101; alphabetisch ohne fachliche Bedeutung                                    |
-| erp    | products                     | category                    | NOMINAL      | Z.B. „Fresh Fruit"; Kategorien ohne Reihenfolge                                                |
+| erp    | products                     | category                    | NOMINAL      | Z.B. „Standard", „Sustainable", „Premium", „Specialty"; Kategorien ohne Reihenfolge           |
 | erp    | orders                       | order_reference             | NOMINAL      | UUID-basierter Key ORD-\<uuid\>; kein numerischer Wert                                         |
 | erp    | orders                       | **delivery_priority**       | **ORDINAL**  | HIGH > NORMAL > LOW – klare Reihenfolge, aber Abstände nicht gleichmäßig                       |
 | erp    | orders                       | order_timestamp             | INTERVAL     | Zeitstempel; 0 = 1970-01-01 00:00 (willkürlich), kein nat. Nullpunkt                           |

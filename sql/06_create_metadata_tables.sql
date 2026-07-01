@@ -143,7 +143,7 @@ CROSS JOIN (VALUES
     ('product_id',   'SERIAL',      'Technischer Primärschlüssel',             NULL,             'METADATEN',    'NOMINAL',  'Eindeutig, auto-generiert',                                                          FALSE, TRUE,  FALSE),
     ('product_code', 'VARCHAR(20)', 'Kanonischer Produktcode (ERP-Format)',    'product_code',   'STAMMDATEN',   'NOMINAL',  'Format: BAN-1nn. Eindeutig. MDM-kanonisch. Pflichtfeld.',                             FALSE, FALSE, FALSE),
     ('product_name', 'VARCHAR(100)','Produktbezeichnung (Bananensorte)',       'product_name',   'STAMMDATEN',   'NOMINAL',  'Nicht leer. Beschreibende Bezeichnung der Bananensorte.',                            FALSE, FALSE, FALSE),
-    ('category',     'VARCHAR(50)', 'Produktkategorie',                        'category',       'STAMMDATEN',   'NOMINAL',  'Erlaubt: "Fresh Fruit". Erweiterbar für weitere Kategorien.',                       FALSE, FALSE, FALSE),
+    ('category',     'VARCHAR(50)', 'Produktkategorie',                        'category',       'STAMMDATEN',   'NOMINAL',  'Erlaubt: Standard, Sustainable, Premium, Specialty.',                              FALSE, FALSE, FALSE),
     ('supplier_id',  'INT',         'FK zum Lieferanten',                      'supplier_reference','STAMMDATEN','NOMINAL',  'Muss auf gültigen erp.suppliers.supplier_id verweisen. Pflichtfeld.',               FALSE, FALSE, TRUE)
 ) AS c(column_name, data_type, description, source, data_category, scale_level, quality_rule, is_nullable, is_pk, is_fk)
 WHERE t.schema_name = 'erp' AND t.table_name = 'products'

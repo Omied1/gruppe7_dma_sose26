@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "powerbi-modeling-mcp": {
-      "command": "C:\\Users\\omiedfirouzian\\.vscode\\extensions\\analysis-services.powerbi-modeling-mcp-0.5.6-win32-arm64\\server\\powerbi-modeling-mcp.exe",
-      "args": ["--start"],
-      "type": "stdio"
-    }
-  }
-}

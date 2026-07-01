@@ -272,6 +272,58 @@ Beispiel:
 
 ---
 
+### 3.6 Aktive Sendungen als Menge – `TransportStarted` / `DeliveryCompleted`
+
+```
+Key:    active_shipments
+Typ:    SET
+Member: <shipment_identifier> aller aktuell unterwegs befindlichen Sendungen
+TTL:    Kein TTL (bildet den Live-Zustand ab; wird zu Beginn jedes ETL-Laufs geleert)
+
+Zweck:  Zeigt WELCHE Sendungen aktiv sind – Ergänzung zum Zähler
+        system:counter:active_shipments (3.3), der nur WIE VIELE zeigt.
+
+Beispiel:
+  SADD      active_shipments  SHIP-bf5d4354     (bei TransportStarted)
+  SREM      active_shipments  SHIP-bf5d4354     (bei DeliveryCompleted)
+  SMEMBERS  active_shipments                    → alle aktiven Sendungs-IDs
+  SCARD     active_shipments                    → Anzahl (muss == Zähler sein)
+  SISMEMBER active_shipments SHIP-67e67f7c      → 1 (aktiv) | 0 (nicht aktiv)
+```
+
+**Warum SET zusätzlich zum Counter:** Der Integer-Zähler `system:counter:active_shipments` beantwortet „wie viele Transporte laufen?", aber nicht „welche?". Das SET liefert beide Antworten (`SCARD` = Anzahl, `SMEMBERS` = IDs) und prüft Mitgliedschaft in O(1) (`SISMEMBER`). Zusätzlich ist es gegen Doppelzählung robust: Ein versehentlich doppeltes `TransportStarted` erhöht den Zähler zweimal, fügt dem SET aber nur einen Member hinzu – `SCARD` bleibt korrekt. Der Name `active_shipments` (ohne Namespace-Präfix) entspricht bewusst der Ziel-Struktur aus Kapitel 5, Folie 7.
+
+---
+
+### 3.7 Geschätzte Ankunftszeiten – `TransportStarted` / `DeliveryCompleted`
+
+```
+Key:    live_etas
+Typ:    SORTED SET
+Score:  Unix-Timestamp der geschätzten Ankunft (Feld estimated_arrival aus dem Event)
+Member: <shipment_identifier>
+TTL:    Kein TTL (Live-Zustand; wird zu Beginn jedes ETL-Laufs geleert)
+
+Zweck:  Aktive Sendungen nach Ankunftszeit sortiert – "welche Sendung kommt als nächste an?"
+
+Beispiel:
+  ZADD          live_etas  1717866312  SHIP-0ad35c11    (bei TransportStarted)
+  ZREM          live_etas  SHIP-0ad35c11                 (bei DeliveryCompleted)
+  ZRANGE        live_etas 0 0 WITHSCORES                 → nächste Ankunft
+  ZRANGE        live_etas 0 -1 WITHSCORES                → alle Sendungen nach ETA
+  ZRANGEBYSCORE live_etas -inf <heute_24h>               → Ankünfte bis heute
+```
+
+**Warum SORTED SET:** Die Ankunftszeit (`estimated_arrival`) liegt fertig im `TransportStarted`-Event vor – sie wird **nicht berechnet**, nur als Score abgelegt. Der Score erlaubt zeitlich sortierte Abfragen ohne PostgreSQL-Roundtrip: „nächste Ankunft" (`ZRANGE 0 0`), „alle Ankünfte heute" (`ZRANGEBYSCORE`). `ZCARD live_etas` muss `SCARD active_shipments` entsprechen – beide bilden dieselbe Menge aktiver Sendungen ab und dienen als gegenseitiger Konsistenznachweis.
+
+---
+
+### 3.8 Bewusst nicht modelliert: `warehouse_queue`
+
+Kapitel 5, Folie 7 nennt als Beispiel auch eine `warehouse_queue`. Sie wird **bewusst nicht** umgesetzt: Die WMS-`NodeProcessed`-Events tragen ausschließlich `status: "COMPLETED"` – der Simulator erzeugt keinen Wartezustand (`PENDING`/`QUEUED`) und kein getrenntes „Batch verlässt Station"-Event. Eine echte Warteschlange (*was wartet noch auf Bearbeitung?*) ist aus den Daten nicht ableitbar; eine LIST würde nur als Verarbeitungs-Historie wachsen, ohne definiertes `LPOP`-Signal. Der Wartezustand ließe sich nur durch erfundene Events simulieren – fachlich nicht belegbar. Die Bearbeitungsreihenfolge je Station ist bei Bedarf bereits über MongoDB (`batch_tracking.nodes_processed[]`) und Neo4j (`PROCESSED_AT`) abgedeckt.
+
+---
+
 ## 4. TTL-Übersicht
 
 | Key-Pattern                            | TTL          | Begründung                                          |
@@ -289,6 +341,8 @@ Beispiel:
 | `monitoring:temp_violations:<date>`    | 7 Tage       | Tagesliste → granular löschbar, kein Speicherleak   |
 | `system:counter:orders_today`          | bis Mitternacht | EXPIREAT für automatischen Tagesreset            |
 | `system:counter:active_shipments`      | kein TTL     | Dashboard-Counter muss persistent sein              |
+| `active_shipments` (SET)               | kein TTL     | Live-Zustand; wird zu Beginn jedes ETL-Laufs geleert |
+| `live_etas` (SORTED SET)               | kein TTL     | Live-Zustand; wird zu Beginn jedes ETL-Laufs geleert |
 | `system:counter:etl_runs`              | kein TTL     | Betriebsnachweis                                    |
 
 ---
@@ -300,7 +354,8 @@ Beispiel:
 | STRING      | Status-Flags, Counter, Alert-Flag  | Atomar; Counter via INCR/DECR ohne Race Conditions                 |
 | HASH        | Metadaten (Info, Meta, Position)   | Einzelne Felder gezielt lesbar (HGET), kein JSON-Parsing nötig     |
 | LIST        | Status-Timeline                    | Reihenfolge erhalten; RPUSH hängt chronologisch hinten an          |
-| SORTED SET  | Positionsverlauf, Temp-Monitoring  | Score = Timestamp/Temperaturwert → zeitlich/schwerebasiert sortierbar |
+| SORTED SET  | Positionsverlauf, Temp-Monitoring, Live-ETAs | Score = Timestamp/Temperaturwert/Ankunftszeit → zeitlich/schwerebasiert sortierbar |
+| SET         | Aktive Sendungen (`active_shipments`) | Eindeutige Mitgliedschaft; O(1)-Prüfung (SISMEMBER), dedupliziert automatisch |
 
 ---
 
@@ -328,14 +383,22 @@ Die Funktion `load_redis(erp_events, tms_events, r)` in `bananasupplychain/etl_l
 | Eventtyp               | Quelle | Redis-Schreiboperationen                                              |
 |------------------------|--------|-----------------------------------------------------------------------|
 | `OrderCreated`         | ERP    | `order:status`, `order:meta`, `order:timeline`, `cache:product`, INCR `orders_today` |
-| `TransportStarted`     | TMS    | `shipment:status` (IN_TRANSIT), `shipment:info`, INCR `active_shipments` |
+| `TransportStarted`     | TMS    | `shipment:status` (IN_TRANSIT), `shipment:info`, INCR `system:counter:active_shipments`, SADD `active_shipments` (SET), ZADD `live_etas` (SORTED SET) |
 | `ShipmentPositionUpdated` | TMS | `shipment:position`, `shipment:route`, ggf. `shipment:alert:temperature`, `monitoring:temp_violations:<date>`, INCR `temperature_alerts_active` |
-| `DeliveryCompleted`    | TMS    | `shipment:status` (final), INCR `deliveries_<status>`, DECR `active_shipments` |
+| `DeliveryCompleted`    | TMS    | `shipment:status` (final), INCR `deliveries_<status>`, DECR `system:counter:active_shipments`, SREM `active_shipments` (SET), ZREM `live_etas` |
 
 **Prüfabfragen (nach ETL-Lauf via redis-cli):**
 ```
-# Aktive Transporte
+# Aktive Transporte (Anzahl)
 GET system:counter:active_shipments
+
+# Aktive Transporte (welche – SET-Mitglieder)
+SMEMBERS active_shipments
+SCARD active_shipments          # muss der Zahl oben entsprechen
+
+# Geschätzte Ankunftszeiten (Sendungen nach ETA sortiert)
+ZRANGE live_etas 0 -1 WITHSCORES
+ZCARD live_etas                 # muss SCARD active_shipments entsprechen
 
 # Bestellungen heute
 GET system:counter:orders_today

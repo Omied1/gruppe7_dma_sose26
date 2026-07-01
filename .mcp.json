@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "powerbi-modeling-mcp": {
-      "command": "/Users/omiedfirouzian/.vscode/extensions/analysis-services.powerbi-modeling-mcp-0.3.1-darwin-arm64/server/powerbi-modeling-mcp",
-      "args": ["--start"],
-      "type": "stdio"
-    }
-  }
-}

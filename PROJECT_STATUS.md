@@ -1,8 +1,8 @@
 # Projektstatus – Banana Supply Chain Datenplattform
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
-**Deadline:** 01.07.2026  
-**Zuletzt aktualisiert:** 2026-06-04 (Architektur-Bereinigung Option A: shared/ neu generiert mit rohen utcnow()-Timestamps; alle Systeme neu geladen; Batch-ID in docs/10 + cypher/01 aktualisiert; Analytics neu generiert; TMS-Dateianzahl 274)
+**Deadline:** 06.07.2026  
+**Zuletzt aktualisiert:** 2026-07-01 (Datengenerator weiter angepasst: 52-Wochen-Zeitreihe mit variabler Bestellanzahl, generatorseitige Event-Zeitstempel, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen und Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty`. Dokumentation in README, PROJEKTANLEITUNG, Metadata-/Klassifikations-/Neo4j-Doku nachgezogen. Voller `shared/`-Refresh + ETL/Verify steht nach Abschluss aller Generatoränderungen aus.)
 
 ---
 
@@ -31,7 +31,7 @@ und getestet.
 | `docs/06_data_quality.md` | 6 DQ-Dimensionen, 34 Regeln (28 ursprünglich + 6 ergänzt: PQ-4.10, AQ-5.0×4, KQ-6.3, KQ-6.4); VQ-05 + KQ-04 ergänzt; AQ-01 auf korrekte Logik (kein order_id-FK) korrigiert; DQ-Dashboard aktualisiert | abgabefähig |
 | `docs/07_dwh_model.md` | Sternschema-Doku: 7 Dim + Faktentabelle + ETL-Übergänge + 3 analytische Views + PowerBI-Abschnitt + Prüfqueries; `on_time_flag` dokumentiert | abgabefähig |
 | `docs/08_mongodb_event_model.md` | 4 Collections; Lifecycle-Modell für shipment_events; TTL-Index (90 Tage); korrekter node_events-Index (batch+node unique); vollständige Knotenobjekte in batch_tracking; Prüfqueries | abgabefähig |
-| `docs/09_redis_realtime_model.md` | Key-Taxonomie vollständig (7 Abschnitte); TTL-Übersicht; ERP+TMS-Events; ETL-Nachweis mit Prüfabfragen; Datentyp-Begründung; Abgrenzungstabelle | abgabefähig |
+| `docs/09_redis_realtime_model.md` | Key-Taxonomie vollständig (Abschnitte inkl. 3.6 SET `active_shipments`, 3.7 SORTED SET `live_etas`, 3.8 Begründung warehouse_queue weggelassen); TTL-Übersicht; ERP+TMS-Events; ETL-Nachweis mit Prüfabfragen; Datentyp-Begründung (inkl. SET); Abgrenzungstabelle | abgabefähig |
 | `docs/10_neo4j_graph_model.md` | 8 Node-Typen, 13 Relationship-Typen, 8 Cypher-Abfragen; Produkt-Lieferanten-Tabelle; Neo4j-vs-SQL-Vergleich | abgabefähig |
 | `docs/11_minio_document_model.md` | 4 Buckets, Referenzierungsmuster PostgreSQL <-> MinIO; Bucket Versioning (Kap. 6); Zwei-Phasen-Ansatz (Kap. 7); 6 Prüfqueries (Kap. 8) | abgabefähig |
 | `docs/12_etl_concept.md` | ETL-Konzept mit Mapping-Tabelle für alle 13 Eventtypen; Feld-Ebene-Mapping ergänzt (6 Tabellen); Load-Reihenfolge bereinigt; Idempotenz-Abschnitt auf MongoDB/Redis/Neo4j ausgeweitet; ETL-Nachweis mit Prüfqueries hinzugefügt; **Bug-Fix 2026-05-15:** Phase-2-SQL-Beispiel korrigiert (JOIN auf erp.batches.order_id entfernt, der nicht existiert); BatchHarvested-Mapping-Eintrag korrigiert; ETL-Nachweis-Zahlen auf 60 korrigiert | abgabefähig |
@@ -56,27 +56,27 @@ und getestet.
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `bananasupplychain/etl_load.py` | ETL-Hauptskript: 385 Events -> PostgreSQL, MongoDB, Redis, Neo4j (kein MinIO); Bug-Fix: node_processings.sku behält WMS-Format (BAN_108, nicht normalisiert); Bug-Fix Neo4j: product_code auf Batch-Node gesetzt, TRANSPORTED_VIA-Relationship in TransportStarted-Handler ergänzt → DeliveryCompleted kann jetzt DELIVERED_TO-Kante anlegen | erstellt |
-| `bananasupplychain/verify_all_systems.py` | Technische Nachweise MongoDB/Redis/Neo4j/MinIO: Collection-Counts, Index-Prüfung, TTL-Prüfung, Key-Typen, Node/Rel-Counts, 6-Hop-Pfad, Bucket-Prüfung, Metadaten-Check; PASS/FAIL-Ausgabe | erstellt |
+| `bananasupplychain/etl_load.py` | ETL-Hauptskript: 395 Events -> PostgreSQL, MongoDB, Redis, Neo4j (kein MinIO); Bug-Fix: node_processings.sku behält WMS-Format (BAN_108, nicht normalisiert); Bug-Fix Neo4j: product_code auf Batch-Node gesetzt, TRANSPORTED_VIA-Relationship in TransportStarted-Handler ergänzt → DeliveryCompleted kann jetzt DELIVERED_TO-Kante anlegen; **2026-06-30:** Redis-Strukturen aus Kapitel 5 Folie 7 ergänzt: SET `active_shipments` (SADD/SREM/DELETE) zeigt WELCHE Sendungen aktiv sind; SORTED SET `live_etas` (ZADD/ZREM/DELETE) sortiert aktive Sendungen nach geschätzter Ankunft (`estimated_arrival` aus dem Event, keine Berechnung). `warehouse_queue` bewusst nicht modelliert (NodeProcessed nur `COMPLETED` → keine Queue-Semantik in den Daten). **Noch nicht gegen laufende Container getestet.** | erstellt |
+| `bananasupplychain/verify_all_systems.py` | Technische Nachweise MongoDB/Redis/Neo4j/MinIO: Collection-Counts, Index-Prüfung, TTL-Prüfung, Key-Typen, Node/Rel-Counts, 6-Hop-Pfad, Bucket-Prüfung, Metadaten-Check; PASS/FAIL-Ausgabe; **2026-06-30:** Konsistenz-Checks ergänzt – `active_shipments` (SET + SCARD == Zähler) und `live_etas` (ZSET + ZCARD == SCARD active_shipments) | erstellt |
 | `bananasupplychain/etl_dwh.py` | ETL Phase 2: Operative Schemas -> DWH-Sternschema (6 Dimensionen + fact_fulfillment); `on_time_flag` berechnet und geladen; **Bug-Fix 2026-05-15:** Grain auf Endlieferungen korrigiert (INNER JOIN tms.deliveries), fact_fulfillment 10 Zeilen statt 60 – Umsatz-Inflation behoben | abgabefähig |
-| `bananasupplychain/generate_documents.py` | MinIO-Dokumentengenerator (einziger MinIO-Einstiegspunkt): alle 4 Buckets; erwartete Ausgabe: 60+8+10+10+10 = 98 PostgreSQL-Referenzen | erstellt |
-| `bananasupplychain/test_data_generator.py` | Datengenerator für ERP/WMS/TMS-JSON-Events | getestet |
+| `bananasupplychain/generate_documents.py` | MinIO-Dokumentengenerator (einziger MinIO-Einstiegspunkt): alle 4 Buckets; erwartete Ausgabe: 60+7+10+10+10 = 97 PostgreSQL-Referenzen | erstellt |
+| `bananasupplychain/test_data_generator.py` | Datengenerator für ERP/WMS/TMS-JSON-Events. **[ANPASSUNG 2026-06-30/2026-07-01]** 52-Wochen-Zeitreihe mit variabler Bestellanzahl, generatorseitige Event-Zeitstempel, Kühlkette mit Brüchen (`COLD_CHAIN_BREAK_RATE=0.15`), `random.seed(42)` für stabile Werteverteilungen und Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty`. Syntaxcheck OK; voller `shared/`-Refresh + ETL/Verify steht aus. | in Bearbeitung |
 | `bananasupplychain/container/docker-compose.yml` | Docker-Setup: PostgreSQL, MongoDB, Redis, Neo4j, MinIO | getestet |
 
 ### Cypher (`cypher/`)
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `cypher/01_create_graph_model.cypher` | Constraints + 4 Indizes; 8 Node-Typen, 13 Relationships; vollständige SUPPLIES-Kanten für alle 10 Produkte (aus ProductCreated-Events); Beispiel-Batch (BATCH-9c6818ad-…) mit 7 PROCESSED_AT-Knoten (6-Hop-Pfad); 8 Beispielabfragen; Nachweis-Queries | abgabefähig |
+| `cypher/01_create_graph_model.cypher` | Constraints + 4 Indizes; 8 Node-Typen, 13 Relationships; vollständige SUPPLIES-Kanten für alle 10 Produkte (aus ProductCreated-Events); Beispiel-Batch (BATCH-fc6d22f2-…) mit 7 PROCESSED_AT-Knoten (6-Hop-Pfad); 8 Beispielabfragen; Nachweis-Queries | abgabefähig |
 | `cypher/02_verification_queries.cypher` | Aktive (nicht auskommentierte) Verifikationsqueries: Node/Rel-Counts je Typ, Constraints/Indizes prüfen, 6-Hop-Pfad, Fulfillment-Kette, Kühlketten-Monitoring, Integritätsprüfungen | erstellt |
 
 ### Generierte Daten (`shared/`)
 
 | Ordner | Dateien | Status |
 |---|---|---|
-| `shared/erp/` | 50 JSON-Events – rohe utcnow()-Timestamps (2026-06-04) | getestet |
-| `shared/wms/` | 70 JSON-Events – rohe utcnow()-Timestamps (2026-06-04) | getestet |
-| `shared/tms/` | 274 JSON-Events – rohe utcnow()-Timestamps (2026-06-04) | getestet |
+| `shared/erp/` | aktuell alter Bestand: 50 JSON-Events; nach Generator-Refresh erwartet: ca. 560 | Refresh ausstehend |
+| `shared/wms/` | aktuell alter Bestand: 70 JSON-Events; nach Generator-Refresh erwartet: ca. 1.600 | Refresh ausstehend |
+| `shared/tms/` | aktuell alter Bestand: 275 JSON-Events; nach Generator-Refresh erwartet: ca. 6.650 | Refresh ausstehend |
 
 ### Analytics (`analytics/`)
 
@@ -115,6 +115,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | Artefakt | Hinweis |
 |---|---|
 | Neo4j ETL aus TMS-Daten | Stammdaten + Shipments/Deliveries geladen; volle Fulfillment-Routen-Pfade nicht automatisch importiert |
+| Generator-Änderungen (2026-06-30/2026-07-01) | Code + Syntaxcheck OK; **voller `shared/`-Refresh, ETL-Re-Run, Verifikation (DQ/Redis/Mongo/Neo4j/MinIO) und Doku-Zahlen-Refresh stehen aus** (Batch-Plan: am Ende aller Generator-Änderungen). Erwartung: Temperaturausreißer-KPIs bekommen Daten; Produktkategorie wird im DWH/Power BI als Segmentdimension (`Standard`, `Sustainable`, `Premium`, `Specialty`) nutzbar. |
 
 ---
 
@@ -167,6 +168,7 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | F-9 | `etl_dwh.py` Grain-Fehler: LEFT JOIN auf tms.deliveries ergab 60 Fact-Zeilen (6 Hops × 10 Iterationen); `SUM(total_value)` war 6-fach inflationiert; alle Revenue-KPIs in `v_kpi_summary` und `v_carrier_performance` falsch | `bananasupplychain/etl_dwh.py`, `sql/07_create_dwh_schema.sql`, `docs/07_dwh_model.md` | **behoben 2026-05-15** (INNER JOIN auf tms.deliveries; Grain = 10 Endlieferungen; Grain-Doku aktualisiert) |
 | F-10 | `sql/09_verification_queries.sql` referenzierte `date_actual` – Spalte heißt `full_date` in `dwh.dim_date` → SQL-Fehler bei Ausführung | `sql/09_verification_queries.sql` | **behoben 2026-05-21** (Spaltenname korrigiert) |
 | F-11 | `docs/00_part1_checklist.md` Zeilen 200+211: `batch_tracking (60)` falsch – ETL lädt 1 Dokument pro Batch (10 Batches = 10 Dokumente) | `docs/00_part1_checklist.md` | **behoben 2026-05-21** (beide Stellen auf 10 korrigiert) |
+| F-12 | Neo4j SUPPLIES: hartcodierte Lieferanten-Zuordnung in cypher/01 wich nach Daten-Neugenerierung (2026-06-04) vom ETL/ERP-Mapping ab → 8 Produkte mit 2 widersprüchlichen Lieferanten (18 statt 10 Kanten); verify verdeckte es (nur Orphan-Check) | `cypher/01_create_graph_model.cypher`, `docs/10_neo4j_graph_model.md`, `bananasupplychain/verify_all_systems.py` | **behoben 2026-06-13** (cypher/01 + docs/10 §5 ans ERP-Mapping angeglichen; verify prüft jetzt „genau 1 Lieferant je Produkt"; Live-Graph repariert; ETL+cypher reproduzierbar 10 Kanten) |
 
 ---
 
@@ -177,9 +179,10 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 | R-1 | ~~Risiko~~ | ETL Phase 2 (DWH) getestet; Grain-Fix 2026-05-15 → 10 Facts (Endlieferungen), idempotent – **erledigt** |
 | R-2 | Risiko | PowerBI benoetigt laufende PostgreSQL-Verbindung – Verbindungsparameter muessen vor Abgabe geprueft werden |
 | R-3 | Annahme | [ANNAHME] Docker-Container laufen bei der Abgabe auf dem lokalen Rechner – kein Cloud-Deployment geplant |
-| R-4 | Annahme | [ANNAHME] TMS-Daten enthalten genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell 10 Iterationen) |
+| R-4 | Annahme | [ANNAHME] TMS-Daten enthalten nach Generator-Refresh genuegend Zeitreihenpunkte fuer eine sinnvolle Prognose (aktuell im Code: 52 Wochen mit variabler Bestellanzahl; alter `shared/`-Bestand noch nicht refreshed) |
 | R-5 | **erledigt 2026-06-04** | shared/ wurde neu generiert (rohe utcnow()-Timestamps). Die Zeitverteilung (Jan–März 2026) wird ausschließlich durch `_apply_ts_offset()` in `etl_load.py` erzeugt – deterministisch, prozesslogisch begründet, kein Patch auf Quelldaten. Quelldaten und ETL-Logik sind klar getrennt (Option A). |
 | R-6 | **erledigt 2026-06-09** | `verify_all_systems.py` führt die zwei kurzlebigen Redis-Keys `shipment:position:*` und `cache:product:*` (je 1 h TTL, `etl_load.py` expire 3600) als **WARN [TTL-abhängig]** statt FAIL – ein regulär abgelaufener Cache erzeugt keinen Fehlalarm mehr, der Lauf bleibt grün (kein stilles PASS bei 0). Persistente Keys (`shipment:status:*`, `order:status:*`, `shipment:route:*`) lösen weiterhin hart FAIL aus. Verify ist damit zeitunabhängig aussagekräftig. |
+| R-7 | Richtlinie | **2026-06-30/2026-07-01:** Datengenerator `test_data_generator.py` ist **anpassbar**. Jede Generator-Änderung muss in **allen drei** Dateien dokumentiert werden – `PROJECT_STATUS.md`, `README.md`, `PROJEKTANLEITUNG.md` – und erfordert anschließend `shared/`-Neugenerierung + vollständigen ETL-Lauf, da `shared/` alle fünf Zielsysteme speist. Aktuelle Änderungen sind dokumentiert; Refresh/Verify steht aus. |
 
 ---
 

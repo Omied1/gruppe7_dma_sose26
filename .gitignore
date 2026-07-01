@@ -5,6 +5,11 @@ __pycache__/
 claude-code-tips/
 .vscode/
 
+# Editor-/Office-Temporaerdateien (Vim-Swaps, LibreOffice-Locks)
+*.swp
+*.swo
+.~lock.*#
+
 # Simulator-Output (generierte JSON-Dateien)
 shared/
 bananasupplychain/shared/

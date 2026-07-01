@@ -31,7 +31,7 @@ Die Banana Supply Chain ist ein **Netzwerk** aus Akteuren (Lieferanten, Kunden, 
 |---|---|---|---|
 | `Supplier` | erp.suppliers | supplier_code, supplier_name, country | `SUP-103, Tropical Banana Group, Ghana` |
 | `Customer` | erp.customers | customer_number, customer_name, city, country | `CUST-101, ALDI, Frankfurt, Germany` |
-| `Product` | erp.products | product_code, product_name, category | `BAN-101, Cavendish Banana, Fresh Fruit` |
+| `Product` | erp.products | product_code, product_name, category | `BAN-101, Cavendish Banana, Standard` |
 | `Carrier` | tms.carriers | carrier_code, carrier_name | `CAR-101, DHL` |
 | `SupplyChainNode` | wms.supply_chain_nodes | node_code, node_name, node_type, region, sequence_order | `AFRICA_COLD_STORAGE, Cold Storage Accra, COLD_STORAGE, Africa, 4` |
 | `Order` | erp.orders | order_reference, delivery_priority, order_date | `ORD-DEMO-001, NORMAL, 2026-05-12` |
@@ -151,15 +151,15 @@ Aus den ERP `ProductCreated`-Events abgeleitete `SUPPLIES`-Beziehungen:
 | Produkt | Name | Lieferant |
 |---|---|---|
 | BAN-101 | Cavendish Banana | SUP-103 (Tropical Banana Group) |
-| BAN-102 | Organic Banana | SUP-106 (Premium Banana Farms) |
-| BAN-103 | Premium Banana | SUP-102 (Fresh Banana Export) |
+| BAN-102 | Organic Banana | SUP-110 (Global Banana Source) |
+| BAN-103 | Premium Banana | SUP-101 (Golden Banana Ltd) |
 | BAN-104 | Baby Banana | SUP-108 (Sunshine Produce) |
-| BAN-105 | Fairtrade Banana | SUP-108 (Sunshine Produce) |
-| BAN-106 | Export Banana | SUP-109 (Eco Banana Trading) |
-| BAN-107 | Sweet Banana | SUP-107 (Green Harvest Export) |
-| BAN-108 | Green Banana | SUP-106 (Premium Banana Farms) |
-| BAN-109 | Yellow Banana | SUP-104 (Banana Kingdom) |
-| BAN-110 | Tropical Banana | SUP-101 (Golden Banana Ltd) |
+| BAN-105 | Fairtrade Banana | SUP-104 (Banana Kingdom) |
+| BAN-106 | Export Banana | SUP-107 (Green Harvest Export) |
+| BAN-107 | Sweet Banana | SUP-102 (Fresh Banana Export) |
+| BAN-108 | Green Banana | SUP-108 (Sunshine Produce) |
+| BAN-109 | Yellow Banana | SUP-105 (West Africa Fruits) |
+| BAN-110 | Tropical Banana | SUP-104 (Banana Kingdom) |
 
 ---
 

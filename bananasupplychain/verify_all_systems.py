@@ -163,6 +163,25 @@ def verify_redis():
         ktype_tl = r.type(key)
         check("Redis", f"{key} ist LIST", ktype_tl, "list", "eq")
 
+    # active_shipments (SET, Folie-7-Struktur): zeigt WELCHE Sendungen aktiv sind.
+    # 'none' ist gültig, falls alle Sendungen bereits zugestellt wurden (SET dann leer/gelöscht).
+    as_type = r.type("active_shipments")
+    check("Redis", "active_shipments ist SET", as_type, ["set", "none"], "in")
+
+    # Konsistenz: SET-Größe muss dem Zähler entsprechen – beide werden an denselben
+    # TMS-Events (TransportStarted/DeliveryCompleted) gepflegt.
+    scard   = r.scard("active_shipments")
+    counter = int(r.get("system:counter:active_shipments") or 0)
+    check("Redis", "active_shipments SCARD == Counter (Konsistenz)", scard, counter, "eq")
+
+    # live_etas (SORTED SET, Folie-7-Struktur): aktive Sendungen nach geschätzter Ankunft (ETA).
+    le_type = r.type("live_etas")
+    check("Redis", "live_etas ist ZSET", le_type, ["zset", "none"], "in")
+
+    # Konsistenz: live_etas und active_shipments bilden dieselbe Menge aktiver Sendungen ab.
+    zcard = r.zcard("live_etas")
+    check("Redis", "live_etas ZCARD == active_shipments SCARD", zcard, scard, "eq")
+
 
 # =============================================================================
 # Neo4j
@@ -204,14 +223,18 @@ def verify_neo4j():
         hops = row["hops"] if row else 0
         check("Neo4j", "Kürzester Pfad PLANTATION→RETAIL (Hops)", hops, 6, "eq")
 
-        # Alle Produkte haben einen Lieferanten (SUPPLIES)
-        orphan_result = s.run("""
+        # Jedes Produkt muss GENAU einen Lieferanten haben.
+        # Fängt n=0 (Orphan) UND n>1 (widersprüchliche Mehrfachzuordnung, z. B. ETL-Mapping
+        # vs. veraltetes hartcodiertes cypher/01) – Letzteres würde ein reiner Orphan-Check verdecken.
+        supplier_result = s.run("""
             MATCH (p:Product)
-            WHERE NOT EXISTS { MATCH (:Supplier)-[:SUPPLIES]->(p) }
+            OPTIONAL MATCH (sup:Supplier)-[:SUPPLIES]->(p)
+            WITH p, COUNT(DISTINCT sup) AS n
+            WHERE n <> 1
             RETURN COUNT(p) AS cnt
         """)
-        orphans = orphan_result.single()["cnt"]
-        check("Neo4j", "Produkte ohne SUPPLIES-Beziehung (Soll: 0)", orphans, 0, "eq")
+        bad_supplier = supplier_result.single()["cnt"]
+        check("Neo4j", "Produkte ohne genau 1 Lieferanten (Soll: 0)", bad_supplier, 0, "eq")
 
         # Demo-Batch: alle 7 Stationen PROCESSED_AT
         batch_result = s.run("""

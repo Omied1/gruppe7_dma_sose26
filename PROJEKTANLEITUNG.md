@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26 – TH Lübeck  
 **Gruppe:** 7  
-**Deadline:** 01.07.2026  
+**Deadline:** 06.07.2026  
 **Dieses Dokument erklärt:** Was jede Datei tut, wie alle Teile zusammenhängen und in welcher Reihenfolge alles ausgeführt wird.
 
 ---
@@ -97,7 +97,7 @@ gruppe7_dma_sose26/
 ├── bananasupplychain/            ← Python-Skripte + Docker
 │   ├── container/
 │   │   └── docker-compose.yml   ← 5 Datenbank-Services + Cleanup-Job
-│   ├── test_data_generator.py   ← Erzeugt JSON-Events in shared/ (NICHT VERÄNDERN)
+│   ├── test_data_generator.py   ← Erzeugt JSON-Events in shared/ (anpassbar – Änderungen dokumentieren)
 │   ├── etl_load.py              ← ETL Phase 1: JSON → PostgreSQL/MongoDB/Redis/Neo4j
 │   ├── etl_dwh.py               ← ETL Phase 2: PostgreSQL-Schemas → DWH-Sternschema
 │   ├── generate_documents.py    ← Erzeugt PDFs und lädt in MinIO hoch
@@ -172,9 +172,9 @@ Alle 6 Container müssen den Status `Up` haben.
 
 ### Datei: `bananasupplychain/test_data_generator.py`
 
-> **WICHTIG: Diese Datei darf nicht verändert werden.** Sie ist die offizielle Datenbasis des Projekts.
+> **WICHTIG:** Diese Datei ist anpassbar, jede Änderung muss aber in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Danach `shared/` neu generieren und den vollständigen ETL-Lauf wiederholen.
 
-Der Generator erzeugt **10 operative Iterationen** der gesamten Supply Chain und schreibt die Ergebnisse als JSON-Dateien in `shared/erp/`, `shared/wms/`, `shared/tms/`.
+Der Generator erzeugt eine **52-Wochen-Zeitreihe** mit variabler Anzahl Bestellungen pro Woche und schreibt die Ergebnisse als JSON-Dateien in `shared/erp/`, `shared/wms/`, `shared/tms/`. Produktkategorien werden als analytische Segmente erzeugt: `Standard`, `Sustainable`, `Premium`, `Specialty`.
 
 **Ausführung (immer aus dem Repo-Root!):**
 ```bash
@@ -185,9 +185,9 @@ python3 bananasupplychain/test_data_generator.py
 
 | Ordner | Anzahl | Eventtypen |
 |--------|--------|------------|
-| `shared/erp/` | 50 | SupplierCreated, CustomerCreated, ProductCreated, OrderCreated, BatchHarvested |
-| `shared/wms/` | 70 | WarehouseSKUCreated, NodeProcessed |
-| `shared/tms/` | 265 | CarrierCreated, TransportProductReferenceCreated, ShipmentStarted, ShipmentPositionUpdated, TransportCompleted, DeliveryCompleted |
+| `shared/erp/` | ca. 560 | SupplierCreated, CustomerCreated, ProductCreated, OrderCreated, BatchHarvested |
+| `shared/wms/` | ca. 1.600 | WarehouseSKUCreated, NodeProcessed |
+| `shared/tms/` | ca. 6.650 | CarrierCreated, TransportProductReferenceCreated, TransportStarted, ShipmentPositionUpdated, TransportCompleted, DeliveryCompleted |
 
 **Dateinamen-Schema:**
 ```
@@ -343,7 +343,7 @@ Das DWH-Schema enthält das analytische Sternschema für Teil 2.
 | `dwh.dim_date` | Date Spine 2025-01-01 bis 2027-12-31 (1095 Zeilen) | SQL-Generierung |
 | `dwh.dim_customer` | Kunde mit Typ und Herkunftsland | `erp.customers` |
 | `dwh.dim_supplier` | Lieferant mit Land | `erp.suppliers` |
-| `dwh.dim_product` | Produkt mit Kategorie und Einheit | `erp.products` |
+| `dwh.dim_product` | Produkt mit Kategorie (`Standard`, `Sustainable`, `Premium`, `Specialty`) und Lieferantenattributen | `erp.products` |
 | `dwh.dim_carrier` | Transportunternehmen mit Typ | `tms.carriers` |
 | `dwh.dim_route` | Transportrouten (Plantage → Retail) | ETL-Ableitung |
 | `dwh.dim_supply_chain_node` | Die 6 Stationen | `wms.supply_chain_nodes` |
@@ -556,9 +556,9 @@ python3 bananasupplychain/verify_all_systems.py
 
 ---
 
-### `test_data_generator.py` – Datengenerator (READ ONLY)
+### `test_data_generator.py` – Datengenerator (anpassbar, mit Dokumentationspflicht)
 
-Erzeugt die JSON-Quelldaten. **Nicht verändern.** Wenn neue Daten benötigt werden, erst die `shared/`-Ordner leeren, dann ausführen:
+Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen und Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty`. Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
 ```bash
 rm -rf shared/erp/* shared/wms/* shared/tms/*
 python3 bananasupplychain/test_data_generator.py
@@ -686,7 +686,7 @@ python3 analytics/forecast.py
 - Prognose: 8 Wochen voraus mit Konfidenzintervall
 - Bewertungsmetriken: RMSE und MAE im Chart ausgewiesen
 
-**Hinweis R-4 aus PROJECT_STATUS.md:** Weil der Datengenerator nur 10 Iterationen erzeugt, ist die Zeitreihe sehr kurz. Die synthetische History kompensiert das, ist aber als solche gekennzeichnet.
+**Hinweis R-4 aus PROJECT_STATUS.md:** Der Datengenerator erzeugt inzwischen eine 52-Wochen-Zeitreihe mit mehreren Bestellungen pro Woche. Ältere Analytics-Hilfsdaten bzw. synthetische Historien sind nach einem Generator-Refresh zu prüfen und ggf. zu ersetzen.
 
 ---
 
@@ -922,9 +922,9 @@ python3 bananasupplychain/test_data_generator.py
 
 **Prüfen:**
 ```bash
-ls shared/erp/ | wc -l    # 50
-ls shared/wms/ | wc -l    # 70
-ls shared/tms/ | wc -l    # 265
+ls shared/erp/ | wc -l    # ca. 560
+ls shared/wms/ | wc -l    # ca. 1.600
+ls shared/tms/ | wc -l    # ca. 6.650
 ```
 
 ---

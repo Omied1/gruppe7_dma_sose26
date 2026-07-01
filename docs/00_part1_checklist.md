@@ -1,7 +1,7 @@
 # Checkliste Teil 1: Datenmanagement
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
-**Deadline:** 01.07.2026  
+**Deadline:** 06.07.2026  
 **Stand:** 2026-05-12 (ETL getestet: 2026-05-12)
 
 **Legende:** ✅ Erfüllt | ⚠️ Teilweise erfüllt | ❌ Offen
@@ -17,7 +17,7 @@
 | I-1 | Gruppe gebildet und Projektsrepo eingerichtet | ✅ Erfüllt | GitLab-Repo: `gruppe7_dma_sose26` |
 | I-2 | Vorgegebene Folderstruktur hochgeladen | ✅ Erfüllt | `bananasupplychain/`, `databasemodels_logistics_playground/` |
 | I-3 | Docker Container startbar | ✅ Erfüllt | `bananasupplychain/container/docker-compose.yml` (5 Services: PostgreSQL, MongoDB, Redis, Neo4j, MinIO) |
-| I-4 | Datengenerator ausgeführt | ✅ Erfüllt | `shared/erp/` (50), `shared/wms/` (70), `shared/tms/` (275) JSON-Dateien erzeugt (10 operative Iterationen) |
+| I-4 | Datengenerator ausgeführt | ⏳ Refresh ausstehend | Alter `shared/`-Bestand: `erp` (50), `wms` (70), `tms` (275). Neuer Generatorstand erwartet ca. 560 / 1.600 / 6.650 JSON-Dateien. |
 
 ---
 
@@ -215,7 +215,7 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 
 ---
 
-## Offene Punkte (für Abgabe bis 01.07.2026)
+## Offene Punkte (für Abgabe bis 06.07.2026)
 
 | Punkt | Beschreibung | Priorität |
 |---|---|---|

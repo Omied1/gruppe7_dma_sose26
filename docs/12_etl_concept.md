@@ -456,9 +456,9 @@ se.update_one(
 
 ---
 
-## 7. ETL-Nachweis (aktualisiert 2026-06-01, Datenstand: 395 Events, 10 Iterationen)
+## 7. ETL-Nachweis (Referenzbestand vor Generator-Refresh)
 
-Erwartetes ETL-Ergebnis auf Basis des aktuellen Datenbestands (395 JSON-Events, 10 operative Iterationen + Stammdaten).
+Erwartetes ETL-Ergebnis auf Basis des zuletzt vollständig geladenen Referenzdatenbestands (395 JSON-Events). Nach den Generatoränderungen vom 2026-06-30/2026-07-01 müssen `shared/` neu generiert und dieser Nachweis erneut aktualisiert werden.
 
 | System | Ziel-Tabelle / Collection | Geladene Datensätze |
 |---|---|---|

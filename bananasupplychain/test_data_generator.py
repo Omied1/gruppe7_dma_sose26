@@ -4,6 +4,7 @@ import uuid
 import os
 
 from datetime import datetime, timedelta
+import math
 
 
 # ============================================================
@@ -99,12 +100,18 @@ def future_timestamp(hours=24):
     ).isoformat()
 
 
-def random_temperature():
+# [ANPASSUNG 2026-06-30] Kühlkette mit Brüchen: ~15 % der Messungen außerhalb 10-15 °C
+# (~70 % zu warm = Reifung/Verderb, ~30 % zu kalt = Kälteschaden); zuvor konstant 10-15 °C.
+COLD_CHAIN_BREAK_RATE = 0.15
+COLD_CHAIN_WARM_SHARE = 0.70
 
-    return round(
-        random.uniform(10.0, 15.0),
-        2
-    )
+
+def random_temperature():
+    if random.random() < COLD_CHAIN_BREAK_RATE:          # Kühlkettenbruch
+        if random.random() < COLD_CHAIN_WARM_SHARE:
+            return round(random.uniform(15.5, 24.0), 2)  # zu warm
+        return round(random.uniform(2.0, 9.5), 2)        # zu kalt
+    return round(random.uniform(10.0, 15.0), 2)          # intakt
 
 
 def normalize(value):
@@ -439,12 +446,126 @@ def build_filename(
     )
 
 
+# ── [ANPASSUNG 2026-07-01] Echte Event-Zeitstempel direkt im Generator ─────────
+# Zuvor: Generator stempelte utcnow(), die ETL verteilte nachträglich (_apply_ts_offset).
+# Jetzt: die Quelle (shared/) enthält echte Zeiten. Woche N -> _ITER_BASE + (N-1)*7 Tage;
+# pro Bestellung zusätzlich ein Tages-Offset (über die Woche gestreut). Reproduzierbar
+# über random.seed(42). Stammdaten (iteration 0) -> Start der Zeitachse.
+_ITER_BASE = datetime(2025, 6, 16, 6, 0, 0)   # [ANPASSUNG 2026-07-01] Anker so gesetzt, dass die 52-Wochen-Historie ~heute endet (alle Daten <= heute, kein Zukunftsdatum); Span ~Jun 2025 -> Jun 2026
+
+_ROUTE_START_DAYS = {
+    "banana_plantation_to_collection_center":      (0.58, 0.75),
+    "collection_center_to_quality_control":        (1.33, 1.67),
+    "quality_control_to_africa_cold_storage":      (2.50, 3.00),
+    "africa_cold_storage_to_europe_cold_storage":  (4.25, 5.00),
+    "europe_cold_storage_to_central_warehouse":    (11.33, 12.00),
+    "central_warehouse_to_retail_store":           (13.42, 14.00),
+}
+
+_ROUTE_TRAVEL_DAYS = {
+    "banana_plantation_to_collection_center":      1.0,
+    "collection_center_to_quality_control":        0.75,
+    "quality_control_to_africa_cold_storage":      1.25,
+    "africa_cold_storage_to_europe_cold_storage":  6.0,
+    "europe_cold_storage_to_central_warehouse":    1.5,
+    "central_warehouse_to_retail_store":           0.75,
+}
+
+_NODE_ARRIVAL_DAYS = {
+    "banana_plantation":    (0.00, 0.25),
+    "collection_center":    (1.00, 1.33),
+    "quality_control":      (2.00, 2.50),
+    "africa_cold_storage":  (3.25, 4.00),
+    "europe_cold_storage":  (10.33, 11.00),
+    "central_warehouse":    (12.50, 13.00),
+    "retail_store":         (14.50, 15.00),
+}
+
+
+def _find_route(filename):
+    lower = filename.lower()
+    for route in _ROUTE_START_DAYS:
+        if route in lower:
+            return route
+    return None
+
+
+def _find_node(filename):
+    lower = filename.lower()
+    for node in _NODE_ARRIVAL_DAYS:
+        if f"_node_{node}_" in lower or node in lower:
+            return node
+    return None
+
+
+def _assign_timestamp(event, iteration, filename, day_offset=0.0):
+    # Setzt event["timestamp"] auf die echte Supply-Chain-Zeit (Woche + Routen-/Knoten-Offset).
+    if iteration <= 0:
+        base = _ITER_BASE                                      # Stammdaten: Start der Zeitachse
+    else:
+        base = _ITER_BASE + timedelta(days=(iteration - 1) * 7 + day_offset)
+    et = event.get("event_type", "")
+
+    if et in ("SupplierCreated", "CustomerCreated", "ProductCreated",
+              "WarehouseSKUCreated", "CarrierCreated", "TransportProductReferenceCreated"):
+        event["timestamp"] = (base + timedelta(minutes=random.randint(0, 180))).isoformat()
+
+    elif et == "OrderCreated":
+        event["timestamp"] = (base + timedelta(hours=random.uniform(7, 10))).isoformat()
+
+    elif et == "BatchHarvested":
+        event["timestamp"] = (base + timedelta(hours=random.uniform(10, 15))).isoformat()
+
+    elif et == "TransportStarted":
+        route = _find_route(filename)
+        if not route:
+            src = event.get("source_node", "").lower().replace(" ", "_")
+            tgt = event.get("target_node", "").lower().replace(" ", "_")
+            route = f"{src}_to_{tgt}"
+        start_days = random.uniform(*_ROUTE_START_DAYS.get(route, (0.5, 1.0)))
+        ts = base + timedelta(days=start_days, minutes=random.randint(0, 90))
+        event["timestamp"] = ts.isoformat()
+        if "estimated_arrival" in event:
+            travel = _ROUTE_TRAVEL_DAYS.get(route, 2.0)
+            event["estimated_arrival"] = (ts + timedelta(days=travel, hours=random.uniform(-3, 3))).isoformat()
+
+    elif et == "ShipmentPositionUpdated":
+        rd = event.get("current_route", {})
+        src = rd.get("source", "").lower().replace(" ", "_")
+        tgt = rd.get("target", "").lower().replace(" ", "_")
+        route = f"{src}_to_{tgt}"
+        day_range = _ROUTE_START_DAYS.get(route, (0.5, 1.0))
+        travel = _ROUTE_TRAVEL_DAYS.get(route, 1.0)
+        pos_day = random.uniform(day_range[0], day_range[0] + travel)
+        event["timestamp"] = (base + timedelta(days=pos_day, hours=random.uniform(0, 20))).isoformat()
+
+    elif et == "NodeProcessed":
+        node = _find_node(filename) or event.get("supply_chain_node", "").lower().replace(" ", "_")
+        days = random.uniform(*_NODE_ARRIVAL_DAYS.get(node, (1.0, 2.0)))
+        event["timestamp"] = (base + timedelta(days=days, hours=random.uniform(8, 18))).isoformat()
+
+    elif et == "TransportCompleted":
+        node = event.get("arrival_node", "").lower().replace(" ", "_")
+        days = random.uniform(*_NODE_ARRIVAL_DAYS.get(node, (2.0, 3.0)))
+        event["timestamp"] = (base + timedelta(days=days, hours=random.uniform(10, 20))).isoformat()
+
+    elif et == "DeliveryCompleted":
+        node = _find_node(filename) or event.get("supply_chain_node", "").lower().replace(" ", "_")
+        days = random.uniform(*_NODE_ARRIVAL_DAYS.get(node, (14.5, 15.5)))
+        event["timestamp"] = (base + timedelta(days=days, hours=random.uniform(8, 18))).isoformat()
+
+    return event
+
+
 def output_event(
     event,
-    iteration
+    iteration,
+    day_offset=0.0
 ):
 
     if OUTPUT_MODE == "stdout":
+
+        _assign_timestamp(event, iteration, "", day_offset)
 
         print(
             json.dumps(
@@ -465,6 +586,9 @@ def output_event(
         iteration,
         event
     )
+
+    # [ANPASSUNG 2026-07-01] echte Eventzeit direkt setzen (zuvor utcnow() + ETL _apply_ts_offset)
+    _assign_timestamp(event, iteration, filename, day_offset)
 
     filepath = os.path.join(
         folder,
@@ -611,26 +735,28 @@ class ERPService:
 
     def initialize_products(self):
 
-        product_names = [
+        # [ANPASSUNG 2026-07-01] Produktkategorien von einem generischen
+        # "Fresh Fruit" auf analytisch nutzbare Segmente erweitert.
+        product_catalog = [
 
-            "Cavendish Banana",
-            "Organic Banana",
-            "Premium Banana",
-            "Baby Banana",
-            "Fairtrade Banana",
-            "Export Banana",
-            "Sweet Banana",
-            "Green Banana",
-            "Yellow Banana",
-            "Tropical Banana"
+            ("Cavendish Banana", "Standard"),
+            ("Organic Banana", "Sustainable"),
+            ("Premium Banana", "Premium"),
+            ("Baby Banana", "Specialty"),
+            ("Fairtrade Banana", "Sustainable"),
+            ("Export Banana", "Standard"),
+            ("Sweet Banana", "Standard"),
+            ("Green Banana", "Standard"),
+            ("Yellow Banana", "Standard"),
+            ("Tropical Banana", "Specialty")
         ]
 
         supplier_codes = list(
             self.suppliers.keys()
         )
 
-        for i, name in enumerate(
-            product_names,
+        for i, (name, category) in enumerate(
+            product_catalog,
             start=1
         ):
 
@@ -650,7 +776,7 @@ class ERPService:
                     name,
 
                 "category":
-                    "Fresh Fruit",
+                    category,
 
                 "supplier_reference":
                     supplier_code,
@@ -1381,6 +1507,10 @@ class BananaSupplyChainProcess:
 
 if __name__ == "__main__":
 
+    # [ANPASSUNG 2026-06-30] Fester Seed für reproduzierbare Generierung
+    # (gleiche random-Werte je Lauf: Temperatur, delay, Carrier, Mengen ...; UUIDs bleiben zufällig)
+    random.seed(42)
+
     if OUTPUT_MODE == "files":
 
         ensure_directories()
@@ -1408,23 +1538,30 @@ if __name__ == "__main__":
     # -> PERMANENT
     # ========================================================
 
-    iterations = 10
+    # [ANPASSUNG 2026-07-01] Entkopplung Zeit/Menge: WEEKS = Zeitachse (1 Woche je Schritt),
+    # Bestellungen pro Woche variabel (Trend + Jahres-Saison + Rauschen) -> echte Nachfrage-
+    # Zeitreihe für den Forecast; mehrere Orders/Woche -> Dichte fürs Clustering. Bleibt in 2026.
+    WEEKS            = 52    # Zeitspanne
+    BASE_ORDERS_WEEK = 4     # mittlere Bestellungen pro Woche
 
-    for i in range(iterations):
+    for week in range(1, WEEKS + 1):
+
+        demand   = BASE_ORDERS_WEEK + (week - 1) * 0.04 + 1.5 * math.sin(2 * math.pi * week / 52) + random.gauss(0, 1)
+        n_orders = max(1, round(demand))
 
         print("=" * 80)
-
-        print(
-            f"SUPPLY CHAIN ITERATION {i+1}"
-        )
-
+        print(f"WOCHE {week} / {WEEKS}  ->  {n_orders} Bestellung(en)")
         print("=" * 80)
 
-        events = process.run()
+        for _ in range(n_orders):
 
-        for event in events:
+            events     = process.run()
+            day_offset = random.uniform(0, 6)   # diese Bestellung irgendwann in der Woche
 
-            output_event(
-                event,
-                i + 1
-            )
+            for event in events:
+
+                output_event(
+                    event,
+                    week,
+                    day_offset
+                )

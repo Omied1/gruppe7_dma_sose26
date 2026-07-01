@@ -164,24 +164,24 @@ WITH dq AS (
             ))
 
     -- ── 5. AKTUALITÄT ─────────────────────────────────────────────────────────
-    -- Regel 5.0 aus 08_data_quality_checks.sql: Stammdaten event_timestamp ausserhalb 2026.
+    -- Regel 5.0 aus 08_data_quality_checks.sql: Stammdaten event_timestamp ausserhalb 2025-2026.
     -- 4 Unterprüfungen – eine je Tabelle mit event_timestamp-Spalte (pos 24–27).
     UNION ALL SELECT 24, 'AKTUALITÄT', '5.0',
-           'erp.suppliers', 'event_timestamp ausserhalb 2026',
+           'erp.suppliers', 'event_timestamp ausserhalb 2025-2026',
            (SELECT COUNT(*) FROM erp.suppliers
-            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+            WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
     UNION ALL SELECT 25, 'AKTUALITÄT', '5.0',
-           'erp.customers', 'event_timestamp ausserhalb 2026',
+           'erp.customers', 'event_timestamp ausserhalb 2025-2026',
            (SELECT COUNT(*) FROM erp.customers
-            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+            WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
     UNION ALL SELECT 26, 'AKTUALITÄT', '5.0',
-           'erp.products', 'event_timestamp ausserhalb 2026',
+           'erp.products', 'event_timestamp ausserhalb 2025-2026',
            (SELECT COUNT(*) FROM erp.products
-            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+            WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
     UNION ALL SELECT 27, 'AKTUALITÄT', '5.0',
-           'tms.carriers', 'event_timestamp ausserhalb 2026',
+           'tms.carriers', 'event_timestamp ausserhalb 2025-2026',
            (SELECT COUNT(*) FROM tms.carriers
-            WHERE event_timestamp < '2026-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
+            WHERE event_timestamp < '2025-01-01' OR event_timestamp > NOW() + INTERVAL '1 day')
     UNION ALL SELECT 28, 'AKTUALITÄT', '5.1',
            'tms', 'TransportCompleted vor TransportStarted',
            (SELECT COUNT(*) FROM tms.transport_completions tc
@@ -190,9 +190,9 @@ WITH dq AS (
     -- Bugfix Check 5.2: erp.batches hat KEIN order_id-Feld (BatchHarvested enthält keine Bestellreferenz).
     -- Geändert von "BatchHarvested vor OrderCreated" zu Plausibilitätsprüfung des Erntezeitpunkts.
     UNION ALL SELECT 29, 'AKTUALITÄT', '5.2',
-           'erp.batches', 'harvested_at außerhalb Projektlaufzeit (2026)',
+           'erp.batches', 'harvested_at außerhalb Projektlaufzeit (2025-2026)',
            (SELECT COUNT(*) FROM erp.batches
-            WHERE harvested_at < '2026-01-01' OR harvested_at > NOW() + INTERVAL '1 day')
+            WHERE harvested_at < '2025-01-01' OR harvested_at > NOW() + INTERVAL '1 day')
     UNION ALL SELECT 30, 'AKTUALITÄT', '5.3',
            'erp.orders', 'Order > 90 Tage ohne Delivery',
            (SELECT COUNT(*) FROM erp.orders o

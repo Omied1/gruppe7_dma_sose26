@@ -107,7 +107,7 @@ story.append(Spacer(1, 0.3*cm))
 
 meta = [
     ["Erstellt am:", str(date.today())],
-    ["Deadline:", "01.07.2026"],
+    ["Deadline:", "06.07.2026"],
     ["Modul:", "Datenmanagement und Analytics (M.Sc.), SoSe 26"],
     ["Repository:", "git.mylab.th-luebeck.de/omied.firouzian/gruppe7_dma_sose26"],
     ["Letzte Commits:", "V3 – alle Daten hochgeladen (2026-05-13)"],
@@ -342,7 +342,7 @@ story.append(Paragraph("3. Offene Punkte und Verbesserungspotenzial", h1))
 story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cccccc")))
 story.append(Spacer(1, 0.2*cm))
 
-story.append(Paragraph("3.1 Pflichtaufgaben – Teil 2: Analytics (Deadline: 01.07.2026)", h2))
+story.append(Paragraph("3.1 Pflichtaufgaben – Teil 2: Analytics (Deadline: 06.07.2026)", h2))
 story.append(Paragraph(
     "Teil 2 des Projekts ist noch vollständig offen. Folgende Aufgaben müssen bis zur Abgabe erledigt werden:",
     body
@@ -409,7 +409,7 @@ story.append(PageBreak())
 
 # ──────────────────────────────────────────────
 # 4. ZEITPLAN
-story.append(Paragraph("4. Zeitplan bis Abgabe (01.07.2026)", h1))
+story.append(Paragraph("4. Zeitplan bis Abgabe (06.07.2026)", h1))
 story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cccccc")))
 story.append(Spacer(1, 0.2*cm))
 
@@ -422,7 +422,7 @@ timeline_data = [
     ["Jun 2026 – Woche 2", "PowerBI-Dashboard aufbauen", "❌ Offen"],
     ["Jun 2026 – Woche 3", "Clusteranalyse und Prognosemodell", "❌ Offen"],
     ["Jun 2026 – Woche 4", "Abschlussbericht schreiben & finaler Commit", "❌ Offen"],
-    ["01.07.2026", "Deadline – Abgabe", "⏳ Frist"],
+    ["06.07.2026", "Deadline – Abgabe", "⏳ Frist"],
 ]
 tl = Table(timeline_data, colWidths=[4.5*cm, 8*cm, 4*cm], repeatRows=1)
 tl.setStyle(TableStyle([
