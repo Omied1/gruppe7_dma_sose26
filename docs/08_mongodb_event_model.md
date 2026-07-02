@@ -266,7 +266,7 @@ Beide Systeme **ergänzen sich**: PostgreSQL bietet relationale Integrität und 
 ```javascript
 // Nachweis: Anzahl Dokumente je Collection
 db.shipment_events.countDocuments()  // Erwartung: 60 (1 pro Shipment)
-db.node_events.countDocuments()      // Erwartung: 60 (6 Knoten × 10 Iterationen)
+db.node_events.countDocuments()      // Erwartung: 1.512 (6 Knoten × 252 Bestellungen)
 db.batch_tracking.countDocuments()   // Erwartung: 10 (1 pro Batch)
 db.order_events.countDocuments()     // Erwartung: 10 (1 pro Order)
 

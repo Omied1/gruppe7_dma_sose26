@@ -67,13 +67,19 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 >
 > **Generator anpassbar:** `test_data_generator.py` darf geändert werden. Jede Änderung muss in `PROJECT_STATUS.md`, dieser README und `PROJEKTANLEITUNG.md` dokumentiert werden; danach `shared/` neu generieren und den vollständigen ETL-Lauf wiederholen (`shared/` ist der Ursprung aller fünf Zielsysteme).
 >
-> **Aktuelle Generator-Anpassungen (Transport-Kern-Set, [ANPASSUNG 2026-07-01]):** Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist-Ankunft = Plan + carrier-spezifisches `delay_minutes`) und Verspätungsgrund (`delay_reason`). Diese Felder fließen über `etl_load.py` in `tms.shipments`/`tms.transport_completions` und über `etl_dwh.py` als Measures/Slicer in `dwh.fact_fulfillment` (für Power BI). Getestet: `verify_all_systems` 43/43, DQ-Check 6.4 → PASS, neue Checks 7.1–7.4 PASS.
+> **Aktuelle Generator-Anpassungen (Transport-Kern-Set, [ANPASSUNG 2026-07-01]):** Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist-Ankunft = Plan + carrier-spezifisches `delay_minutes`) und Verspätungsgrund (`delay_reason`). Diese Felder fließen über `etl_load.py` in `tms.shipments`/`tms.transport_completions` und über `etl_dwh.py` als Measures/Slicer in `dwh.fact_fulfillment` (für Power BI).
+>
+> **Realistische GPS-Positionen + deterministische IDs (Block 2, [ANPASSUNG 2026-07-01]):** GPS-Punkte werden zwischen den Knoten interpoliert (Ghana → Rotterdam → Deutschland → plausible Power-BI-Geokarte statt Zufallspunkten weltweit), Geschwindigkeit modusabhängig (LKW 45–90, See 25–40 km/h). UUIDs/Dateinamen stammen aus einem geseedeten RNG (`det_uuid()`) → Läufe **exakt reproduzierbar**, IDs überschreiben sich beim Re-Generieren statt zu akkumulieren. Getestet: `verify_all_systems` 43/43, DQ-Check 6.4 + 7.1–7.4 PASS, DQ 4.10 (GPS-Routenkorridore) durch die Interpolation → PASS.
+>
+> **Kunden-Segmente + Preis-nach-Kategorie ([ANPASSUNG 2026-07-01]):** Jeder Retailer hat ein festes Segment `customer_type` (DISCOUNTER: ALDI/LIDL/KAUFLAND · VOLLSORTIMENTER: REWE/EDEKA/TESCO/SPAR · PREMIUM: METRO/CARREFOUR/AUCHAN) mit eigenem Verhaltensprofil: gewichtete Bestellhäufigkeit, segment-abhängige Menge und bevorzugte Produktkategorie. Der `unit_price` hängt an der Produktkategorie (Standard < Sustainable < Specialty < Premium, alle in [1,50; 5,00] €). `customer_type` fließt bis `dwh.dim_customer` → **Clustering** (Teil 2) findet echte Segmente, **Umsatz-/Boxplot-Analysen** werden aussagekräftig. **Fix:** `etl_dwh` leert die Dimensionen jetzt vor dem Laden (sonst blieben Dim-Werte via `ON CONFLICT DO NOTHING` veraltet). Getestet: `verify_all_systems` 43/43, DQ 7.5 (Segment gültig) PASS; im DWH klar getrennte Segmente (Discounter Ø-Menge 843 vs. Premium 294).
+>
+> **Kühlkette → Qualität ([ANPASSUNG 2026-07-02]):** Aus den Knoten-Temperaturen eines Batches wird ein `quality_status` (OK = keine Brüche · REDUCED = 1–2 Brüche · REJECTED = ≥3 Brüche) und ein `spoilage_pct` (Schwund) abgeleitet → die vorhandenen Kühlkettenbrüche werden zur **belegbaren Ursache** von Qualitätsverlust. Felder liegen in `erp.batches`; die View `dwh.v_batch_quality` liefert Qualitätsrate + Ø-Schwund je Woche (KPI Batchqualitätsrate, Chart „Batchqualität über Zeit"). Getestet: Kausalität belegt (OK Ø0 Brüche, REDUCED Ø1,3, REJECTED Ø3,1), DQ 7.6/7.7 PASS.
 
 ```bash
 python3 bananasupplychain/test_data_generator.py
 ```
 
-Erwartete Ausgabe beim aktuellen Generatorstand: ca. 560 ERP- / 1.600 WMS- / 6.650 TMS-JSON-Dateien in `shared/`.
+Erwartete Ausgabe beim aktuellen Generatorstand: 534 ERP- / 1.522 WMS- / 6.300 TMS-JSON-Dateien in `shared/`.
 
 ### Schritt 4: ETL Phase 1 (ERP/WMS/TMS → alle Datenbanken)
 
@@ -115,6 +121,8 @@ python3 bananasupplychain/verify_all_systems.py
 python3 analytics/dashboard.py
 python3 analytics/clustering.py
 python3 analytics/forecast.py
+python3 analytics/descriptive_stats.py
+docker exec -i postgres psql -U user -d logistics < sql/10_kpi_queries.sql
 ```
 
 > Output-Dateien (`dashboard.pdf`, `clustering.pdf`, `forecast.pdf` etc.) werden in `analytics/` gespeichert.
@@ -125,21 +133,21 @@ python3 analytics/forecast.py
 
 | System     | Ergebnis                                                          |
 |------------|-------------------------------------------------------------------|
-| PostgreSQL | 10 Supplier, Customers, Products, Orders, Batches                 |
-|            | 60 Shipments, 112 GPS-Positionen, 10 Deliveries                   |
-|            | DWH: 10 fact_fulfillment-Zeilen, 1095 dim_date-Zeilen             |
-| MongoDB    | 60 shipment_events, 60 node_events, 10 batch_tracking, 10 order_events |
+| PostgreSQL | je 10 Supplier / Customers / Products, 252 Orders / Order-Items / Batches |
+|            | 5 Carrier, 1.512 Shipments, 3.009 GPS-Positionen, 1.512 Completions, 252 Deliveries |
+|            | DWH: 252 fact_fulfillment-Zeilen, 1.095 dim_date-Zeilen           |
+| MongoDB    | 1.512 shipment_events, 1.512 node_events, 252 batch_tracking, 252 order_events |
 | Redis      | STRING / HASH / LIST / ZSET / COUNTER + TTLs auf allen Keys       |
-| Neo4j      | 124 Nodes; Pfad PLANTATION → RETAIL in 6 Hops                   |
-| MinIO      | 97 PDFs: 60 Lieferscheine, 7 Rechnungen, 10 Bill of Lading,       |
-|            | 10 Zollfreigaben, 10 Qualitätszertifikate                         |
+| Neo4j      | 2.058 Nodes; Pfad PLANTATION → RETAIL in 6 Hops                   |
+| MinIO      | 2.444 PDFs: 1.512 Lieferscheine, 176 Rechnungen, 252 Bill of Lading, |
+|            | 252 Zollfreigaben, 252 Qualitätszertifikate                       |
 
 ---
 
 ## Projektstruktur
 
 ```
-shared/                    # ERP/WMS/TMS JSON-Quelldaten (aktuell ca. 560 + 1.600 + 6.650 Dateien)
+shared/                    # ERP/WMS/TMS JSON-Quelldaten (534 + 1.522 + 6.300 Dateien)
 sql/                       # PostgreSQL DDL (01–09)
 bananasupplychain/         # ETL-Skripte + Docker-Compose
 analytics/                 # Python Charts, Clustering, Absatzprognose
@@ -157,5 +165,8 @@ cypher/                    # Neo4j Graphmodell + Verifikationsqueries
 | `docs/02_target_architecture.md` | Systemarchitektur mit Mermaid-Diagramm |
 | `docs/07_dwh_model.md` | DWH-Sternschema, ETL-Übergänge, analytische Views |
 | `docs/12_etl_concept.md` | ETL-Konzept mit vollständiger Mapping-Tabelle (13 Eventtypen) |
-| `docs/13_data_quality_results.md` | DQ-Audit: 34 Checks, 31/34 PASS (91 %) |
+| `docs/13_data_quality_results.md` | DQ-Audit: 41 Checks, 38/41 PASS (93 %) |
+| `docs/14_analytics_kpis.md` | Teil 2: KPI-Katalog (5+ KPIs) + deskriptive Statistik + Interpretation |
+| `docs/15_powerbi_concept.md` | Teil 2: PowerBI-Konzept (Datenmodell, DAX-Measures, Report-Seiten, Slicer) |
+| `docs/16_abschlussbericht.md` | Abschlussbericht: Zusammenfassung Teil 1 + Teil 2 mit Kennzahlen-Überblick |
 | `PROJECT_STATUS.md` | Aktueller Projektstatus, offene Punkte, bekannte Fehler |

@@ -48,8 +48,8 @@ def connect():
 def fill_dim_customer(cur):
     """Kunden aus erp.customers in dwh.dim_customer kopieren."""
     cur.execute("""
-        INSERT INTO dwh.dim_customer (customer_number, customer_name, city, country, source_created_at)
-        SELECT customer_number, customer_name, city, country, event_timestamp
+        INSERT INTO dwh.dim_customer (customer_number, customer_name, customer_type, city, country, source_created_at)
+        SELECT customer_number, customer_name, customer_type, city, country, event_timestamp
         FROM   erp.customers
         ON CONFLICT (customer_number) DO NOTHING
     """)
@@ -122,17 +122,20 @@ def fill_fact_fulfillment(cur):
     """
     Befüllt fact_fulfillment aus den operativen Schemas.
 
-    Grain: 1 Endlieferung (= 1 DeliveryCompleted an RETAIL_STORE).
-    Pro Iteration eine Endlieferung → Anzahl Fact-Zeilen = Anzahl Iterationen (Standard: 10 bei 1× Generator-Run).
-    Damit sind alle Finanzkennzahlen (total_value, quantity, unit_price)
-    exakt einer Bestellung zugeordnet – kein Umsatz-Inflation durch Hops.
+    Grain: 1 Endlieferung (= 1 DeliveryCompleted an RETAIL_STORE) = 1 Fact-Zeile.
+
+    [ANPASSUNG 2026-07-02] Faithful Mapping: Shipments tragen die echte order_reference und
+    batch_identifier. Jede Endlieferung wird ihrer TATSÄCHLICHEN Bestellung/Batch zugeordnet
+    (kein "erste Order pro Produkt / order_rn=1" mehr). Dadurch entsprechen Bestelldatum,
+    Kunde, Wert, Menge, Batch und Transportkosten der realen Verteilung über die 52 Wochen.
 
     Verknüpfung:
-      Shipment JOIN deliveries (INNER) -> nur Endlieferungen
-      Shipment.cargo_product_reference == Product.product_code
-        -> findet zugehörige Order-Position (erste Order pro Produkt)
-        -> Customer, Supplier, quantity, unit_price, total_value
-      Shipment.shipment_id -> transport_completions (delay_minutes)
+      Shipment (finales Leg) JOIN deliveries (INNER) -> nur Endlieferungen
+      Shipment.order_reference == erp.orders.order_reference
+        -> echter Customer, Supplier, Produkt, quantity, unit_price, total_value, Bestelldatum
+      Shipment.batch_identifier == erp.batches.batch_identifier -> echter Batch (Ø Temperatur)
+      SUM(transport_cost/distance_km) je order_reference -> exakte Fulfillment-Kosten/-Distanz
+      transport_completions.delay_minutes -> Liefertreue (SLA 60 min) + delay_reason
 
     Idempotenz: fact_fulfillment wird vor dem Laden geleert.
     """
@@ -141,108 +144,70 @@ def fill_fact_fulfillment(cur):
 
     cur.execute("""
         WITH
-        -- Order-Positionen mit allen Kontextspalten, deterministisch ranked pro Produktcode.
-        -- DESIGN-ENTSCHEIDUNG: Jedes Produkt kann mehrere Bestellungen haben (1:N).
-        -- Das ETL bildet JEDEN Shipment auf die ERSTE (älteste) Bestellung pro Produkt ab
-        -- (order_rn = 1). Dies ist eine bewusste Vereinfachung: die Faktentabelle
-        -- modelliert den Fulfillment-Prozess (Shipment → Lieferung), nicht die Buchführung
-        -- (Bestellung → Rechnung). Konsequenz: fact_fulfillment.total_value entspricht
-        -- NICHT dem ERP-Gesamtumsatz, wenn ein Produkt mehr Shipments als Bestellungen hat.
-        -- Dokumentiert in docs/07_dwh_model.md (Bekannte Einschränkungen).
-        order_per_product AS (
-            SELECT
-                p.product_code,
-                o.order_reference,
-                o.delivery_priority,
-                TO_CHAR(o.order_timestamp, 'YYYYMMDD')::INT  AS order_date_sk,
-                c.customer_number,
-                s.supplier_code,
-                oi.quantity,
-                oi.unit_price,
-                (oi.quantity * oi.unit_price)               AS total_value,
-                ROW_NUMBER() OVER (
-                    PARTITION BY p.product_code
-                    ORDER BY o.order_timestamp, oi.item_id
-                ) AS order_rn
-            FROM  erp.order_items oi
-            JOIN  erp.orders      o  ON o.order_id    = oi.order_id
-            JOIN  erp.customers   c  ON c.customer_id = o.customer_id
-            JOIN  erp.products    p  ON p.product_id  = oi.product_id
-            JOIN  erp.suppliers   s  ON s.supplier_id = p.supplier_id
-        ),
+        -- [ANPASSUNG 2026-07-02] Faithful Mapping: Shipments tragen jetzt die echte order_reference
+        -- und batch_identifier. Jede Endlieferung wird ihrer TATSÄCHLICHEN Bestellung zugeordnet
+        -- (statt der früheren Vereinfachung "erste Bestellung je Produkt"). Dadurch spiegeln
+        -- Bestelldatum, Kunde, Wert, Menge, Batch und Kosten die reale Verteilung über die 52 Wochen.
 
-        -- Nur Endlieferungen (INNER JOIN auf tms.deliveries).
-        -- Ergibt genau 1 Zeile pro Iteration (DeliveryCompleted an RETAIL_STORE).
-        --
-        -- ETL-Transform: delivery_status wird NICHT aus dem Quellsystem übernommen,
-        -- da der Datengenerator delivery_status und delay_minutes unabhängig würfelt
-        -- (bekannte Inkonsistenz: SUCCESSFUL trotz hoher Verspätung möglich).
-        -- Stattdessen wird der Status im DWH anhand des SLA-Schwellenwerts neu abgeleitet:
-        --   delay_minutes <= 60  →  SUCCESSFUL  (innerhalb SLA)
-        --   delay_minutes >  60  →  DELAYED     (SLA überschritten)
-        shipment_enriched AS (
+        -- Endlieferung je Fulfillment (finales Leg = DeliveryCompleted am RETAIL_STORE).
+        -- delivery_status wird im DWH per SLA (<= 60 min) neu abgeleitet (Cleaning der bewussten
+        -- Roh-Inkonsistenz aus dem Generator: delivery_status wird dort unabhängig gewürfelt).
+        delivery_leg AS (
             SELECT
-                sh.shipment_id,
+                sh.order_reference,
+                sh.batch_identifier,
                 sh.shipment_identifier,
                 sh.target_node,
-                UPPER(sh.cargo_product_reference)           AS product_code,
                 ca.carrier_code,
-                -- SLA-Schwellenwert: 60 Minuten (definiert durch Projektteam)
                 CASE WHEN COALESCE(tc.delay_minutes, 0) <= 60
-                     THEN 'SUCCESSFUL'
-                     ELSE 'DELAYED'
-                END                                         AS delivery_status,
-                TO_CHAR(d.delivered_at, 'YYYYMMDD')::INT    AS delivery_date_sk,
-                COALESCE(tc.delay_minutes, 0)               AS delay_minutes,
-                tc.delay_reason                             AS delay_reason  -- [ANPASSUNG 2026-07-01] finales Leg
+                     THEN 'SUCCESSFUL' ELSE 'DELAYED' END       AS delivery_status,
+                TO_CHAR(d.delivered_at, 'YYYYMMDD')::INT        AS delivery_date_sk,
+                COALESCE(tc.delay_minutes, 0)                   AS delay_minutes,
+                tc.delay_reason                                 AS delay_reason
             FROM  tms.shipments                 sh
             JOIN  tms.deliveries                d  ON d.shipment_id  = sh.shipment_id
             LEFT JOIN tms.carriers              ca ON ca.carrier_id  = sh.carrier_id
             LEFT JOIN tms.transport_completions tc ON tc.shipment_id = sh.shipment_id
         ),
 
-        -- Durchschnittstemperatur pro Produkt über alle NodeProcessings.
-        -- Aggregation auf Produktebene reicht, weil Batches 1:N pro Produkt sind.
-        product_temperature AS (
+        -- Echte Bestellung (in diesen Daten genau 1 Position je Order) via order_reference.
+        order_facts AS (
             SELECT
+                o.order_reference,
+                o.delivery_priority,
+                TO_CHAR(o.order_timestamp, 'YYYYMMDD')::INT     AS order_date_sk,
+                c.customer_number,
+                s.supplier_code,
                 p.product_code,
+                oi.quantity,
+                oi.unit_price,
+                (oi.quantity * oi.unit_price)                   AS total_value
+            FROM  erp.orders      o
+            JOIN  erp.order_items oi ON oi.order_id    = o.order_id
+            JOIN  erp.customers   c  ON c.customer_id  = o.customer_id
+            JOIN  erp.products    p  ON p.product_id   = oi.product_id
+            JOIN  erp.suppliers   s  ON s.supplier_id  = p.supplier_id
+        ),
+
+        -- Transportkosten/-distanz je Fulfillment = Summe der 6 Legs derselben order_reference (exakt).
+        route_metrics AS (
+            SELECT
+                order_reference,
+                ROUND(SUM(transport_cost), 2) AS transport_cost,
+                ROUND(SUM(distance_km), 2)    AS distance_km
+            FROM tms.shipments
+            WHERE order_reference IS NOT NULL
+            GROUP BY order_reference
+        ),
+
+        -- Ø Temperatur je (echtem) Batch über alle NodeProcessings.
+        batch_temp AS (
+            SELECT
+                b.batch_identifier,
                 ROUND(AVG(np.temperature)::NUMERIC, 2) AS avg_temperature
             FROM  erp.batches             b
-            JOIN  erp.products            p  ON p.product_id  = b.product_id
-            LEFT JOIN wms.node_processings np
-                   ON np.batch_reference = b.batch_identifier
-            GROUP BY p.product_code
-        ),
-
-        -- 1 Batch pro Produkt für batch_identifier-Nachweis (deterministisch).
-        first_batch_per_product AS (
-            SELECT DISTINCT ON (p.product_code)
-                p.product_code,
-                b.batch_identifier
-            FROM  erp.batches  b
-            JOIN  erp.products p ON p.product_id = b.product_id
-            ORDER BY p.product_code, b.harvested_at, b.batch_id
-        ),
-
-        -- [ANPASSUNG 2026-07-01] Transportkosten/-distanz je Fulfillment (Gesamt-Route).
-        -- TMS-Shipments sind nicht an eine einzelne Bestellung gebunden -> pro Produkt den
-        -- Durchschnitt je Routen-Leg (source->target) bilden und über die 6 Legs summieren.
-        route_metrics_per_product AS (
-            SELECT
-                product_code,
-                ROUND(SUM(leg_cost), 2)     AS transport_cost,
-                ROUND(SUM(leg_distance), 2) AS distance_km
-            FROM (
-                SELECT
-                    UPPER(cargo_product_reference) AS product_code,
-                    source_node,
-                    target_node,
-                    AVG(transport_cost) AS leg_cost,
-                    AVG(distance_km)    AS leg_distance
-                FROM tms.shipments
-                GROUP BY UPPER(cargo_product_reference), source_node, target_node
-            ) legs
-            GROUP BY product_code
+            LEFT JOIN wms.node_processings np ON np.batch_reference = b.batch_identifier
+            GROUP BY b.batch_identifier
         )
 
         INSERT INTO dwh.fact_fulfillment (
@@ -260,46 +225,37 @@ def fill_fact_fulfillment(cur):
             ds.supplier_sk,
             dca.carrier_sk,
             dn.node_sk                              AS destination_node_sk,
-            op.order_date_sk,
-            se.delivery_date_sk,
+            ofa.order_date_sk,
+            dl.delivery_date_sk,
             dds.status_sk                           AS delivery_status_sk,
-            op.order_reference,
-            fb.batch_identifier,
-            se.shipment_identifier,
-            op.quantity,
-            op.unit_price,
-            op.total_value,
-            se.delay_minutes,
-            pt.avg_temperature,
+            ofa.order_reference,
+            dl.batch_identifier,
+            dl.shipment_identifier,
+            ofa.quantity,
+            ofa.unit_price,
+            ofa.total_value,
+            dl.delay_minutes,
+            bt.avg_temperature,
             6                                       AS num_supply_chain_hops,
-            op.delivery_priority                    AS delivery_priority_code,
-            rmp.transport_cost,
-            rmp.distance_km,
-            se.delay_reason,
-            -- Liefertreue-Flag: TRUE wenn delay_minutes <= 60 (SLA-Schwellenwert).
-            -- Einheitliche Logik mit delivery_status-Ableitung oben:
-            -- beide Felder basieren auf demselben Schwellenwert → kein Widerspruch.
-            (se.delay_minutes <= 60) AS on_time_flag
-        FROM  shipment_enriched          se
-        -- Order pro Produkt: deterministisches Mapping per Shipment-Reihenfolge.
-        -- MOD nutzt die Anzahl der Orders pro Produkt, damit auch der 6. Hop
-        -- desselben Produkts eine gültige Order findet.
-        -- order_rn = 1: Immer die älteste Bestellung pro Produkt – vereinfachtes 1:1-Mapping.
-        -- Wenn Shipment-Anzahl > Order-Anzahl für ein Produkt, entstehen Fact-Duplikate für
-        -- dieselbe Bestellung. Dies ist akzeptiert, da der DWH-Grain Fulfillment (Shipment),
-        -- nicht Bestellposition ist.
-        JOIN  order_per_product          op  ON op.product_code  = se.product_code
-                                            AND op.order_rn      = 1
-        JOIN  product_temperature        pt  ON pt.product_code  = se.product_code
-        LEFT JOIN first_batch_per_product fb ON fb.product_code  = se.product_code
-        LEFT JOIN route_metrics_per_product rmp ON rmp.product_code = se.product_code
-        JOIN  dwh.dim_customer           dc  ON dc.customer_number = op.customer_number
-        JOIN  dwh.dim_product            dp  ON dp.product_code    = se.product_code
-        JOIN  dwh.dim_supplier           ds  ON ds.supplier_code   = op.supplier_code
-        LEFT JOIN dwh.dim_carrier        dca ON dca.carrier_code   = se.carrier_code
-        LEFT JOIN dwh.dim_supply_chain_node dn
-                                              ON dn.node_code       = se.target_node
-        JOIN  dwh.dim_delivery_status    dds ON dds.status_code    = se.delivery_status
+            ofa.delivery_priority                   AS delivery_priority_code,
+            rm.transport_cost,
+            rm.distance_km,
+            dl.delay_reason,
+            -- Liefertreue-Flag: TRUE wenn delay_minutes <= 60 (SLA-Schwellenwert),
+            -- gleiche Logik wie die delivery_status-Ableitung oben.
+            (dl.delay_minutes <= 60) AS on_time_flag
+        -- [ANPASSUNG 2026-07-02] Endlieferung -> echte Bestellung via order_reference (1:1),
+        -- echter Batch via batch_identifier. Kein order_per_product/rn=1 mehr.
+        FROM  delivery_leg      dl
+        JOIN  order_facts       ofa ON ofa.order_reference  = dl.order_reference
+        LEFT JOIN route_metrics rm  ON rm.order_reference   = dl.order_reference
+        LEFT JOIN batch_temp    bt  ON bt.batch_identifier  = dl.batch_identifier
+        JOIN  dwh.dim_customer  dc  ON dc.customer_number    = ofa.customer_number
+        JOIN  dwh.dim_product   dp  ON dp.product_code       = ofa.product_code
+        JOIN  dwh.dim_supplier  ds  ON ds.supplier_code      = ofa.supplier_code
+        LEFT JOIN dwh.dim_carrier dca ON dca.carrier_code    = dl.carrier_code
+        LEFT JOIN dwh.dim_supply_chain_node dn ON dn.node_code = dl.target_node
+        JOIN  dwh.dim_delivery_status dds ON dds.status_code  = dl.delivery_status
     """)
 
     inserted = cur.rowcount
@@ -319,6 +275,17 @@ def main():
 
     pg = connect()
     cur = pg.cursor()
+
+    # [ANPASSUNG 2026-07-01] Dimensionen vor dem Neuladen leeren, damit Quelländerungen
+    # (neue Produktkategorie, customer_type ...) auch bei bereits vorhandenen Business-Keys
+    # übernommen werden. Zuvor verhinderte ON CONFLICT DO NOTHING jede Aktualisierung ->
+    # veraltete Dimensionswerte. dim_date/dim_delivery_status sind statisch (DDL) und bleiben.
+    print("[0/6] DWH-Dimensionen + Fakt zurücksetzen...")
+    cur.execute("""
+        TRUNCATE dwh.dim_customer, dwh.dim_supplier, dwh.dim_product,
+                 dwh.dim_carrier, dwh.dim_supply_chain_node, dwh.fact_fulfillment
+        RESTART IDENTITY CASCADE
+    """)
 
     print("[1/6] dim_customer befüllen...")
     fill_dim_customer(cur)

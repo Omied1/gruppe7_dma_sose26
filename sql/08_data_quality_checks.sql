@@ -512,15 +512,54 @@ JOIN tms.transport_completions tc ON tc.shipment_id = s.shipment_id
 WHERE s.estimated_arrival IS NOT NULL
   AND tc.completed_at < s.estimated_arrival;
 
+-- 7.5 ERP: Kunden ohne gültiges Segment
+-- [ANPASSUNG 2026-07-01] customer_type muss gesetzt und einer der drei Segmente sein.
+SELECT
+    'KONSISTENZ'      AS dimension,
+    'erp.customers'   AS tabelle,
+    'customer_type fehlt oder ungültig' AS regel,
+    COUNT(*)          AS verstösse
+FROM erp.customers
+WHERE customer_type IS NULL
+   OR customer_type NOT IN ('DISCOUNTER', 'VOLLSORTIMENTER', 'PREMIUM');
+
+-- 7.6 ERP: Batch-Qualitätsstatus fehlt oder ungültig
+-- [ANPASSUNG 2026-07-02] quality_status muss gesetzt und OK/REDUCED/REJECTED sein.
+SELECT
+    'PLAUSIBILITÄT'   AS dimension,
+    'erp.batches'     AS tabelle,
+    'quality_status fehlt oder ungültig' AS regel,
+    COUNT(*)          AS verstösse
+FROM erp.batches
+WHERE quality_status IS NULL
+   OR quality_status NOT IN ('OK', 'REDUCED', 'REJECTED');
+
+-- 7.7 Kühlkette->Qualität: OK-Batch trotz Kühlkettenbruch (Kausalität)
+-- [ANPASSUNG 2026-07-02] Ein als OK markierter Batch darf keine Knotentemperatur
+-- außerhalb 10-15 °C haben. Verstösse deuten auf gebrochene Ursache-Wirkungs-Logik.
+SELECT
+    'KONSISTENZ'      AS dimension,
+    'erp.batches + wms.node_processings' AS tabelle,
+    'quality_status=OK trotz Kühlkettenbruch' AS regel,
+    COUNT(*)          AS verstösse
+FROM erp.batches b
+WHERE b.quality_status = 'OK'
+  AND EXISTS (
+      SELECT 1 FROM wms.node_processings np
+      WHERE np.batch_reference = b.batch_identifier
+        AND np.temperature IS NOT NULL
+        AND (np.temperature < 10.0 OR np.temperature > 15.0)
+  );
+
 -- =============================================================================
 -- ZUSAMMENFASSUNG: Qualitäts-Score pro Dimension
 -- Gibt eine kompakte Übersicht aller Verstösse (0 = perfekt)
--- Gesamt: 38 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query; +4 Kern-Set-Checks in Abschnitt 7)
+-- Gesamt: 41 Einzel-Checks über 6 Dimensionen (Regel 5.0 = 4 Tabellen × 1 Query; +7 Kern-Set-/Segment-/Qualitäts-Checks in Abschnitt 7)
 -- Konsolidierte Übersicht mit PASS/FAIL: sql/08b_dq_audit.sql
 -- =============================================================================
 DO $$
 BEGIN
-    RAISE NOTICE '=== DQ-Check abgeschlossen (38 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
+    RAISE NOTICE '=== DQ-Check abgeschlossen (41 Einzel-Checks). Alle Ergebnisse mit verstösse > 0 erfordern Nacharbeit. ===';
 END $$;
 
 -- Nachweis: Datenbasis für DQ-Checks

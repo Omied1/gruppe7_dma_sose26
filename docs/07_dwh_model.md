@@ -134,7 +134,7 @@ erDiagram
 
 **Eine Zeile = Eine abgeschlossene Endlieferung** (`DeliveryCompleted` an `RETAIL_STORE`).
 
-Bei 10 abgeschlossenen Orders ergibt das **10 Faktenzeilen** (1 pro Order/Batch/Delivery):
+Bei 252 abgeschlossenen Orders ergibt das **252 Faktenzeilen** (1 pro Order/Batch/Delivery):
 
 ```
 1 OrderCreated → 1 BatchHarvested → 6 Transportetappen → 1 DeliveryCompleted
@@ -232,13 +232,15 @@ erp.*, wms.*, tms.*       →    dwh.dim_* (idempotent, ON CONFLICT DO NOTHING)
 | `erp.orders` + `erp.order_items` | JOIN über product_code → Bestellwert | `fact_fulfillment.quantity / unit_price / total_value` |
 | Berechnet | `delay_minutes <= 60` (SLA-Schwellenwert 60 min, unabhängig vom TMS-Rohstatus) | `fact_fulfillment.on_time_flag` |
 
-### Bekannte Einschränkungen des ETL
+### Bestellzuordnung (faithful, [ANPASSUNG 2026-07-02])
 
-**1. Bestellzuordnung (order_rn = 1):**  
-Jedes Produkt kann mehrere Bestellungen (Orders) haben. Das ETL bildet jeden Shipment auf die chronologisch erste Bestellung pro Produkt ab (`order_rn = 1`). Wenn für ein Produkt mehr Shipments als Bestellungen existieren, werden mehrere Shipments auf dieselbe Bestellung gemappt. Konsequenz: `SUM(fact_fulfillment.total_value)` entspricht **nicht** dem ERP-Gesamtumsatz (`SUM(order_items.quantity × unit_price)`). Der DWH-Grain ist der Fulfillment-Vorgang (Shipment → Lieferung), nicht die Buchhaltungs-Bestellposition.
+Seit die TMS-Events die echte `order_reference` und `batch_identifier` mitführen, wird **jede Endlieferung ihrer tatsächlichen Bestellung** zugeordnet (`delivery → shipment.order_reference → erp.orders`). Die frühere Vereinfachung „erste Bestellung pro Produkt" (`order_rn = 1`) entfällt. Konsequenz: `fact_fulfillment` (252 Zeilen) spiegelt die reale Verteilung über die **52 Wochen / 13 Monate** und **10 Kunden** wider; `SUM(total_value)` = **325.009 EUR** entspricht dem ERP-Umsatz. Transportkosten/-distanz je Zeile sind die **Summe der 6 Legs derselben `order_reference`** (exakt).
 
-**2. Verzögerungsminuten (delay_minutes):**  
-`fact_fulfillment.delay_minutes` enthält die Verzögerung des **finalen Transports** (letzter Shipment pro Fulfillment-Kette), nicht die Summe über alle Hops. Die Kühlkette hat 6 Knoten, aber nur ein `TransportCompleted`-Event pro Batch wird für den DWH-Grain verwendet.
+### Verbleibende Grain-Hinweise
+
+**1. delay_minutes / Carrier:** `fact_fulfillment.delay_minutes` und `carrier_sk` beziehen sich auf das **finale Transport-Leg** (letzte Strecke → RETAIL_STORE, immer TRUCK). Für Verzögerung/Geschwindigkeit über **alle** Carrier (auch See) dient die View `dwh.v_carrier_speed_performance` (GPS-Grain).
+
+**2. Batch-Qualität:** liegt auf Batch-Grain in `erp.batches` (`quality_status`, `spoilage_pct`); Aggregation über die View `dwh.v_batch_quality` (je Woche), nicht in `fact_fulfillment`.
 
 ### Idempotenz
 
@@ -378,7 +380,7 @@ SELECT COUNT(*) FROM dwh.dim_carrier;            -- erwartet:  5
 SELECT COUNT(*) FROM dwh.dim_supply_chain_node;  -- erwartet:  7
 SELECT COUNT(*) FROM dwh.dim_date;               -- erwartet: 1095
 SELECT COUNT(*) FROM dwh.dim_delivery_status;    -- erwartet:  4
-SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 10 (1 Endlieferung pro Order/Batch)
+SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 252 (1 Endlieferung pro Order/Batch)
 
 -- KPI-Übersicht
 SELECT * FROM dwh.v_kpi_summary;

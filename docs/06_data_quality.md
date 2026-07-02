@@ -318,23 +318,28 @@ Ein einfaches DQ-Monitoring führt die SQL-Checks regelmäßig aus und speichert
 Konsolidierte Ausführung: `docker exec -i postgres psql -U user -d logistics < sql/08b_dq_audit.sql`
 
 ```
-DQ-Dimension     | Regeln | Verstösse (nach ETL) | Status
------------------|--------|----------------------|---------------
-Vollständigkeit  |   5    | 0                    | PASS
-Eindeutigkeit    |   4    | 0                    | PASS
-Konsistenz       |   6    | n > 0  (6.3, 6.4)*   | FAIL*
-Plausibilität    |  10    | n > 0  (Regel 4.10)* | FAIL*
-Aktualität       |   7    | 0                    | PASS
-Ref. Integrität  |   2    | 0                    | PASS
+DQ-Dimension     | Regeln | Verstösse (nach ETL)     | Status
+-----------------|--------|--------------------------|---------------
+Vollständigkeit  |   5    | 0                        | PASS
+Eindeutigkeit    |   4    | 0                        | PASS
+Konsistenz       |  10    | 80   (6.3)*              | FAIL*
+Plausibilität    |  13    | 230 + 463 (4.3 / 4.4)*   | FAIL*
+Aktualität       |   7    | 0                        | PASS
+Ref. Integrität  |   2    | 0                        | PASS
 ─────────────────────────────────────────────────────────────────
-Gesamt           |  34    | n > 0  (4.10, 6.3, 6.4)* | 31/34 PASS
+Gesamt           |  41    | 3 bewusste FAILs (4.3, 4.4, 6.3) | 38/41 PASS
 ```
 
-**\* Regel 4.10 – erwarteter FAIL (GPS-Simulationsgrenze):**
-Die GPS-Koordinaten sind formal gültige WGS84-Werte, werden vom Datengenerator aber zufällig
-weltweit erzeugt. Daher prüft Regel 4.10 zusätzlich grobe Routenkorridore und markiert
-unrealistische Positionen als DQ-Verstoß. Die Rohdaten bleiben unverändert; die daraus
-ableitbare Invalid-GPS-Rate macht die Simulationsgrenze transparent.
+*(Stand 2026-07-02: 41 Regeln inkl. Kern-Set/Segment/Qualität 7.1–7.7. Die früheren FAILs 4.10 (GPS) und 6.4 (Carrier-Modus) wurden durch Generator-Anpassungen behoben und sind jetzt PASS.)*
+
+**\* Regel 4.3 / 4.4 – bewusster FAIL (Kühlkettenbrüche):**
+Der Generator modelliert ~15 % Temperaturen außerhalb 10–15 °C. 230 von 1.512 NodeProcessed (15,2 %)
+und 463 GPS-Container-Messungen liegen außerhalb des Sollbereichs — erwünschter Plausibilitäts-Befund
+und Grundlage der Batch-Qualität (Feature D). Rohdaten bleiben unverändert.
+
+**\* Regel 4.10 (GPS-Routenkorridore) – jetzt PASS:**
+GPS-Punkte werden zwischen den Knoten interpoliert (Ghana → Rotterdam → Deutschland); alle Positionen
+liegen in den fachlichen Korridoren. Regel bleibt als Wächter bestehen.
 
 **\* Regel 6.3 – erwarteter FAIL (dokumentierte Datengenerator-Inkonsistenz):**
 Der Datengenerator würfelt `delivery_status` und `delay_minutes` unabhängig voneinander.

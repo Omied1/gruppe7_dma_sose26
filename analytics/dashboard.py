@@ -6,12 +6,12 @@ Erstellt 5 wirtschaftlich getriebene Charts als:
   - dashboard.pdf / dashboard.png  (statisch, matplotlib + seaborn)
   - dashboard.html                 (interaktiv, plotly)
 
-Charts:
-  1. Umsatz-Zeitreihe nach Kunde        (Line Chart)
-  2. Carrier-Performance: Liefertreue   (Stacked Bar)
-  3. Umsatz nach Produktsorte           (Horizontal Bar)
-  4. Ø Verzögerung pro Supply-Chain-Knoten (Horizontal Bar)
-  5. Kühlkettenqualität vs. Lieferstatus   (Box Plot)
+Charts [ANPASSUNG 2026-07-02 – auf neue Generator-Felder gehoben]:
+  1. Umsatz-Zeitreihe nach Kundensegment    (Line Chart, customer_type)
+  2. Verspätungsgründe je Transport-Leg     (Horizontal Bar, delay_reason)
+  3. Bestellwert nach Kundentyp             (Box Plot, customer_type)
+  4. Ø Transportkosten je Route             (Horizontal Bar, transport_cost/distance)
+  5. Batchqualität über Zeit                (Line Chart, v_batch_quality)
 
 Voraussetzung:
   - PostgreSQL läuft auf localhost:5432, DB: logistics
@@ -97,69 +97,58 @@ def load_data(conn):
     """Alle 5 Datasets in einem Schritt laden."""
     print("[...] Lade Daten aus DWH...")
     datasets = {}
+    # [ANPASSUNG 2026-07-02] Dashboard auf die neuen Generator-Felder gehoben:
+    # Kundensegmente (customer_type), Verspätungsgründe (delay_reason), Transportkosten,
+    # Batchqualität (v_batch_quality).
     queries = {
 
-        # Chart 1: Umsatz nach Kunde pro Monat
-        "umsatz_zeitreihe": """
+        # Chart 1: Monatlicher Umsatz nach Kundensegment
+        "umsatz_segment": """
             SELECT
                 dd.year                     AS jahr,
                 dd.month                    AS monat,
-                dc.customer_name            AS kunde,
+                dc.customer_type            AS segment,
                 SUM(f.total_value)          AS umsatz
             FROM dwh.fact_fulfillment f
-            JOIN dwh.dim_customer        dc  ON f.customer_sk       = dc.customer_sk
-            JOIN dwh.dim_date            dd  ON f.order_date_sk     = dd.date_sk
-            GROUP BY dd.year, dd.month, dc.customer_name
-            ORDER BY dd.year, dd.month, dc.customer_name
+            JOIN dwh.dim_customer        dc  ON f.customer_sk   = dc.customer_sk
+            JOIN dwh.dim_date            dd  ON f.order_date_sk = dd.date_sk
+            GROUP BY dd.year, dd.month, dc.customer_type
+            ORDER BY dd.year, dd.month, dc.customer_type
         """,
 
-        # Chart 2: Carrier-Performance (Lieferstatus-Verteilung)
-        "carrier_performance": """
-            SELECT
-                dcar.carrier_name           AS carrier,
-                ds.status_code              AS status,
-                COUNT(*)                    AS anzahl
-            FROM dwh.fact_fulfillment f
-            JOIN dwh.dim_carrier         dcar ON f.carrier_sk          = dcar.carrier_sk
-            JOIN dwh.dim_delivery_status ds   ON f.delivery_status_sk  = ds.status_sk
-            GROUP BY dcar.carrier_name, ds.status_code
-            ORDER BY dcar.carrier_name, ds.status_code
+        # Chart 2: Verspätungsgründe (delay_reason je Transport-Leg)
+        "verspaetungsgruende": """
+            SELECT delay_reason AS grund, COUNT(*) AS anzahl
+            FROM tms.transport_completions
+            WHERE delay_reason IS NOT NULL
+            GROUP BY delay_reason
+            ORDER BY anzahl DESC
         """,
 
-        # Chart 3: Umsatz nach Produktsorte
-        "umsatz_produkt": """
-            SELECT
-                dp.product_name             AS produkt,
-                SUM(f.total_value)          AS umsatz,
-                SUM(f.quantity)             AS menge
+        # Chart 3: Bestellwert-Verteilung nach Kundentyp (Boxplot)
+        "bestellwert_segment": """
+            SELECT dc.customer_type AS segment, f.total_value AS bestellwert
             FROM dwh.fact_fulfillment f
-            JOIN dwh.dim_product         dp  ON f.product_sk          = dp.product_sk
-            GROUP BY dp.product_name
-            ORDER BY umsatz DESC
+            JOIN dwh.dim_customer dc ON f.customer_sk = dc.customer_sk
+            WHERE dc.customer_type IS NOT NULL
         """,
 
-        # Chart 4: Ø Verzögerung pro Supply-Chain-Knoten
-        "verzoegerung_knoten": """
+        # Chart 4: Ø Transportkosten je Route
+        "transportkosten_route": """
             SELECT
-                dn.node_name                AS knoten,
-                dn.node_type                AS knotentyp,
-                ROUND(AVG(f.delay_minutes), 1) AS avg_verzoegerung,
-                COUNT(*)                    AS anzahl_lieferungen
-            FROM dwh.fact_fulfillment f
-            JOIN dwh.dim_supply_chain_node dn ON f.destination_node_sk = dn.node_sk
-            GROUP BY dn.node_name, dn.node_type
-            ORDER BY avg_verzoegerung DESC
+                source_node || ' -> ' || target_node AS route,
+                ROUND(AVG(transport_cost), 2)        AS avg_kosten,
+                ROUND(AVG(distance_km), 1)           AS avg_distanz
+            FROM tms.shipments
+            GROUP BY source_node, target_node
+            ORDER BY avg_kosten DESC
         """,
 
-        # Chart 5: Kühlkettentemperatur nach Lieferstatus
-        "kuehlkette_status": """
-            SELECT
-                ds.status_code              AS status,
-                f.avg_temperature           AS temperatur
-            FROM dwh.fact_fulfillment f
-            JOIN dwh.dim_delivery_status ds ON f.delivery_status_sk = ds.status_sk
-            WHERE f.avg_temperature IS NOT NULL
-            ORDER BY ds.status_code
+        # Chart 5: Batchqualität über Zeit (Kühlkette -> Qualität)
+        "batchqualitaet_zeit": """
+            SELECT kalenderwoche, qualitaetsrate_pct, avg_schwund_pct, batches
+            FROM dwh.v_batch_quality
+            ORDER BY kalenderwoche
         """,
     }
 
@@ -208,104 +197,91 @@ def build_static_dashboard(datasets):
     ax4 = fig.add_subplot(gs[1, 1])    # Chart 4: unten mitte
     ax5 = fig.add_subplot(gs[1, 2])    # Chart 5: unten rechts
 
-    # -- Chart 1: Umsatz-Zeitreihe nach Kunde --
-    df1 = datasets["umsatz_zeitreihe"].copy()
+    # -- Chart 1: Umsatz-Zeitreihe nach Kundensegment --
+    df1 = datasets["umsatz_segment"].copy()
     if not df1.empty:
         df1["periode"] = df1["jahr"].astype(str) + "-" + df1["monat"].astype(str).str.zfill(2)
-        pivot = df1.pivot_table(index="periode", columns="kunde", values="umsatz", aggfunc="sum").fillna(0)
+        pivot = df1.pivot_table(index="periode", columns="segment", values="umsatz", aggfunc="sum").fillna(0)
         pivot = pivot.sort_index()
-        colors = COLOR_PALETTE[:len(pivot.columns)]
-        for col, color in zip(pivot.columns, colors):
+        for col, color in zip(pivot.columns, COLOR_PALETTE):
             ax1.plot(pivot.index, pivot[col], marker="o", linewidth=2,
                      markersize=4, label=col, color=color)
-        ax1.set_title("① Monatlicher Umsatz nach Kunde (EUR)", fontweight="bold", color="#1E3A5F")
+        ax1.set_title("① Monatlicher Umsatz nach Kundensegment (EUR)", fontweight="bold", color="#1E3A5F")
         ax1.set_xlabel("Monat")
         ax1.set_ylabel("Umsatz (EUR)")
         ax1.tick_params(axis="x", rotation=45)
-        ax1.legend(loc="upper left", fontsize=7, ncol=2)
+        ax1.legend(loc="upper left", fontsize=7, ncol=3)
         ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
     else:
         ax1.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax1.transAxes)
-        ax1.set_title("① Monatlicher Umsatz nach Kunde", fontweight="bold")
+        ax1.set_title("① Monatlicher Umsatz nach Kundensegment", fontweight="bold")
 
-    # -- Chart 2: Carrier-Performance --
-    df2 = datasets["carrier_performance"].copy()
+    # -- Chart 2: Verspätungsgründe (delay_reason) --
+    df2 = datasets["verspaetungsgruende"].copy()
     if not df2.empty:
-        pivot2 = df2.pivot_table(index="carrier", columns="status", values="anzahl", aggfunc="sum").fillna(0)
-        # Reihenfolge: SUCCESSFUL, DELAYED, FAILED
-        cols_order = [c for c in ["SUCCESSFUL", "DELAYED", "FAILED"] if c in pivot2.columns]
-        pivot2 = pivot2[cols_order]
-        bottom = pd.Series([0.0] * len(pivot2), index=pivot2.index)
-        for col in cols_order:
-            ax2.barh(pivot2.index, pivot2[col], left=bottom,
-                     color=STATUS_COLORS.get(col, "#999"),
-                     label=col, height=0.6)
-            bottom += pivot2[col]
-        ax2.set_title("② Carrier-Performance\n(Lieferstatus)", fontweight="bold", color="#1E3A5F")
-        ax2.set_xlabel("Anzahl Lieferungen")
-        ax2.legend(loc="lower right", fontsize=7)
-        ax2.invert_yaxis()
+        df2 = df2.sort_values("anzahl", ascending=True)
+        bars2 = ax2.barh(df2["grund"], df2["anzahl"], color=COLOR_PALETTE[:len(df2)], height=0.6)
+        ax2.set_title("② Verspätungsgründe\n(Transport-Legs)", fontweight="bold", color="#1E3A5F")
+        ax2.set_xlabel("Anzahl Legs")
+        for bar, val in zip(bars2, df2["anzahl"]):
+            ax2.text(val, bar.get_y() + bar.get_height() / 2, f" {int(val)}", va="center", fontsize=7)
     else:
         ax2.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax2.transAxes)
-        ax2.set_title("② Carrier-Performance", fontweight="bold")
+        ax2.set_title("② Verspätungsgründe", fontweight="bold")
 
-    # -- Chart 3: Umsatz nach Produktsorte --
-    df3 = datasets["umsatz_produkt"].copy()
+    # -- Chart 3: Bestellwert nach Kundentyp (Boxplot) --
+    df3 = datasets["bestellwert_segment"].copy()
     if not df3.empty:
-        df3 = df3.sort_values("umsatz", ascending=True)
-        bars = ax3.barh(df3["produkt"], df3["umsatz"],
-                        color=COLOR_PALETTE[:len(df3)], height=0.65)
-        ax3.set_title("③ Umsatz nach Produktsorte\n(EUR)", fontweight="bold", color="#1E3A5F")
-        ax3.set_xlabel("Umsatz (EUR)")
-        ax3.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x/1000:.0f}k"))
-        for bar, val in zip(bars, df3["umsatz"]):
-            ax3.text(val * 1.01, bar.get_y() + bar.get_height() / 2,
-                     f"{val/1000:.1f}k", va="center", fontsize=7)
-    else:
-        ax3.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax3.transAxes)
-        ax3.set_title("③ Umsatz nach Produktsorte", fontweight="bold")
-
-    # -- Chart 4: Ø Verzögerung pro Knoten --
-    df4 = datasets["verzoegerung_knoten"].copy()
-    if not df4.empty:
-        df4 = df4.sort_values("avg_verzoegerung", ascending=True)
-        palette4 = [COLOR_FAILED if v > 30 else COLOR_DELAYED if v > 10 else COLOR_SUCCESS
-                    for v in df4["avg_verzoegerung"]]
-        bars4 = ax4.barh(df4["knoten"], df4["avg_verzoegerung"], color=palette4, height=0.65)
-        ax4.axvline(x=30, color="#DC2626", linestyle="--", linewidth=1.2, label="SLA-Grenze (30 min)")
-        ax4.set_title("④ Ø Verzögerung pro\nSupply-Chain-Knoten (min)", fontweight="bold", color="#1E3A5F")
-        ax4.set_xlabel("Ø Verzögerung (Minuten)")
-        ax4.legend(fontsize=7)
-        for bar, val in zip(bars4, df4["avg_verzoegerung"]):
-            ax4.text(val + 0.5, bar.get_y() + bar.get_height() / 2,
-                     f"{val:.1f}", va="center", fontsize=7)
-    else:
-        ax4.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax4.transAxes)
-        ax4.set_title("④ Verzögerung pro Knoten", fontweight="bold")
-
-    # -- Chart 5: Kühlkette vs. Lieferstatus (Box Plot) --
-    df5 = datasets["kuehlkette_status"].copy()
-    if not df5.empty:
-        status_order = [s for s in ["SUCCESSFUL", "DELAYED", "FAILED"] if s in df5["status"].unique()]
-        colors5 = [STATUS_COLORS[s] for s in status_order]
-        data_grouped = [df5[df5["status"] == s]["temperatur"].values for s in status_order]
-        bp = ax5.boxplot(data_grouped, labels=status_order, patch_artist=True,
-                         medianprops={"color": "black", "linewidth": 2})
-        for patch, color in zip(bp["boxes"], colors5):
+        order3 = [s for s in ["DISCOUNTER", "VOLLSORTIMENTER", "PREMIUM"] if s in df3["segment"].unique()]
+        data3 = [df3[df3["segment"] == s]["bestellwert"].astype(float).values for s in order3]
+        bp3 = ax3.boxplot(data3, labels=order3, patch_artist=True,
+                          medianprops={"color": "black", "linewidth": 2})
+        for patch, color in zip(bp3["boxes"], COLOR_PALETTE):
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
-        ax5.axhline(y=10, color="#1D4ED8", linestyle="--", linewidth=1, label="Soll-Min (10°C)")
-        ax5.axhline(y=15, color="#1D4ED8", linestyle=":",  linewidth=1, label="Soll-Max (15°C)")
-        ax5.set_title("⑤ Kühlkettentemperatur\nvs. Lieferstatus (°C)", fontweight="bold", color="#1E3A5F")
-        ax5.set_ylabel("Temperatur (°C)")
+        ax3.set_title("③ Bestellwert nach Kundentyp\n(EUR)", fontweight="bold", color="#1E3A5F")
+        ax3.set_ylabel("Bestellwert (EUR)")
+        ax3.tick_params(axis="x", rotation=15, labelsize=7)
+        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x/1000:.0f}k"))
+    else:
+        ax3.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax3.transAxes)
+        ax3.set_title("③ Bestellwert nach Kundentyp", fontweight="bold")
+
+    # -- Chart 4: Ø Transportkosten je Route --
+    df4 = datasets["transportkosten_route"].copy()
+    if not df4.empty:
+        df4 = df4.sort_values("avg_kosten", ascending=True)
+        bars4 = ax4.barh(df4["route"], df4["avg_kosten"].astype(float),
+                         color=COLOR_PALETTE[3], height=0.6)
+        ax4.set_title("④ Ø Transportkosten je Route\n(EUR)", fontweight="bold", color="#1E3A5F")
+        ax4.set_xlabel("Ø Kosten (EUR)")
+        ax4.tick_params(axis="y", labelsize=6)
+        for bar, val in zip(bars4, df4["avg_kosten"].astype(float)):
+            ax4.text(val, bar.get_y() + bar.get_height() / 2, f" {val:,.0f}", va="center", fontsize=6)
+    else:
+        ax4.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax4.transAxes)
+        ax4.set_title("④ Ø Transportkosten je Route", fontweight="bold")
+
+    # -- Chart 5: Batchqualität über Zeit --
+    df5 = datasets["batchqualitaet_zeit"].copy()
+    if not df5.empty:
+        df5 = df5.sort_values("kalenderwoche")
+        x5 = pd.to_datetime(df5["kalenderwoche"])
+        ax5.plot(x5, df5["qualitaetsrate_pct"].astype(float), marker="o", linewidth=2,
+                 markersize=3, color=COLOR_SUCCESS, label="Qualitätsrate %")
+        ax5.plot(x5, df5["avg_schwund_pct"].astype(float), marker="s", linewidth=1.5,
+                 markersize=3, color=COLOR_FAILED, label="Ø Schwund %")
+        ax5.set_title("⑤ Batchqualität über Zeit\n(Kühlkette → Qualität)", fontweight="bold", color="#1E3A5F")
+        ax5.set_ylabel("Prozent")
+        ax5.tick_params(axis="x", rotation=45, labelsize=7)
         ax5.legend(fontsize=7)
     else:
         ax5.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax5.transAxes)
-        ax5.set_title("⑤ Kühlkette vs. Lieferstatus", fontweight="bold")
+        ax5.set_title("⑤ Batchqualität über Zeit", fontweight="bold")
 
     # Fußzeile
     fig.text(0.5, 0.01,
-             "Datenquelle: dwh.fact_fulfillment | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
+             "Datenquelle: DWH + operative Schemas (tms, v_batch_quality) | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
              ha="center", fontsize=8, color="#64748B")
 
     # Speichern
@@ -327,26 +303,26 @@ def build_interactive_dashboard(datasets):
     fig = make_subplots(
         rows=2, cols=3,
         subplot_titles=(
-            "① Monatlicher Umsatz nach Kunde (EUR)",
-            "② Carrier-Performance (Lieferstatus)",
-            "③ Umsatz nach Produktsorte",
-            "④ Ø Verzögerung pro Knoten (min)",
-            "⑤ Kühlkette vs. Lieferstatus (°C)",
+            "① Monatlicher Umsatz nach Kundensegment (EUR)",
+            "② Verspätungsgründe (Transport-Legs)",
+            "③ Bestellwert nach Kundentyp (EUR)",
+            "④ Ø Transportkosten je Route (EUR)",
+            "⑤ Batchqualität über Zeit (%)",
             ""
         ),
         specs=[
-            [{"colspan": 2}, None, {"type": "bar"}],
-            [{"type": "bar"},  {"type": "bar"}, {"type": "box"}],
+            [{"colspan": 2}, None, {}],
+            [{}, {}, {}],
         ],
         vertical_spacing=0.18,
         horizontal_spacing=0.1,
     )
 
-    # -- Chart 1 --
-    df1 = datasets["umsatz_zeitreihe"].copy()
+    # -- Chart 1: Umsatz nach Kundensegment --
+    df1 = datasets["umsatz_segment"].copy()
     if not df1.empty:
         df1["periode"] = df1["jahr"].astype(str) + "-" + df1["monat"].astype(str).str.zfill(2)
-        pivot = df1.pivot_table(index="periode", columns="kunde", values="umsatz", aggfunc="sum").fillna(0)
+        pivot = df1.pivot_table(index="periode", columns="segment", values="umsatz", aggfunc="sum").fillna(0)
         pivot = pivot.sort_index()
         for i, col in enumerate(pivot.columns):
             fig.add_trace(
@@ -358,79 +334,65 @@ def build_interactive_dashboard(datasets):
                 row=1, col=1
             )
 
-    # -- Chart 2 --
-    df2 = datasets["carrier_performance"].copy()
+    # -- Chart 2: Verspätungsgründe --
+    df2 = datasets["verspaetungsgruende"].copy()
     if not df2.empty:
-        pivot2 = df2.pivot_table(index="carrier", columns="status", values="anzahl", aggfunc="sum").fillna(0)
-        for status in ["SUCCESSFUL", "DELAYED", "FAILED"]:
-            if status in pivot2.columns:
-                fig.add_trace(
-                    go.Bar(
-                        y=pivot2.index, x=pivot2[status], name=status,
-                        orientation="h",
-                        marker_color=STATUS_COLORS[status],
-                        hovertemplate=f"<b>{status}</b><br>%{{y}}: %{{x}} Lieferungen<extra></extra>",
-                        legendgroup=status,
-                        showlegend=(df2 is not None),
-                    ),
-                    row=1, col=3
-                )
-
-    # -- Chart 3 --
-    df3 = datasets["umsatz_produkt"].copy()
-    if not df3.empty:
-        df3 = df3.sort_values("umsatz", ascending=True)
+        df2 = df2.sort_values("anzahl", ascending=True)
         fig.add_trace(
             go.Bar(
-                y=df3["produkt"], x=df3["umsatz"], orientation="h",
-                marker_color=COLOR_PALETTE[2],
-                hovertemplate="<b>%{y}</b><br>Umsatz: EUR %{x:,.0f}<extra></extra>",
-                name="Umsatz",
-                showlegend=False,
+                y=df2["grund"], x=df2["anzahl"], orientation="h",
+                marker_color=COLOR_PALETTE[1],
+                hovertemplate="<b>%{y}</b><br>%{x} Legs<extra></extra>",
+                name="Gründe", showlegend=False,
             ),
-            row=2, col=1
+            row=1, col=3
         )
 
-    # -- Chart 4 --
-    df4 = datasets["verzoegerung_knoten"].copy()
+    # -- Chart 3: Bestellwert nach Kundentyp (Box) --
+    df3 = datasets["bestellwert_segment"].copy()
+    if not df3.empty:
+        segs3 = [s for s in ["DISCOUNTER", "VOLLSORTIMENTER", "PREMIUM"] if s in df3["segment"].unique()]
+        for i, seg in enumerate(segs3):
+            fig.add_trace(
+                go.Box(
+                    y=df3[df3["segment"] == seg]["bestellwert"].astype(float), name=seg,
+                    marker_color=COLOR_PALETTE[i % len(COLOR_PALETTE)], boxmean=True,
+                    hovertemplate=f"<b>{seg}</b><br>EUR %{{y:,.0f}}<extra></extra>", showlegend=False,
+                ),
+                row=2, col=1
+            )
+
+    # -- Chart 4: Ø Transportkosten je Route --
+    df4 = datasets["transportkosten_route"].copy()
     if not df4.empty:
-        df4 = df4.sort_values("avg_verzoegerung", ascending=True)
-        bar_colors = [COLOR_FAILED if v > 30 else COLOR_DELAYED if v > 10 else COLOR_SUCCESS
-                      for v in df4["avg_verzoegerung"]]
+        df4 = df4.sort_values("avg_kosten", ascending=True)
         fig.add_trace(
             go.Bar(
-                y=df4["knoten"], x=df4["avg_verzoegerung"], orientation="h",
-                marker_color=bar_colors,
-                hovertemplate="<b>%{y}</b><br>Ø Verzögerung: %{x:.1f} min<extra></extra>",
-                name="Verzögerung",
-                showlegend=False,
+                y=df4["route"], x=df4["avg_kosten"].astype(float), orientation="h",
+                marker_color=COLOR_PALETTE[3],
+                hovertemplate="<b>%{y}</b><br>Ø EUR %{x:,.0f}<extra></extra>",
+                name="Kosten", showlegend=False,
             ),
             row=2, col=2
         )
-        # SLA-Linie
-        fig.add_vline(x=30, line_dash="dash", line_color="#DC2626",
-                      annotation_text="SLA 30 min", row=2, col=2)
 
-    # -- Chart 5 --
-    df5 = datasets["kuehlkette_status"].copy()
+    # -- Chart 5: Batchqualität über Zeit --
+    df5 = datasets["batchqualitaet_zeit"].copy()
     if not df5.empty:
-        for status in ["SUCCESSFUL", "DELAYED", "FAILED"]:
-            subset = df5[df5["status"] == status]["temperatur"]
-            if not subset.empty:
-                fig.add_trace(
-                    go.Box(
-                        y=subset, name=status,
-                        marker_color=STATUS_COLORS[status],
-                        boxmean=True,
-                        hovertemplate=f"<b>{status}</b><br>Temperatur: %{{y:.1f}}°C<extra></extra>",
-                        showlegend=False,
-                    ),
-                    row=2, col=3
-                )
-        # Soll-Bereich
-        fig.add_hrect(y0=10, y1=15, fillcolor="rgba(37,99,235,0.08)",
-                      line_width=0, row=2, col=3,
-                      annotation_text="Soll 10–15°C", annotation_position="top right")
+        df5 = df5.sort_values("kalenderwoche")
+        x5 = pd.to_datetime(df5["kalenderwoche"])
+        fig.add_trace(
+            go.Scatter(x=x5, y=df5["qualitaetsrate_pct"].astype(float), mode="lines+markers",
+                       name="Qualitätsrate %", line={"color": COLOR_SUCCESS, "width": 2},
+                       hovertemplate="%{x}<br>Qualität %{y:.1f}%<extra></extra>", showlegend=False),
+            row=2, col=3
+        )
+        fig.add_trace(
+            go.Scatter(x=x5, y=df5["avg_schwund_pct"].astype(float), mode="lines+markers",
+                       name="Ø Schwund %", line={"color": COLOR_FAILED, "width": 1.5},
+                       hovertemplate="%{x}<br>Schwund %{y:.1f}%<extra></extra>", showlegend=False),
+            row=2, col=3
+        )
 
     # Layout
     fig.update_layout(
@@ -448,7 +410,7 @@ def build_interactive_dashboard(datasets):
         margin={"t": 100, "b": 80},
         annotations=[
             {
-                "text": "Datenquelle: dwh.fact_fulfillment | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
+                "text": "Datenquelle: DWH + operative Schemas (tms, v_batch_quality) | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
                 "x": 0.5, "y": -0.06, "xref": "paper", "yref": "paper",
                 "showarrow": False, "font": {"size": 10, "color": "#64748B"}
             }

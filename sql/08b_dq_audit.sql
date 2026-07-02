@@ -2,7 +2,7 @@
 -- 08b_dq_audit.sql
 -- Konsolidierte Datenqualitäts-Auditierung
 --
--- Liefert EINE Ergebnistabelle mit allen 38 DQ-Checks aus 08_data_quality_checks.sql
+-- Liefert EINE Ergebnistabelle mit allen 41 DQ-Checks aus 08_data_quality_checks.sql
 -- für eine schnelle Übersicht. Sortiert nach Dimension und Verstössen.
 -- Hinweis: Regel 5.0 (Stammdaten event_timestamp) prüft 4 Tabellen → 4 Zeilen (pos 24–27).
 --
@@ -254,6 +254,26 @@ WITH dq AS (
            (SELECT COUNT(*) FROM tms.shipments s
             JOIN tms.transport_completions tc ON tc.shipment_id = s.shipment_id
             WHERE s.estimated_arrival IS NOT NULL AND tc.completed_at < s.estimated_arrival)
+    -- [ANPASSUNG 2026-07-01] Kundensegment gültig?
+    UNION ALL SELECT 39, 'KONSISTENZ', '7.5',
+           'erp.customers', 'customer_type fehlt oder ungültig',
+           (SELECT COUNT(*) FROM erp.customers
+            WHERE customer_type IS NULL
+               OR customer_type NOT IN ('DISCOUNTER','VOLLSORTIMENTER','PREMIUM'))
+    -- [ANPASSUNG 2026-07-02] Batch-Qualität (Kühlkette -> Qualität)
+    UNION ALL SELECT 40, 'PLAUSIBILITÄT', '7.6',
+           'erp.batches', 'quality_status fehlt oder ungültig',
+           (SELECT COUNT(*) FROM erp.batches
+            WHERE quality_status IS NULL
+               OR quality_status NOT IN ('OK','REDUCED','REJECTED'))
+    UNION ALL SELECT 41, 'KONSISTENZ', '7.7',
+           'erp.batches + wms.node_processings', 'quality_status=OK trotz Kühlkettenbruch',
+           (SELECT COUNT(*) FROM erp.batches b
+            WHERE b.quality_status = 'OK'
+              AND EXISTS (SELECT 1 FROM wms.node_processings np
+                          WHERE np.batch_reference = b.batch_identifier
+                            AND np.temperature IS NOT NULL
+                            AND (np.temperature < 10.0 OR np.temperature > 15.0)))
 )
 SELECT
     dimension,

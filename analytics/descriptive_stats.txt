@@ -1,0 +1,22 @@
+==============================================================================
+DESKRIPTIVE STATISTIK – Banana Supply Chain (DWH fact_fulfillment)
+==============================================================================
+
+                                           n     min      max     mean   median     std      q1       q3     iqr  lo_fence  up_fence  n_outlier
+Kennzahl                                                                                                                                       
+Lieferverzögerung [min] – RATIO        252.0    0.00    69.00    22.10    20.00   17.00    8.75    32.00   23.25    -26.12     66.88        2.0
+Ø Containertemperatur [°C] – INTERVAL  252.0    8.49    16.88    12.97    12.89    1.28   12.20    13.66    1.46     10.01     15.86        7.0
+Bestellmenge [Kartons] – RATIO         252.0  101.00   997.00   598.48   614.50  232.95  376.00   798.00  422.00   -257.00   1431.00        0.0
+Stückpreis [€] – RATIO                 252.0    1.51     4.67     2.32     2.02    0.73    1.79     2.81    1.02      0.25      4.35        2.0
+Bestellwert [€] – RATIO                252.0  295.93  2502.42  1289.72  1288.50  431.28  982.59  1573.91  591.32     95.61   2460.88        1.0
+
+Ausreißer-Definition: Wert < Q1 - 1,5*IQR  oder  Wert > Q3 + 1,5*IQR
+
+------------------------------------------------------------------------------
+FACHLICHE INTERPRETATION
+------------------------------------------------------------------------------
+- Verzögerung: Ø 22.1 min (Median 20.0), Std 17.0; 2 Ausreißer > 66.88 min. Rechtsschiefe Verteilung – die meisten Lieferungen sind pünktlich, wenige stark verspätet.
+- Temperatur: Ø 12.97 °C liegt im Sollkorridor 10–15 °C (Cavendish). 7 Lieferungen außerhalb des IQR-Zauns (10.01–15.86 °C) = Kühlkettenbrüche, Ursache für Qualitätsverlust.
+- Menge: Spannweite 101.0–997.0 Kartons, Ø 598.48. Hohe Std 232.95 spiegelt die Kundensegmente (Discounter-Großmengen vs. Premium-Kleinmengen).
+- Stückpreis: 1.51–4.67 € (Median 2.02) entspricht den vier Produktkategorien Standard < Sustainable < Specialty < Premium.
+==============================================================================

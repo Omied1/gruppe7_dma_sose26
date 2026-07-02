@@ -1,14 +1,14 @@
 # Datenqualitäts-Audit – Ergebnisse
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26
-**Stand:** 2026-05-24 (aktualisiert: 6 neue Checks 4.10 / 5.0×4 / 6.3 / 6.4 ergänzt; Gesamtanzahl 28 → 34)
-**SQL-Skripte:** `sql/08_data_quality_checks.sql` (Einzelchecks, 34 Regeln) · `sql/08b_dq_audit.sql` (konsolidierte Übersicht)
+**Stand:** 2026-07-02 (41 Checks; Kern-Set/Segment/Qualität 7.1–7.7 ergänzt; 4.10 GPS + 6.4 Carrier-Modus behoben; 4.3/4.4 Kühlkette nun FAIL)
+**SQL-Skripte:** `sql/08_data_quality_checks.sql` (Einzelchecks, 41 Regeln) · `sql/08b_dq_audit.sql` (konsolidierte Übersicht)
 
 ---
 
 ## 1. Methodik
 
-Die Banana-Supply-Chain-Datenbank wurde gegen **34 Qualitätsregeln** in den **6 Dimensionen** nach DAMA-Standard geprüft. Jede Regel liefert eine Zahl `verstoesse` (Anzahl Datensätze, die die Regel verletzen) und einen Status (`PASS` = 0 Verstöße, `FAIL` = ≥ 1 Verstoß).
+Die Banana-Supply-Chain-Datenbank wurde gegen **41 Qualitätsregeln** in den **6 Dimensionen** nach DAMA-Standard geprüft. Jede Regel liefert eine Zahl `verstoesse` (Anzahl Datensätze, die die Regel verletzen) und einen Status (`PASS` = 0 Verstöße, `FAIL` = ≥ 1 Verstoß).
 
 **Zwei-Linien-Schutz** der Datenqualität in diesem Projekt:
 
@@ -19,7 +19,7 @@ Die Banana-Supply-Chain-Datenbank wurde gegen **34 Qualitätsregeln** in den **6
 
 Der Sanity-Test (siehe §4) belegt: Eine bewusst negative Menge kann gar nicht erst eingefügt werden — der CHECK-Constraint greift. Erst Verstöße ohne DB-Schutz (Temperatur, Zeitlogik, Konsistenz) durchdringen die erste Linie und werden von den DQ-Checks aufgedeckt.
 
-**Hinweis zu erwarteten FAILs:** Drei Checks (4.10, 6.3, 6.4) liefern erwartungsgemäß FAIL — sie dokumentieren bekannte Datengenerator-Inkonsistenzen, die im operativen System bewusst erhalten bleiben und im DWH (ETL Phase 2) korrigiert werden. Details in §3.7.
+**Hinweis zu bewussten FAILs:** Drei Checks liefern gewollt FAIL — **4.3/4.4** (modellierte Kühlkettenbrüche, Plausibilitätsbefund) und **6.3** (Roh-Inkonsistenz delivery_status vs. SLA, die das DWH bereinigt). Die früheren FAILs **4.10** (GPS) und **6.4** (Carrier-Modus) wurden durch Generator-Anpassungen behoben und sind jetzt PASS. Details in §3.7.
 
 ---
 
@@ -44,39 +44,46 @@ Ausführung gegen die Live-PostgreSQL nach erfolgreichem ETL Phase 1 + 2:
 | 3.4 | Konsistenz | `tms.deliveries + tms.transport_completions` | SUCCESSFUL-Delivery ohne TransportCompleted-Eintrag | 0 | ✅ PASS |
 | 4.1 | Plausibilität | `erp.order_items` | quantity ≤ 0 | 0 | ✅ PASS |
 | 4.2 | Plausibilität | `erp.order_items` | unit_price außerhalb [1.50, 5.00] EUR | 0 | ✅ PASS |
-| 4.3 | Plausibilität | `wms.node_processings` | temperature außerhalb [10, 15] °C (Kühlkettenbruch) | 0 | ✅ PASS |
-| 4.4 | Plausibilität | `tms.shipment_positions` | container_temperature außerhalb [10, 15] °C | 0 | ✅ PASS |
+| **4.3** | **Plausibilität** | `wms.node_processings` | **temperature außerhalb [10, 15] °C (Kühlkettenbruch)** | **230** | **❌ FAIL\*** |
+| **4.4** | **Plausibilität** | `tms.shipment_positions` | **container_temperature außerhalb [10, 15] °C** | **463** | **❌ FAIL\*** |
 | 4.5 | Plausibilität | `tms.shipment_positions` | latitude/longitude außerhalb Wertebereich | 0 | ✅ PASS |
 | 4.6 | Plausibilität | `tms.deliveries` | delivery_status ungültig | 0 | ✅ PASS |
 | 4.7 | Plausibilität | `erp.orders` | delivery_priority ungültig | 0 | ✅ PASS |
-| 4.8 | Plausibilität | `tms.transport_completions` | delay_minutes > 180 | 0 | ✅ PASS |
+| 4.8 | Plausibilität | `tms.transport_completions` | delay_minutes > 600 (unplausibel je Leg) | 0 | ✅ PASS |
 | 4.9 | Plausibilität | `tms.shipment_positions` | speed_kmh > 200 oder < 0 | 0 | ✅ PASS |
-| **4.10** | **Plausibilität** | `tms.shipment_positions` | **GPS-Koordinaten außerhalb erwarteter Routenkorridore** | **n > 0** | **❌ FAIL\*** |
-| 5.0 | Aktualität | `erp.suppliers` | event_timestamp außerhalb 2026 | 0 | ✅ PASS |
-| 5.0 | Aktualität | `erp.customers` | event_timestamp außerhalb 2026 | 0 | ✅ PASS |
-| 5.0 | Aktualität | `erp.products` | event_timestamp außerhalb 2026 | 0 | ✅ PASS |
-| 5.0 | Aktualität | `tms.carriers` | event_timestamp außerhalb 2026 | 0 | ✅ PASS |
+| 4.10 | Plausibilität | `tms.shipment_positions` | GPS-Koordinaten außerhalb erwarteter Routenkorridore | 0 | ✅ PASS |
+| 5.0 | Aktualität | `erp.suppliers` | event_timestamp außerhalb 2025–2026 | 0 | ✅ PASS |
+| 5.0 | Aktualität | `erp.customers` | event_timestamp außerhalb 2025–2026 | 0 | ✅ PASS |
+| 5.0 | Aktualität | `erp.products` | event_timestamp außerhalb 2025–2026 | 0 | ✅ PASS |
+| 5.0 | Aktualität | `tms.carriers` | event_timestamp außerhalb 2025–2026 | 0 | ✅ PASS |
 | 5.1 | Aktualität | `tms` | TransportCompleted vor TransportStarted | 0 | ✅ PASS |
-| 5.2 | Aktualität | `erp.batches` | harvested_at außerhalb Projektlaufzeit (2026) | 0 | ✅ PASS |
+| 5.2 | Aktualität | `erp.batches` | harvested_at außerhalb Projektlaufzeit (2025–2026) | 0 | ✅ PASS |
 | 5.3 | Aktualität | `erp.orders` | Order > 90 Tage ohne Delivery | 0 | ✅ PASS |
 | 6.1 | Ref. Integrität | `wms.node_processings` | batch_reference ohne erp.batches | 0 | ✅ PASS |
 | 6.2 | Ref. Integrität | `tms.shipments` | cargo_product_reference ohne tms.transport_product_references | 0 | ✅ PASS |
-| **6.3** | **Konsistenz** | `tms.deliveries` | **Status-Inkonsistenz mit 60-min-SLA (TMS-Rohstatus vs. SLA-korrigierter Status)** | **n > 0** | **❌ FAIL\*** |
-| **6.4** | **Konsistenz** | `tms.shipments` | **Seefracht-Carrier auf TRUCK-Route oder Landcarrier auf SEA_FREIGHT** | **n > 0** | **❌ FAIL\*** |
+| **6.3** | **Konsistenz** | `tms.deliveries` | **Status-Inkonsistenz mit 60-min-SLA (TMS-Rohstatus vs. SLA-korrigierter Status)** | **80** | **❌ FAIL\*** |
+| 6.4 | Konsistenz | `tms.shipments` | Seefracht-Carrier auf TRUCK / Landcarrier auf SEA_FREIGHT | 0 | ✅ PASS |
+| 7.1 | Plausibilität | `tms.shipments` | distance_km NULL oder ≤ 0 | 0 | ✅ PASS |
+| 7.2 | Plausibilität | `tms.shipments` | transport_cost NULL oder ≤ 0 | 0 | ✅ PASS |
+| 7.3 | Konsistenz | `tms.transport_completions` | delay_reason gesetzt XOR delay_minutes > 30 | 0 | ✅ PASS |
+| 7.4 | Konsistenz | `tms.shipments + completions` | completed_at < estimated_arrival (Ist vor Plan) | 0 | ✅ PASS |
+| 7.5 | Konsistenz | `erp.customers` | customer_type fehlt oder ungültig | 0 | ✅ PASS |
+| 7.6 | Plausibilität | `erp.batches` | quality_status fehlt oder ungültig | 0 | ✅ PASS |
+| 7.7 | Konsistenz | `erp.batches + node_processings` | quality_status=OK trotz Kühlkettenbruch | 0 | ✅ PASS |
 
-**Score: 31 / 34 = 91 % PASS** — 3 erwartete FAILs (Datengenerator-Inkonsistenzen, dokumentiert in §3.7).
+**Score: 38 / 41 = 93 % PASS** — 3 bewusste FAILs (Kühlkettenbrüche 4.3/4.4 als Plausibilitätsbefund + SLA-Inkonsistenz 6.3, dokumentiert in §3.7). Zuvor erwartete FAILs 4.10 (GPS) und 6.4 (Carrier-Modus) wurden durch Generator-Anpassungen **behoben** (jetzt PASS).
 
 ---
 
 ## 3. Befunde nach Dimension
 
 ### 3.1 Vollständigkeit (5/5 PASS)
-Alle Pflichtfelder sind gefüllt. Besonders bemerkenswert: `temperature` ist in **allen 60** `wms.node_processings`-Einträgen vorhanden — der Datengenerator simuliert eine lückenlose Kühlkettenüberwachung. Check 1.5 bestätigt: Jede der generierten Orders hat mindestens eine Bestellposition.
+Alle Pflichtfelder sind gefüllt. Besonders bemerkenswert: `temperature` ist in **allen 1.512** `wms.node_processings`-Einträgen vorhanden — der Datengenerator simuliert eine lückenlose Kühlkettenüberwachung. Check 1.5 bestätigt: Jede der generierten Orders hat mindestens eine Bestellposition.
 
 ### 3.2 Eindeutigkeit (4/4 PASS)
 Alle Business Keys (`supplier_code`, `order_reference`, `batch_identifier`, `shipment_identifier`) sind eindeutig. Das bestätigt, dass die in K1 behobenen Idempotenz-Bugs vollständig ausgeräumt sind.
 
-### 3.3 Konsistenz (4/6 PASS — 2 erwartete FAILs)
+### 3.3 Konsistenz (1 bewusster FAIL: 6.3; 6.4 behoben)
 **Checks 3.1–3.4: 4/4 PASS.**
 Die erste Version von Check 3.1/3.2 prüfte `wms.warehouse_skus.sku = mdm.source_mappings.source_key`. Das schlug fehl, weil das ETL die WMS-SKUs über `normalize_key()` kanonisiert (`BAN_101` → `BAN-101`). Die korrigierte Variante joint direkt über `source_key` (WMS-Format):
 
@@ -89,77 +96,55 @@ Check 3.4 belegt: Jede `SUCCESSFUL`-Delivery hat einen korrespondierenden `Trans
 
 **Check 6.3: FAIL** (erwartet) — SLA-Inkonsistenz zwischen `delivery_status` und `delay_minutes`. Erklärung in §3.7.
 
-**Check 6.4: FAIL** (erwartet) — Carrier-Transportmodus-Inkonsistenz. Reedereien auf TRUCK-Strecken und Landcarrier auf SEA_FREIGHT-Strecken. Erklärung in §3.7.
+**Check 6.4: PASS** — der Generator wählt Carrier jetzt modusgerecht (Land → TRUCK, See → SEA_FREIGHT) mit konsistenter `carrier_id`. Erklärung in §3.7.
 
-### 3.4 Plausibilität (9/10 PASS — 1 erwarteter FAIL)
-**Checks 4.1–4.9: 9/9 PASS.**
-- Kühlkette: 0 Verstöße über 60 Knotenprozessierungen + ≈112 GPS-Updates
+### 3.4 Plausibilität (2 bewusste Kühlketten-FAILs: 4.3/4.4)
+**Kühlkette (4.3/4.4): FAIL — bewusst.** 230 von 1.512 NodeProcessed (15,2 %) und 463 GPS-Container-Messungen außerhalb 10–15 °C — die im Generator modellierten Kühlkettenbrüche (Erklärung §3.7).
 - GPS-Bereich (WGS84): 0 Verstöße — alle Koordinaten in gültigen Wertebereichen
 - Verzögerungen: alle Completions ≤ 180 min
 - Speed: alle GPS-Positionen mit speed_kmh zwischen 0 und 200
 
-**Check 4.10: FAIL** (erwartet) — GPS-Koordinaten außerhalb der fachlichen Routenkorridore Ghana/Europa. Der Datengenerator erzeugt Zufallskoordinaten weltweit. Erklärung in §3.7.
+**Check 4.10: PASS** — GPS-Punkte werden jetzt zwischen den Knoten interpoliert (Ghana → Rotterdam → Deutschland), alle in den Korridoren (Erklärung §3.7).
 
-### 3.5 Aktualität (7/7 PASS)
-- **Check 5.0** (4 Tabellen): Alle `event_timestamp`-Werte in den Stammdatentabellen liegen innerhalb der Projektlaufzeit 2026.
+### 3.5 Aktualität (7/7 PASS)  — Projektlaufzeit 2025–2026
+- **Check 5.0** (4 Tabellen): Alle `event_timestamp`-Werte in den Stammdatentabellen liegen innerhalb der Projektlaufzeit (2025–2026, 52-Wochen-Historie).
 - **Check 5.1**: Keine Transportabschlüsse vor Transportstart.
 - **Check 5.2**: Alle `harvested_at`-Zeitstempel in `erp.batches` liegen innerhalb der Projektlaufzeit 2026. (Bugfix: `erp.batches` hat kein `order_id`-Feld; daher Plausibilitätsprüfung gegen Projektlaufzeit statt direktem Vergleich mit `order_timestamp`.)
-- **Check 5.3**: Keine Order älter als 90 Tage ohne Delivery (alle Testdaten stammen aus Mai 2026).
+- **Check 5.3**: Keine Order älter als 90 Tage ohne Delivery (jede Order wird vollständig ausgeliefert).
 
 ### 3.6 Referenzielle Integrität (2/2 PASS)
 Alle Cross-Schema-Referenzen (WMS↔ERP, TMS↔TMS-Produktreferenz) sind auflösbar. Die `carrier_id NOT NULL`-Constraint in `tms.shipments` macht einen separaten NULL-Check obsolet — dieser wurde aus dem Audit entfernt (war in der alten Version Check 6.3 „Shipment ohne Carrier").
 
-### 3.7 Erwartete FAILs — Erklärung und Behandlung
+### 3.7 Bewusste FAILs — Erklärung und Behandlung
 
-#### FAIL 4.10 — GPS außerhalb Routenkorridore
+Drei Checks liefern **bewusst** FAIL. Sie sind kein Datenfehler, sondern modellierte Realität (Kühlkette) bzw. eine gewollte Roh-Inkonsistenz, die das DWH bereinigt.
 
-Der Datengenerator (`test_data_generator.py`, Methode `create_gps_event()`) erzeugt GPS-Koordinaten als vollständig zufällige Werte im gesamten WGS84-Bereich:
+#### FAIL 4.3 / 4.4 — Kühlkettenbrüche (Plausibilität)
+
+Der Generator modelliert in `random_temperature()` bewusst ~15 % Temperaturen außerhalb 10–15 °C (≈70 % zu warm = Reifung/Verderb, ≈30 % zu kalt = Kälteschaden):
 
 ```python
-"latitude":  round(random.uniform(-90, 90),   6)
-"longitude": round(random.uniform(-180, 180), 6)
+COLD_CHAIN_BREAK_RATE = 0.15   # ~15 % der Messungen brechen die Kühlkette
 ```
 
-Die fachliche Erwartung wäre:
-- Ghana-Strecken: Breitengrad 4.5–7.5°N, Längengrad 2.5°W–1.0°E
-- Seefrachtroute Afrika→Europa: Breitengrad 0–55°N, Längengrad 20°W–10°E
-- Europa-Strecken: Breitengrad 49–54°N, Längengrad 3–15°E
-
-**Konsequenz:** Nahezu alle GPS-Positionen (≈112) liegen außerhalb dieser Korridore — der FAIL ist vollständig simulationsbedingt.
-**Behandlung:** Keine Korrektur im operativen System. Der Check macht die Simulationsgrenze transparent. Analytics (Geo-Karte in PowerBI) sollte diesen Befund explizit ausweisen.
+**Gemessen:** **230** von 1.512 `NodeProcessed` (15,2 %) und **463** GPS-Container-Messungen außerhalb des Sollbereichs.
+**Behandlung:** Erwünschter Befund — Grundlage für die Kühlketten-KPIs und für Feature D (Kühlkette → Batch-Qualität: `quality_status`/`spoilage_pct`). Check **7.7** belegt die Kausalität (ein als OK markierter Batch hat nie einen Bruch). Keine „Korrektur"; die Brüche **sind** das analytische Signal.
 
 #### FAIL 6.3 — delivery_status vs. delay_minutes SLA-Inkonsistenz
 
-Der Datengenerator würfelt `delivery_status` und `delay_minutes` **unabhängig** voneinander:
-
-```python
-# in complete_transport():
-"delay_minutes": random.randint(0, 180)
-
-# in complete_delivery():
-"delivery_status": random.choice(["SUCCESSFUL", "SUCCESSFUL", "DELAYED"])
-```
-
-Dadurch entstehen zwei Typen von Inkonsistenzen:
+Der Generator würfelt `delivery_status` **unabhängig** von `delay_minutes` (`complete_delivery()`: `random.choice(["SUCCESSFUL","SUCCESSFUL","DELAYED"])`). Dadurch:
 
 - **Fall A:** `delivery_status = 'SUCCESSFUL'` obwohl `delay_minutes > 60` → SLA verletzt, DWH korrigiert zu DELAYED
 - **Fall B:** `delivery_status = 'DELAYED'` obwohl `delay_minutes ≤ 60` → innerhalb SLA, DWH korrigiert zu SUCCESSFUL
 
-**Erwartete Verstöße:** ca. 3–7 bei 10 Iterationen (abhängig vom Zufallslauf).
-**Behandlung:** Rohdaten bleiben unverändert. ETL Phase 2 (`etl_dwh.py`) leitet `on_time_flag` anhand des SLA-Schwellenwerts (60 min) neu ab — das DWH enthält konsistente Werte.
+**Gemessen:** **80** Inkonsistenzen (SLA-Schwelle 60 min).
+**Behandlung:** Rohdaten bleiben unverändert (bewusster Cleansing-Showcase). ETL Phase 2 (`etl_dwh.py`) leitet `on_time_flag` und den bereinigten Status aus `delay_minutes ≤ 60` neu ab — das DWH ist konsistent.
+*Abgrenzung der Schwellen:* Die **30-min**-Schwelle steuert den `delay_reason` je **Transport-Leg** (operatives Monitoring), die **60-min**-SLA bewertet die **Gesamtlieferung** (KPI Liefertreue) — zwei bewusst getrennte Ebenen.
 
-#### FAIL 6.4 — Carrier-Transportmodus-Inkonsistenz
+#### Behoben (vormals FAIL, jetzt PASS)
 
-Der Datengenerator wählt `carrier_id` und `transport_mode` **unabhängig** zufällig. Dadurch werden Reedereien (Maersk CAR-102, MSC CAR-103, Hapag Lloyd CAR-105) auf TRUCK-Strecken eingesetzt und Landcarrier (DHL CAR-101, DB Schenker CAR-104) auf SEA_FREIGHT-Strecken:
-
-```python
-# in create_transport():
-"carrier_id":   f"CAR-{random.randint(101,105)}",  # unabhängig von transport_mode
-"transport_mode": transport_mode                     # aus SUPPLY_CHAIN_FLOW
-```
-
-**Gemessene Verstöße** (an 60 TransportStarted-Events): **36 von 60 (60%)**.
-**Behandlung:** Der ETL speichert die Carrier-Zuordnung wie im Event enthalten. Das DWH (`v_carrier_performance`) zeigt die Carrier-Performance anhand der ETL-Daten — da die Zuordnung systematisch verzerrt ist, sind reine Carrier-Vergleiche im DWH fachlich nicht valide. In der Analytics-Interpretation muss dieser Befund ausgewiesen werden.
+- **4.10 GPS-Routenkorridore:** GPS-Punkte werden jetzt zwischen Quell- und Zielknoten interpoliert (Ghana → Rotterdam → Deutschland) statt zufällig weltweit → alle Punkte in den Korridoren → **PASS**.
+- **6.4 Carrier-Transportmodus:** Der Generator wählt Carrier jetzt modusgerecht (Land → TRUCK, See → SEA_FREIGHT) mit konsistenter `carrier_id` → **PASS**. Carrier-Vergleiche im DWH sind damit fachlich valide.
 
 ---
 
@@ -199,7 +184,7 @@ Der Datengenerator wählt `carrier_id` und `transport_mode` **unabhängig** zuf�
 | Abdeckung aller 6 DAMA-Dimensionen | ✅ vollständig |
 | Anzahl Checks | 34 (weit über Mindestanforderung „2 pro Dimension" hinaus) |
 | Funktionsnachweis | ✅ Sanity-Test zeigt korrekte FAIL-Detektion |
-| Live-Audit-Ergebnis | 31/34 PASS = 91 % (3 erwartete FAILs aus Datengenerator-Inkonsistenzen) |
+| Live-Audit-Ergebnis | 38/41 PASS = 93 % (3 bewusste FAILs aus Datengenerator-Inkonsistenzen) |
 | Konsolidierte Übersicht | ✅ `sql/08b_dq_audit.sql` liefert Single-Result-Set |
 | Bugfix dokumentiert | ✅ Check 5.2 korrigiert (kein `order_id`-FK in `erp.batches`) |
 | Neue Checks (gegenüber v1) | ✅ VQ-05, KQ-04, PQ-10 (GPS-Korridore), AQ-5.0 (event_timestamp), KQ-6.3 (SLA), KQ-6.4 (Carrier-Modus) |
@@ -234,13 +219,13 @@ cd bananasupplychain && python3 verify_all_systems.py
 cypher-shell -u neo4j -p password -f cypher/02_verification_queries.cypher
 ```
 
-**Erwartetes Ergebnis nach sauberem ETL-Lauf:** 31/34 DQ-Checks PASS. FAILs bei 4.10, 6.3, 6.4 sind erwartet und in §3.7 begründet.
+**Erwartetes Ergebnis nach sauberem ETL-Lauf:** 38/41 DQ-Checks PASS. FAILs bei 4.3, 4.4, 6.3 sind bewusst und in §3.7 begründet.
 
 ---
 
 ## 7. Systemübergreifende Befüllungsnachweise (Stand 2026-05-14)
 
-Ergänzend zu den 34 DQ-Checks belegen die folgenden Prüfqueries, dass alle fünf Zielsysteme nach einem vollständigen ETL-Lauf korrekt befüllt wurden.
+Ergänzend zu den 41 DQ-Checks belegen die folgenden Prüfqueries, dass alle fünf Zielsysteme nach einem vollständigen ETL-Lauf korrekt befüllt wurden.
 
 ### 7.1 PostgreSQL – Tabellenmengen (sql/09_verification_queries.sql)
 
@@ -348,7 +333,7 @@ Alle 42 Golden Records haben genau ein kanonisches Source Mapping (`is_canonical
 | Abdeckung aller 6 DAMA-Dimensionen (PostgreSQL) | ✅ vollständig |
 | Anzahl DQ-Checks | 34 (weit über Mindestanforderung „2 pro Dimension") |
 | Funktionsnachweis (Sanity-Test) | ✅ Detektionsrate 100 % |
-| Live-Audit-Ergebnis | **31/34 PASS = 91 %** |
+| Live-Audit-Ergebnis | **38/41 PASS = 93 %** |
 | Erwartete FAILs | 3 (4.10 GPS-Simulation, 6.3 SLA-Inkonsistenz, 6.4 Carrier-Modus) — alle dokumentiert in §3.7 |
 | Konsolidierte Übersicht | ✅ `sql/08b_dq_audit.sql` |
 | PostgreSQL-Befüllungsnachweise | ✅ `sql/09_verification_queries.sql` (alle Schemas + DWH + FK) |

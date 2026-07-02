@@ -133,11 +133,12 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             count("pg.suppliers")
 
         elif et == "CustomerCreated":
+            # [ANPASSUNG 2026-07-01] customer_type (Segment) mitladen
             cur.execute("""
-                INSERT INTO erp.customers (customer_number, customer_name, city, country, event_timestamp)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO erp.customers (customer_number, customer_name, customer_type, city, country, event_timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (customer_number) DO NOTHING
-            """, (ev["customer_number"], ev["customer_name"],
+            """, (ev["customer_number"], ev["customer_name"], ev.get("customer_type"),
                   ev.get("city"), ev.get("country"), ev.get("timestamp")))
             count("pg.customers")
 
@@ -265,16 +266,19 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             # wenn der Generator abweichende Schlüsselformate liefern würde.
             wms_sku_val  = ev.get("wms_sku")  or canonical.replace("-", "_")
             tms_ref_val  = ev.get("tms_product_reference") or canonical.lower()
+            # [ANPASSUNG 2026-07-02] Kühlketten-Qualität (quality_status/spoilage_pct) mitladen
             cur.execute("""
                 INSERT INTO erp.batches
                     (batch_identifier, product_id, quantity, origin_country,
-                     supply_chain_node, harvested_at, wms_sku, tms_product_reference)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     supply_chain_node, harvested_at, wms_sku, tms_product_reference,
+                     quality_status, spoilage_pct)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (batch_identifier) DO NOTHING
             """, (ev["batch_identifier"], product_id,
                   safe_int(ev.get("quantity")), ev.get("origin_country"),
                   ev.get("supply_chain_node"), ev.get("timestamp"),
-                  wms_sku_val, tms_ref_val))
+                  wms_sku_val, tms_ref_val,
+                  ev.get("quality_status"), safe_float(ev.get("spoilage_pct"))))
             count("pg.batches")
 
     # ── Schritt 5: WMS-Eventdaten ─────────────────────────────────────────────
@@ -318,14 +322,15 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             crow = cur.fetchone()
             carrier_id = crow[0] if crow else None
             tms_ref = ev["cargo_product_reference"]  # TMS-Format beibehalten: ban-101
-            # [ANPASSUNG 2026-07-01] distance_km, transport_cost, currency aus TransportStarted mitladen
+            # [ANPASSUNG 2026-07-01] distance_km/transport_cost/currency; [ANPASSUNG 2026-07-02] order_reference/batch_identifier
             cur.execute("""
                 INSERT INTO tms.shipments
                     (shipment_identifier, carrier_id, cargo_product_reference,
                      source_node, target_node, transport_mode,
                      started_at, estimated_arrival,
-                     distance_km, transport_cost, currency)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     distance_km, transport_cost, currency,
+                     order_reference, batch_identifier)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (shipment_identifier) DO NOTHING
             """, (ev["shipment_identifier"], carrier_id, tms_ref,
                   ev.get("source_node"), ev.get("target_node"),
@@ -333,7 +338,8 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
                   ev.get("timestamp"), ev.get("estimated_arrival"),
                   safe_float(ev.get("distance_km")),
                   safe_float(ev.get("transport_cost")),
-                  ev.get("currency", "EUR")))
+                  ev.get("currency", "EUR"),
+                  ev.get("order_reference"), ev.get("batch_identifier")))
             count("pg.shipments")
 
         elif et == "ShipmentPositionUpdated":
@@ -954,14 +960,17 @@ def _neo4j_load_master_data(erp_events, tms_events, session):
             count("neo4j.suppliers")
 
         elif et == "CustomerCreated":
+            # [ANPASSUNG 2026-07-01] customer_type (Segment) als Node-Property
             session.run("""
                 MERGE (c:Customer {customer_number: $cn})
-                  SET c.customer_name = $name, c.city = $city, c.country = $country
+                  SET c.customer_name = $name, c.city = $city, c.country = $country,
+                      c.customer_type = $ctype
                 WITH c
                 MATCH (n:SupplyChainNode {node_code: "RETAIL_STORE"})
                 MERGE (c)-[:RECEIVES_FROM]->(n)
             """, cn=ev["customer_number"], name=ev["customer_name"],
-                 city=ev.get("city", ""), country=ev.get("country", ""))
+                 city=ev.get("city", ""), country=ev.get("country", ""),
+                 ctype=ev.get("customer_type", ""))
 
         elif et == "ProductCreated":
             supplier_ref = ev.get("supplier_reference")
@@ -1038,9 +1047,11 @@ def load_neo4j(erp_events, wms_events, tms_events, driver):
         #         den TRIGGERED zum Verknüpfen mit der auslösenden Bestellung braucht.
         for ev in erp_events:
             if ev.get("event_type") == "BatchHarvested":
+                # [ANPASSUNG 2026-07-02] Kühlketten-Qualität als Batch-Property
                 session.run("""
                     MERGE (b:Batch {batch_identifier: $bid})
-                      SET b.quantity = $qty, b.origin_country = $oc, b.product_code = $pc
+                      SET b.quantity = $qty, b.origin_country = $oc, b.product_code = $pc,
+                          b.quality_status = $qs, b.spoilage_pct = $sp
                     WITH b
                     OPTIONAL MATCH (o:Order)
                     WHERE EXISTS { MATCH (o)-[:CONTAINS]->(p:Product {product_code: $pc}) }
@@ -1050,7 +1061,9 @@ def load_neo4j(erp_events, wms_events, tms_events, driver):
                 """, bid=ev["batch_identifier"],
                      qty=safe_int(ev.get("quantity")),
                      oc=ev.get("origin_country"),
-                     pc=normalize_key(ev["product_code"]))
+                     pc=normalize_key(ev["product_code"]),
+                     qs=ev.get("quality_status", ""),
+                     sp=safe_float(ev.get("spoilage_pct")))
                 count("neo4j.batches")
 
         # Pass 3: erst alle Transporte (Shipment, FROM/TO, TRANSPORTED_BY, TRANSPORTED_VIA).

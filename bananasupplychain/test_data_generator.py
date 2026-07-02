@@ -19,6 +19,52 @@ OUTPUT_MODE = "files"
 BASE_SHARED_DIR = "shared"
 
 
+# [ANPASSUNG 2026-07-01] Deterministische UUIDs: dedizierter, geseedeter RNG -> IDs & Dateinamen
+# sind über Läufe hinweg identisch (diff-bar, überschreiben sich beim Re-Generieren statt zu
+# akkumulieren), sehen aber weiter wie echte UUIDs aus. Bewusst getrennt von random.seed(42),
+# damit sich Werte-RNG und ID-RNG nicht gegenseitig verschieben.
+_uuid_rng = random.Random(20260701)
+
+
+def det_uuid():
+    return uuid.UUID(int=_uuid_rng.getrandbits(128))
+
+
+# ============================================================
+# KUNDEN-SEGMENTE & PREISE
+# ============================================================
+# [ANPASSUNG 2026-07-01] Kunden-Segmente mit festem Verhaltensprofil (Feature A) + Preis
+# nach Produktkategorie (Feature C). Ziel: Clustering (Teil 2) findet echte Cluster und
+# Umsatz-/Boxplot-Analysen werden aussagekräftig (vorher: alles gleichverteilt gewürfelt).
+_CUSTOMER_SEGMENTS = {
+    "ALDI": "DISCOUNTER", "LIDL": "DISCOUNTER", "KAUFLAND": "DISCOUNTER",
+    "REWE": "VOLLSORTIMENTER", "EDEKA": "VOLLSORTIMENTER",
+    "TESCO": "VOLLSORTIMENTER", "SPAR": "VOLLSORTIMENTER",
+    "METRO": "PREMIUM", "CARREFOUR": "PREMIUM", "AUCHAN": "PREMIUM",
+}
+# Relative Bestellhäufigkeit je Segment (Discounter bestellen am häufigsten).
+_SEGMENT_ORDER_WEIGHT = {"DISCOUNTER": 3.0, "VOLLSORTIMENTER": 2.0, "PREMIUM": 1.0}
+# Bestellmenge je Segment: Discounter = Massenware, Premium = kleinere, hochwertige Mengen.
+_SEGMENT_QTY = {
+    "DISCOUNTER":      (600, 1000),
+    "VOLLSORTIMENTER": (300, 700),
+    "PREMIUM":         (100, 400),
+}
+# Bevorzugte Produktkategorien je Segment (steuert über den Preis den Bestellwert).
+_SEGMENT_CATEGORIES = {
+    "DISCOUNTER":      ["Standard"],
+    "VOLLSORTIMENTER": ["Standard", "Sustainable", "Specialty"],
+    "PREMIUM":         ["Premium", "Specialty", "Sustainable"],
+}
+# Preisband je Kategorie (EUR/Einheit), bewusst innerhalb [1.50, 5.00] -> DQ-Check 4.2 bleibt gültig.
+_CATEGORY_PRICE = {
+    "Standard":    (1.50, 2.20),
+    "Sustainable": (2.30, 3.20),
+    "Specialty":   (3.00, 4.00),
+    "Premium":     (3.80, 4.90),
+}
+
+
 # ============================================================
 # MASTER DATA CONFIG
 # ============================================================
@@ -112,6 +158,18 @@ def random_temperature():
             return round(random.uniform(15.5, 24.0), 2)  # zu warm
         return round(random.uniform(2.0, 9.5), 2)        # zu kalt
     return round(random.uniform(10.0, 15.0), 2)          # intakt
+
+
+# [ANPASSUNG 2026-07-02] Kühlkette -> Batch-Qualität (Feature D): aus den Knoten-Temperaturen
+# eines Batches wird ein Qualitätsstatus + Schwund abgeleitet. Kühlkettenbruch = Temperatur
+# außerhalb 10-15 °C. Damit werden die vorhandenen Brüche zur belegbaren Ursache von Qualitätsverlust.
+def batch_quality_from_temps(node_temps):
+    breaks = sum(1 for t in node_temps if t < 10.0 or t > 15.0)
+    if breaks == 0:
+        return "OK", 0.0
+    if breaks <= 2:
+        return "REDUCED", round(random.uniform(5.0, 20.0), 1)    # Teilverderb
+    return "REJECTED", round(random.uniform(30.0, 60.0), 1)      # starker Verderb
 
 
 def normalize(value):
@@ -412,7 +470,7 @@ def build_filename(
             f"{source_node}_to_"
             f"{target_node}_"
             f"{event_type}_"
-            f"{uuid.uuid4()}.json"
+            f"{det_uuid()}.json"
         )
 
     # ========================================================
@@ -431,7 +489,7 @@ def build_filename(
             f"supplychain_node_"
             f"{node}_"
             f"{event_type}_"
-            f"{uuid.uuid4()}.json"
+            f"{det_uuid()}.json"
         )
 
     # ========================================================
@@ -442,7 +500,7 @@ def build_filename(
         f"supplychain_iteration_"
         f"{iteration:03d}_"
         f"{event_type}_"
-        f"{uuid.uuid4()}.json"
+        f"{det_uuid()}.json"
     )
 
 
@@ -516,6 +574,21 @@ _ROUTE_BY_TARGET = {
     tgt.lower(): f"{src.lower()}_to_{tgt.lower()}"
     for (src, tgt, _mode) in SUPPLY_CHAIN_FLOW
 }
+
+# [ANPASSUNG 2026-07-01] Geokoordinaten je Knoten (Ghana -> Rotterdam -> Deutschland).
+# Werte bewusst INNERHALB der DQ-Routenkorridore (Check 4.10). GPS-Punkte werden zwischen
+# Quell- und Zielknoten interpoliert -> plausible Karte in Power BI statt Zufallspunkten weltweit.
+_NODE_COORDS = {
+    "BANANA_PLANTATION":   (6.20, -1.60),
+    "COLLECTION_CENTER":   (5.90, -1.00),
+    "QUALITY_CONTROL":     (5.70, -0.40),
+    "AFRICA_COLD_STORAGE": (5.63, -0.02),   # Hafen Tema (Ghana)
+    "EUROPE_COLD_STORAGE": (51.95, 4.14),   # Rotterdam
+    "CENTRAL_WAREHOUSE":   (50.90, 6.90),   # Rheinland
+    "RETAIL_STORE":        (52.35, 9.70),   # Norddeutschland
+}
+# Realistische Geschwindigkeit je Modus (km/h): LKW deutlich schneller als Seeschiff (~20 kn).
+_SPEED_BY_MODE = {"TRUCK": (45.0, 90.0), "SEA_FREIGHT": (25.0, 40.0)}
 
 
 def _find_route(filename):
@@ -757,6 +830,13 @@ class ERPService:
                 "customer_name":
                     name,
 
+                # [ANPASSUNG 2026-07-01] Segment mit festem Verhaltensprofil (Feature A)
+                "customer_type":
+                    _CUSTOMER_SEGMENTS.get(
+                        name,
+                        "VOLLSORTIMENTER"
+                    ),
+
                 "city":
                     random.choice([
                         "Hamburg",
@@ -881,11 +961,30 @@ class ERPService:
 
     def get_random_customer(self):
 
-        return random.choice(
-            list(
-                self.customers.values()
-            )
+        # [ANPASSUNG 2026-07-01] Kundenwahl gewichtet nach Segment (Discounter am häufigsten)
+        # -> unterschiedliche Bestellhäufigkeit als Clustering-Merkmal.
+        customers = list(self.customers.values())
+        weights = [
+            _SEGMENT_ORDER_WEIGHT.get(c.get("customer_type"), 1.0)
+            for c in customers
+        ]
+        return random.choices(customers, weights=weights, k=1)[0]
+
+    def get_product_for_customer(self, customer):
+
+        # [ANPASSUNG 2026-07-01] Produkt nach bevorzugter Kategorie des Kundensegments wählen
+        # -> Premium-Kunden kaufen teurere Kategorien (koppelt Segment an Bestellwert).
+        prefs = _SEGMENT_CATEGORIES.get(
+            customer.get("customer_type"),
+            []
         )
+        pool = [
+            p for p in self.products.values()
+            if p.get("category") in prefs
+        ]
+        if not pool:
+            pool = list(self.products.values())
+        return random.choice(pool)
 
     def create_order(
         self,
@@ -893,10 +992,19 @@ class ERPService:
         product
     ):
 
-        quantity = random.randint(
-            100,
-            1000
+        # [ANPASSUNG 2026-07-01] Menge nach Kundensegment (Feature A), Preis nach
+        # Produktkategorie (Feature C) statt gleichverteilt.
+        qty_lo, qty_hi = _SEGMENT_QTY.get(
+            customer.get("customer_type"),
+            (100, 1000)
         )
+        quantity = random.randint(qty_lo, qty_hi)
+
+        price_lo, price_hi = _CATEGORY_PRICE.get(
+            product.get("category"),
+            (1.5, 5.0)
+        )
+        unit_price = round(random.uniform(price_lo, price_hi), 2)
 
         return {
 
@@ -904,7 +1012,7 @@ class ERPService:
                 "OrderCreated",
 
             "order_reference":
-                f"ORD-{uuid.uuid4()}",
+                f"ORD-{det_uuid()}",
 
             "customer":
                 customer,
@@ -927,13 +1035,7 @@ class ERPService:
                         quantity,
 
                     "unit_price":
-                        round(
-                            random.uniform(
-                                1.5,
-                                5.0
-                            ),
-                            2
-                        )
+                        unit_price
                 }
             ],
 
@@ -984,7 +1086,7 @@ class ERPService:
                 ),
 
             "batch_identifier":
-                f"BATCH-{uuid.uuid4()}",
+                f"BATCH-{det_uuid()}",
 
             "origin_country":
                 "Ghana",
@@ -1179,7 +1281,9 @@ class TMSService:
         target_node,
         cargo_reference,
         transport_mode,
-        quantity
+        quantity,
+        order_reference,
+        batch_identifier
     ):
 
         # [ANPASSUNG 2026-07-01] Carrier modusgerecht wählen (Land vs. See) + konsistente carrier_id;
@@ -1209,7 +1313,14 @@ class TMSService:
                 "TransportStarted",
 
             "shipment_identifier":
-                f"SHIP-{uuid.uuid4()}",
+                f"SHIP-{det_uuid()}",
+
+            # [ANPASSUNG 2026-07-02] echte Order-/Batch-Referenz mitführen -> faithful DWH-Fact
+            "order_reference":
+                order_reference,
+
+            "batch_identifier":
+                batch_identifier,
 
             "source_node":
                 source_node,
@@ -1259,6 +1370,20 @@ class TMSService:
         shipment_event
     ):
 
+        # [ANPASSUNG 2026-07-01] GPS-Punkt zwischen Quell- und Zielknoten interpolieren
+        # (statt Zufall über den ganzen Globus); Geschwindigkeit modusabhängig.
+        src = shipment_event.get("source_node", "")
+        tgt = shipment_event.get("target_node", "")
+        s_lat, s_lon = _NODE_COORDS.get(src, (0.0, 0.0))
+        t_lat, t_lon = _NODE_COORDS.get(tgt, (0.0, 0.0))
+        frac = random.uniform(0.1, 0.9)                     # Fortschritt auf der Strecke
+        lat = round(s_lat + frac * (t_lat - s_lat) + random.uniform(-0.03, 0.03), 6)
+        lon = round(s_lon + frac * (t_lon - s_lon) + random.uniform(-0.03, 0.03), 6)
+        speed_lo, speed_hi = _SPEED_BY_MODE.get(
+            shipment_event.get("transport_mode"),
+            (30.0, 90.0)
+        )
+
         return {
 
             "event_type":
@@ -1277,35 +1402,19 @@ class TMSService:
             "current_route": {
 
                 "source":
-                    shipment_event[
-                        "source_node"
-                    ],
+                    src,
 
                 "target":
-                    shipment_event[
-                        "target_node"
-                    ]
+                    tgt
             },
 
             "coordinates": {
 
                 "latitude":
-                    round(
-                        random.uniform(
-                            -90,
-                            90
-                        ),
-                        6
-                    ),
+                    lat,
 
                 "longitude":
-                    round(
-                        random.uniform(
-                            -180,
-                            180
-                        ),
-                        6
-                    )
+                    lon
             },
 
             "container_temperature":
@@ -1313,10 +1422,7 @@ class TMSService:
 
             "speed_kmh":
                 round(
-                    random.uniform(
-                        30,
-                        120
-                    ),
+                    random.uniform(speed_lo, speed_hi),
                     2
                 ),
 
@@ -1471,18 +1577,17 @@ class BananaSupplyChainProcess:
 
         events = []
 
-        supplier = (
-            self.erp.get_random_supplier()
+        # [ANPASSUNG 2026-07-01] customer-first: Kunde (gewichtet nach Segment) zuerst, dann
+        # Produkt nach bevorzugter Kategorie des Segments. supplier steckt in der Produkt-Referenz
+        # (product["supplier_reference"]) und wird nicht mehr separat gezogen.
+        customer = (
+            self.erp.get_random_customer()
         )
 
         product = (
-            self.erp.get_random_product(
-                supplier
+            self.erp.get_product_for_customer(
+                customer
             )
-        )
-
-        customer = (
-            self.erp.get_random_customer()
         )
 
         # ====================================================
@@ -1513,6 +1618,8 @@ class BananaSupplyChainProcess:
         # ====================================================
 
         last_transport = None
+        # [ANPASSUNG 2026-07-02] Knoten-Temperaturen des Batches sammeln -> Qualität (Feature D)
+        node_temps = []
 
         for flow in SUPPLY_CHAIN_FLOW:
 
@@ -1537,6 +1644,11 @@ class BananaSupplyChainProcess:
                 wms_event
             )
 
+            # [ANPASSUNG 2026-07-02] Temperatur dieses Knotens für die Batch-Qualität merken
+            node_temps.append(
+                wms_event["temperature"]
+            )
+
             # ================================================
             # TRANSPORT START
             # ================================================
@@ -1551,6 +1663,12 @@ class BananaSupplyChainProcess:
                     transport_mode=transport_mode,
                     quantity=batch_event[
                         "quantity"
+                    ],
+                    order_reference=order_event[
+                        "order_reference"
+                    ],
+                    batch_identifier=batch_event[
+                        "batch_identifier"
                     ]
                 )
             )
@@ -1595,6 +1713,11 @@ class BananaSupplyChainProcess:
             )
 
             last_transport = transport_event
+
+        # [ANPASSUNG 2026-07-02] Batch-Qualität aus den gesammelten Knoten-Temperaturen ableiten
+        quality_status, spoilage_pct = batch_quality_from_temps(node_temps)
+        batch_event["quality_status"] = quality_status
+        batch_event["spoilage_pct"] = spoilage_pct
 
         # ====================================================
         # DELIVERY

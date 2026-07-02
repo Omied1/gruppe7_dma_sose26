@@ -65,7 +65,9 @@ PNG_PATH   = os.path.join(OUTPUT_DIR, "clustering.png")
 PDF_PATH   = os.path.join(OUTPUT_DIR, "clustering.pdf")
 
 # Cluster-Farben und -Labels (werden nach Analyse vergeben)
-CLUSTER_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#D97706"]
+# [ANPASSUNG 2026-07-02] Palette auf 6 Farben erweitert – mit faithful Daten kann die
+# Elbow-/Silhouette-Analyse bis k=5 (theoretisch 6) wählen (vorher IndexError bei k>4).
+CLUSTER_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#D97706", "#7C3AED", "#0891B2"]
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +82,7 @@ def load_customer_features() -> pd.DataFrame:
         SELECT
             dc.customer_name                                            AS kunde,
             dc.country                                                  AS land,
+            dc.customer_type                                            AS segment,
             COUNT(*)                                                    AS bestellungen,
             ROUND(AVG(f.total_value)::numeric,    2)                   AS avg_bestellwert,
             ROUND(AVG(f.delay_minutes)::numeric,  1)                   AS avg_verzoegerung,
@@ -88,7 +91,7 @@ def load_customer_features() -> pd.DataFrame:
             SUM(f.quantity)                                             AS gesamtmenge
         FROM dwh.fact_fulfillment f
         JOIN dwh.dim_customer dc ON f.customer_sk = dc.customer_sk
-        GROUP BY dc.customer_name, dc.country
+        GROUP BY dc.customer_name, dc.country, dc.customer_type
         ORDER BY bestellungen DESC, avg_verzoegerung ASC
     """
     df = pd.read_sql(sql, conn)
@@ -343,6 +346,13 @@ def main():
     print()
     print("Ergebnis-Übersicht:")
     print(df[["kunde", "cluster", "avg_verzoegerung", "liefertreue"]].to_string(index=False))
+
+    # [ANPASSUNG 2026-07-02] Validierung: decken sich die datengetrieben gefundenen Cluster
+    # mit den echten Kundensegmenten (customer_type)? Kreuztabelle Cluster x Segment.
+    if "segment" in df.columns and df["segment"].notna().any():
+        print()
+        print("Validierung – Cluster x echtes Segment (customer_type):")
+        print(pd.crosstab(df["cluster"], df["segment"]).to_string())
 
 
 if __name__ == "__main__":

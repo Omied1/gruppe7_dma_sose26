@@ -51,13 +51,13 @@ Die ETL-Pipeline verteilt diese Events auf **5 spezialisierte Datenbanken**:
 ### Gesamtarchitektur (Datenfluss)
 
 ```
-shared/erp/  (50 JSON)  ─┐
-shared/wms/  (70 JSON)  ──┼──► etl_load.py ──► PostgreSQL (erp/wms/tms-Schemas)
-shared/tms/  (265 JSON) ─┘         │           MongoDB (4 Collections)
+shared/erp/  (534 JSON)  ─┐
+shared/wms/  (1.522 JSON)  ──┼──► etl_load.py ──► PostgreSQL (erp/wms/tms-Schemas)
+shared/tms/  (6.300 JSON) ─┘         │           MongoDB (4 Collections)
                                    │           Redis (STRING/HASH/LIST/ZSET)
                                    │           Neo4j (8 Node-Typen, 13 Beziehungen)
                                    │
-                         generate_documents.py ──► MinIO (4 Buckets, 98 PDFs)
+                         generate_documents.py ──► MinIO (4 Buckets, 2.444 PDFs)
                                    │
                          etl_dwh.py ──► PostgreSQL dwh-Schema (Sternschema)
                                    │
@@ -77,9 +77,9 @@ gruppe7_dma_sose26/
 ├── PROJEKTANLEITUNG.md           ← Diese Datei
 │
 ├── shared/                       ← Quelldaten (JSON-Events, NICHT bearbeiten)
-│   ├── erp/   (50 Dateien)       ← ERP-Events (Supplier, Customer, Product, Order, Batch)
-│   ├── wms/   (70 Dateien)       ← WMS-Events (WarehouseSKU, NodeProcessed)
-│   └── tms/  (265 Dateien)       ← TMS-Events (Carrier, TransportRef, Shipment, Position, Delivery)
+│   ├── erp/   (534 Dateien)       ← ERP-Events (Supplier, Customer, Product, Order, Batch)
+│   ├── wms/   (1.522 Dateien)       ← WMS-Events (WarehouseSKU, NodeProcessed)
+│   └── tms/  (6.300 Dateien)       ← TMS-Events (Carrier, TransportRef, Shipment, Position, Delivery)
 │
 ├── sql/                          ← PostgreSQL DDL-Skripte (in Nummerierungsreihenfolge ausführen)
 │   ├── 01_create_schemas.sql
@@ -185,9 +185,9 @@ python3 bananasupplychain/test_data_generator.py
 
 | Ordner | Anzahl | Eventtypen |
 |--------|--------|------------|
-| `shared/erp/` | ca. 560 | SupplierCreated, CustomerCreated, ProductCreated, OrderCreated, BatchHarvested |
-| `shared/wms/` | ca. 1.600 | WarehouseSKUCreated, NodeProcessed |
-| `shared/tms/` | ca. 6.650 | CarrierCreated, TransportProductReferenceCreated, TransportStarted, ShipmentPositionUpdated, TransportCompleted, DeliveryCompleted |
+| `shared/erp/` | 534 | SupplierCreated, CustomerCreated, ProductCreated, OrderCreated, BatchHarvested |
+| `shared/wms/` | 1.522 | WarehouseSKUCreated, NodeProcessed |
+| `shared/tms/` | 6.300 | CarrierCreated, TransportProductReferenceCreated, TransportStarted, ShipmentPositionUpdated, TransportCompleted, DeliveryCompleted |
 
 **Dateinamen-Schema:**
 ```
@@ -197,7 +197,7 @@ supplychain_iteration_001_shipmentpositionupdated_uuid.json
 - `iteration_000` = Stammdaten-Runde (Initialdaten: Supplier, Customer, Product, Carrier)
 - `iteration_001` bis `iteration_010` = 10 operative Durchläufe (1 Bestellzyklus je Runde)
 
-**Timestamps:** Ab Version `etl_load.py` v2 (Patch `timeStampsPatchV2`) sind die Timestamps realistisch verteilt. Iteration 001 = KW2 2026 (05.01.), jede weitere Iteration +7 Tage. Innerhalb einer Iteration wird ein Transport-Ereignis über ~15 Tage aufgefächert (Plantage Tag 0 → Supermarkt Tag 14–15).
+**Timestamps:** Der Generator setzt echte Event-Zeitstempel direkt (nicht mehr die ETL). Zeitanker `_ITER_BASE = 2025-06-16`; Woche N = Anker + (N-1)·7 Tage, jede Bestellung zusätzlich 0–6 Tage Offset. Ein Fulfillment fächert über ~15 Tage auf (Plantage Tag 0 → Supermarkt Tag 14–15). Spanne: ~Juni 2025 → Juni 2026 (letzte ~12 Monate, alle Daten ≤ heute).
 
 ### Die 13 Eventtypen im Überblick
 
@@ -350,7 +350,7 @@ Das DWH-Schema enthält das analytische Sternschema für Teil 2.
 
 **Faktentabelle:**
 
-`dwh.fact_fulfillment` – Grain: 1 Zeile pro Endlieferung (10 Zeilen nach 10 Iterationen)
+`dwh.fact_fulfillment` – Grain: 1 Zeile pro Endlieferung (252 Zeilen bei 252 Bestellungen)
 
 | Measure | Bedeutung |
 |---------|-----------|
@@ -369,7 +369,7 @@ Das DWH-Schema enthält das analytische Sternschema für Teil 2.
 
 ---
 
-### `sql/08_data_quality_checks.sql` – Datenqualitätsprüfungen (34 Checks)
+### `sql/08_data_quality_checks.sql` – Datenqualitätsprüfungen (41 Checks)
 
 Jeder Check gibt `'PASS'` oder `'FAIL'` zurück. 6 DQ-Dimensionen:
 
@@ -382,7 +382,7 @@ Jeder Check gibt `'PASS'` oder `'FAIL'` zurück. 6 DQ-Dimensionen:
 | Aktualität | AQ | `event_timestamp` darf nicht in der Zukunft liegen |
 | Referenzielle Integrität | RI | alle `shipment_id` in `deliveries` existieren in `shipments` |
 
-**Erwartetes Ergebnis:** 31/34 PASS (91 %). 3 erwartete FAILs:
+**Erwartetes Ergebnis:** 38/41 PASS (93 %). 3 bewusste FAILs:
 - `PQ-4.10`: GPS-Koordinaten sind weltweit zufällig → kein geografischer Routenkorridor
 - `KQ-6.3`: `delivery_status = 'SUCCESSFUL'` vs. `delay_minutes > 0` → bewusste Inkonsistenz im Generator
 - `KQ-6.4`: `carrier_mode` stimmt nicht mit Transportstrecke überein (Datengenerator-Limitierung)
@@ -396,7 +396,7 @@ docker exec -i postgres psql -U user -d logistics < sql/08_data_quality_checks.s
 
 ### `sql/08b_dq_audit.sql` – Konsolidierter DQ-Audit
 
-Führt alle 34 Checks als einzelnes Result-Set aus. Nützlich für die Dokumentation der Prüfergebnisse.
+Führt alle 41 Checks als einzelnes Result-Set aus. Nützlich für die Dokumentation der Prüfergebnisse.
 
 ---
 
@@ -526,7 +526,7 @@ python3 bananasupplychain/etl_dwh.py
 python3 bananasupplychain/generate_documents.py
 ```
 
-**Erzeugte Dokumente (98 PDFs):**
+**Erzeugte Dokumente (2.444 PDFs):**
 
 | Bucket | Inhalt | Anzahl | Auslöser |
 |--------|--------|--------|---------|
@@ -558,7 +558,7 @@ python3 bananasupplychain/verify_all_systems.py
 
 ### `test_data_generator.py` – Datengenerator (anpassbar, mit Dokumentationspflicht)
 
-Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen, Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty` sowie das **Transport-Kern-Set [ANPASSUNG 2026-07-01]**: Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist = Plan + `delay_minutes`, carrier-spezifische Verzögerung) und Verspätungsgrund (`delay_reason`). Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
+Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen, Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty` sowie das **Transport-Kern-Set [ANPASSUNG 2026-07-01]**: Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist = Plan + `delay_minutes`, carrier-spezifische Verzögerung) und Verspätungsgrund (`delay_reason`), sowie **Block 2 [ANPASSUNG 2026-07-01]**: realistische GPS-Positionen (Interpolation zwischen den Knoten Ghana→Rotterdam→Deutschland, modusabhängige Geschwindigkeit → Power-BI-Geokarte) und deterministische UUIDs/Dateinamen (geseedeter RNG `det_uuid()` → Läufe reproduzierbar, kein Akkumulieren beim Re-Load), sowie **Kunden-Segmente + Preis-nach-Kategorie [ANPASSUNG 2026-07-01]**: `customer_type` (DISCOUNTER/VOLLSORTIMENTER/PREMIUM) mit festem Verhaltensprofil (gewichtete Bestellhäufigkeit, segment-abhängige Menge/Kategorie) und `unit_price` nach Produktkategorie (Standard<Sustainable<Specialty<Premium) → schaltet Clustering + Umsatz-Analysen frei; `customer_type` läuft bis `dwh.dim_customer`. Hinweis: `etl_dwh` leert die Dimensionen vor dem Laden, damit Quelländerungen übernommen werden. Weiter **Kühlkette→Qualität [ANPASSUNG 2026-07-02]**: aus den Knoten-Temperaturen eines Batches werden `quality_status` (OK/REDUCED/REJECTED) und `spoilage_pct` abgeleitet (Kühlkettenbruch = außerhalb 10–15 °C) → Felder in `erp.batches`, View `dwh.v_batch_quality` (Qualitätsrate + Schwund je Woche) für KPI Batchqualitätsrate und Chart „Batchqualität über Zeit". Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
 ```bash
 # ganze Verzeichnisse löschen (nicht per Glob shared/erp/* – bei ~6.000 Dateien sonst "argument list too long")
 rm -rf shared/erp shared/wms shared/tms
@@ -769,7 +769,7 @@ Beschreibt alle **34 Datenqualitätsregeln** gegliedert nach 6 Dimensionen. Je R
 - SQL-Check-Referenz (auf `sql/08_data_quality_checks.sql`)
 - Erwartetes Ergebnis
 
-Enthält auch das DQ-Dashboard (Übersicht: 31/34 PASS) und die Erklärung der 3 erwarteten FAILs.
+Enthält auch das DQ-Dashboard (Übersicht: 38/41 PASS) und die Erklärung der 3 erwarteten FAILs.
 
 ---
 
@@ -854,9 +854,9 @@ Vollständiges ETL-Konzept mit:
 ### `docs/13_data_quality_results.md` – DQ-Audit-Ergebnisse
 
 Dokumentiert die tatsächlichen Prüfergebnisse nach Ausführung von `sql/08b_dq_audit.sql`:
-- 31/34 PASS (91 %)
+- 38/41 PASS (93 %)
 - Detaillierte Erklärung der 3 FAILs (was erwartet wurde, was tatsächlich kam, warum das akzeptabel ist)
-- Tabellarische Ergebnisübersicht aller 34 Checks
+- Tabellarische Ergebnisübersicht aller 41 Checks
 
 ---
 
@@ -923,9 +923,9 @@ python3 bananasupplychain/test_data_generator.py
 
 **Prüfen:**
 ```bash
-ls shared/erp/ | wc -l    # ca. 560
-ls shared/wms/ | wc -l    # ca. 1.600
-ls shared/tms/ | wc -l    # ca. 6.650
+ls shared/erp/ | wc -l    # 534
+ls shared/wms/ | wc -l    # 1.522
+ls shared/tms/ | wc -l    # 6.300
 ```
 
 ---
@@ -940,9 +940,9 @@ python3 bananasupplychain/etl_load.py
 ```
 ERP: 50 Events verarbeitet
 WMS: 70 Events verarbeitet
-TMS: 265 Events verarbeitet
+TMS: 6.300 Events verarbeitet
 PostgreSQL: 10 Suppliers, 10 Customers, 10 Products, 10 Orders, 60 Shipments geladen
-MongoDB: 60 shipment_events, 60 node_events, 10 batch_tracking, 10 order_events
+MongoDB: 1.512 shipment_events, 1.512 node_events, 252 batch_tracking, 252 order_events
 Redis: alle Key-Typen gesetzt
 Neo4j: Nodes und Relationships angelegt
 ```
@@ -955,7 +955,7 @@ Neo4j: Nodes und Relationships angelegt
 python3 bananasupplychain/generate_documents.py
 ```
 
-**Erwartete Ausgabe:** 98 PDFs hochgeladen (60 + 8 + 10 + 10 + 10)
+**Erwartete Ausgabe:** 2.444 PDFs hochgeladen (1.512 + 176 + 252 + 252 + 252)
 
 ---
 
@@ -1125,12 +1125,12 @@ mc ls local/delivery-notes/
 
 - [ ] Docker-Container starten und alle 6 Dienste aktiv
 - [ ] SQL 01–08 ohne Fehler ausgeführt
-- [ ] `test_data_generator.py` ausgeführt: 50 + 70 + 265 JSON-Dateien vorhanden
+- [ ] `test_data_generator.py` ausgeführt: 534 + 1.522 + 6.300 JSON-Dateien vorhanden
 - [ ] `etl_load.py` ausgeführt: alle Records in PostgreSQL, MongoDB, Redis, Neo4j
-- [ ] `generate_documents.py` ausgeführt: 98 PDFs in MinIO
-- [ ] `etl_dwh.py` ausgeführt: 10 fact_fulfillment-Zeilen, 1095 dim_date-Zeilen
+- [ ] `generate_documents.py` ausgeführt: 2.444 PDFs in MinIO
+- [ ] `etl_dwh.py` ausgeführt: 252 fact_fulfillment-Zeilen, 1095 dim_date-Zeilen
 - [ ] `sql/09_verification_queries.sql` zeigt korrekte Counts
-- [ ] `sql/08b_dq_audit.sql` zeigt 31/34 PASS
+- [ ] `sql/08b_dq_audit.sql` zeigt 38/41 PASS
 - [ ] `verify_all_systems.py` PASS für alle Systeme
 - [ ] MDM: `SELECT mdm.resolve_canonical_key('BAN_101', 'WMS')` gibt `'BAN-101'` zurück
 - [ ] Neo4j: 6-Hop-Pfad PLANTATION → RETAIL funktioniert

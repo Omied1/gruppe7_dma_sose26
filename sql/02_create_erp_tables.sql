@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS erp.customers (
     customer_id     SERIAL          PRIMARY KEY,
     customer_number VARCHAR(20)     NOT NULL UNIQUE,    -- Business Key, z.B. "CUST-101"
     customer_name   VARCHAR(100)    NOT NULL,
+    customer_type   VARCHAR(30),                        -- [ANPASSUNG 2026-07-01] Segment: DISCOUNTER/VOLLSORTIMENTER/PREMIUM
     city            VARCHAR(50),
     country         VARCHAR(50)     NOT NULL,
     event_timestamp TIMESTAMP       NOT NULL,           -- Zeitstempel aus CustomerCreated-Event (JSON: timestamp)
@@ -48,8 +49,12 @@ CREATE TABLE IF NOT EXISTS erp.customers (
     source_event    VARCHAR(50)     NOT NULL DEFAULT 'CustomerCreated'
 );
 
+-- [ANPASSUNG 2026-07-01] Segment idempotent für bestehende DBs ergänzen
+ALTER TABLE erp.customers ADD COLUMN IF NOT EXISTS customer_type VARCHAR(30);
+
 COMMENT ON TABLE  erp.customers IS 'Kundenstammdaten aus ERP. Kunden sind Einzelhandelsketten (ALDI, LIDL, REWE etc.).';
 COMMENT ON COLUMN erp.customers.customer_number IS 'Kanonischer Schlüssel im Format CUST-NNN.';
+COMMENT ON COLUMN erp.customers.customer_type   IS 'Kundensegment mit festem Verhaltensprofil: DISCOUNTER (hohe Frequenz/Menge, Standard), VOLLSORTIMENTER (mittel), PREMIUM (niedrige Frequenz/Menge, hochwertige Kategorien). Basis für Clustering & Segmentanalysen.';
 
 -- -----------------------------------------------------------------------------
 -- Produktstammdaten
@@ -128,12 +133,20 @@ CREATE TABLE IF NOT EXISTS erp.batches (
     -- Cross-System-Referenzen (werden auch im MDM geführt)
     wms_sku                     VARCHAR(30),    -- WMS-Format: BAN_108
     tms_product_reference       VARCHAR(30),    -- TMS-Format: ban-108
+    quality_status              VARCHAR(20),    -- [ANPASSUNG 2026-07-02] Kühlketten-Qualität: OK / REDUCED / REJECTED
+    spoilage_pct                NUMERIC(5,2),   -- [ANPASSUNG 2026-07-02] Schwund in % durch Kühlkettenbrüche
     harvested_at                TIMESTAMP       NOT NULL, -- = event_timestamp (JSON: timestamp)
     created_at                  TIMESTAMP       NOT NULL DEFAULT NOW(),
     source_event                VARCHAR(50)     NOT NULL DEFAULT 'BatchHarvested'
 );
 
+-- [ANPASSUNG 2026-07-02] Kühlketten-Qualität idempotent für bestehende DBs ergänzen
+ALTER TABLE erp.batches ADD COLUMN IF NOT EXISTS quality_status VARCHAR(20);
+ALTER TABLE erp.batches ADD COLUMN IF NOT EXISTS spoilage_pct   NUMERIC(5,2);
+
 COMMENT ON TABLE  erp.batches IS 'Ernte-Batches aus ERP. Verbindet ERP-Produktcode mit WMS-SKU und TMS-Referenz. Zentrales Tracking-Objekt der Supply Chain. Kein FK zu orders – BatchHarvested enthält keine Bestellreferenz.';
+COMMENT ON COLUMN erp.batches.quality_status          IS 'Batch-Qualität nach Durchlauf: OK (keine Kühlkettenbrüche), REDUCED (1-2 Brüche), REJECTED (>=3 Brüche). Basis für Batchqualitätsrate-KPI.';
+COMMENT ON COLUMN erp.batches.spoilage_pct            IS 'Geschätzter Schwund in Prozent durch Kühlkettenbrüche (OK=0, REDUCED 5-20, REJECTED 30-60).';
 COMMENT ON COLUMN erp.batches.batch_identifier        IS 'Eindeutiger Batch-Identifier im Format BATCH-<uuid>.';
 COMMENT ON COLUMN erp.batches.wms_sku                 IS 'WMS-spezifische SKU (Unterstriche statt Bindestriche). Redundant mit mdm.source_mappings.';
 COMMENT ON COLUMN erp.batches.tms_product_reference   IS 'TMS-spezifische Produktreferenz (Kleinbuchstaben). Redundant mit mdm.source_mappings.';

@@ -12,9 +12,9 @@ Erwartete Größenordnung nach Neugenerierung mit dem aktuellen Generatorstand:
 
 | Quellsystem | Anzahl JSON-Dateien | Eventtypen | Beschreibung |
 |---|---|---|---|
-| ERP | ca. 560 | 5 | Enterprise Resource Planning – Stamm- und Bewegungsdaten |
-| WMS | ca. 1.600 | 2 | Warehouse Management System – Lager- und Knotenverarbeitung |
-| TMS | ca. 6.650 | 6 | Transport Management System – Carrier, Transporte, GPS, Lieferungen |
+| ERP | 534 | 5 | Enterprise Resource Planning – Stamm- und Bewegungsdaten |
+| WMS | 1.522 | 2 | Warehouse Management System – Lager- und Knotenverarbeitung |
+| TMS | 6.300 | 6 | Transport Management System – Carrier, Transporte, GPS, Lieferungen |
 | **Gesamt** | **ca. 8.810** | **13** | Alle verarbeitbaren Ereignisse in der Supply Chain (52 Wochen + Stammdaten) |
 
 ---
@@ -139,7 +139,7 @@ Kunden sind Einzelhandelsketten (ALDI, AUCHAN, REWE etc.) als Endpunkte der Fulf
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | ERP |
-| **Anzahl Dateien** | 10 (10 Iterationen) |
+| **Anzahl Dateien** | 252 (52 Wochen, variable Bestellungen/Woche) |
 | **Datenart** | Bewegungsdaten |
 | **Primäre Zieldatenbank** | PostgreSQL (`erp`-Schema, Tabellen: `orders`, `order_items`) |
 | **Sekundäre Zieldatenbank** | Neo4j (`Order`-Knoten), MinIO (Auftragsbestätigung) |
@@ -177,7 +177,7 @@ Bestellungen initiieren die gesamte Supply Chain und sind der kaufmännische Ker
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | ERP |
-| **Anzahl Dateien** | 10 (10 Iterationen, immer an `BANANA_PLANTATION`) |
+| **Anzahl Dateien** | 252 (1 Batch je Bestellung, immer an `BANANA_PLANTATION`) |
 | **Datenart** | Bewegungsdaten |
 | **Primäre Zieldatenbank** | PostgreSQL (`erp`-Schema, Tabelle: `batches`) |
 | **Sekundäre Zieldatenbank** | Neo4j (`Batch`-Knoten), MinIO (Chargenzertifikat) |
@@ -242,7 +242,7 @@ Das WMS verwaltet Produkte unter Underscore-SKUs (`BAN_101`). Das Feld `erp_prod
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | WMS |
-| **Anzahl Dateien** | 60 (10 Iterationen × 6 Knoten) |
+| **Anzahl Dateien** | 1.512 (252 Bestellungen × 6 Knoten) |
 | **Datenart** | Eventdaten |
 | **Primäre Zieldatenbank** | PostgreSQL (`wms`-Schema, Tabelle: `node_processings`) |
 | **Sekundäre Zieldatenbank** | MongoDB (Collection: `node_events`), Neo4j (`PROCESSED_AT`-Kante) |
@@ -275,7 +275,7 @@ Das WMS verwaltet Produkte unter Underscore-SKUs (`BAN_101`). Das Feld `erp_prod
 ```
 
 **Fachliche Begründung:**  
-Jeder WMS-Knoten erzeugt genau ein `NodeProcessed`-Event pro Batch-Iteration. Die Temperatur (hier: 12,57 °C) ist qualitätskritisch – der Sollbereich für Cavendish-Bananen beträgt 10–15 °C (Kühlkette). `status: COMPLETED` bedeutet, dass der Batch den Knoten vollständig verarbeitet verlassen hat. Mit 60 Events (6 Knoten × 10 Iterationen) ist dies der volumenstärkste WMS-Eventtyp.
+Jeder WMS-Knoten erzeugt genau ein `NodeProcessed`-Event pro Batch-Iteration. Die Temperatur (hier: 12,57 °C) ist qualitätskritisch – der Sollbereich für Cavendish-Bananen beträgt 10–15 °C (Kühlkette). `status: COMPLETED` bedeutet, dass der Batch den Knoten vollständig verarbeitet verlassen hat. Mit 1.512 Events (6 Knoten × 252 Bestellungen) ist dies der volumenstärkste WMS-Eventtyp.
 
 **Begründung PostgreSQL:** Strukturierte Knotenverarbeitungen mit referenzieller Integrität zu `batches` (via `batch_reference`). Grundlage für DQM-Checks (Temperaturausreißer-Abfragen).
 
@@ -352,7 +352,7 @@ Spiegelstruktur zu `WarehouseSKUCreated` auf TMS-Seite. `ban-101` (Kleinbuchstab
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | TMS |
-| **Anzahl Dateien** | 60 (10 Iterationen × 6 Transportstrecken) |
+| **Anzahl Dateien** | 1.512 (252 Bestellungen × 6 Transportstrecken) |
 | **Datenart** | Bewegungsdaten |
 | **Primäre Zieldatenbank** | PostgreSQL (`tms`-Schema, Tabelle: `shipments`) |
 | **Sekundäre Zieldatenbank** | MongoDB (Collection: `shipment_events`), Neo4j (`Shipment`-Knoten + Kanten), MinIO (Transportauftrag) |
@@ -400,7 +400,7 @@ Spiegelstruktur zu `WarehouseSKUCreated` auf TMS-Seite. `ban-101` (Kleinbuchstab
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | TMS |
-| **Anzahl Dateien** | 118 (ca. 2 GPS-Updates pro Transportstrecke) |
+| **Anzahl Dateien** | 3.009 (1–3 GPS-Updates pro Transportstrecke) |
 | **Datenart** | **Echtzeitdaten** |
 | **Primäre Zieldatenbank** | **Redis** (aktueller Standort) |
 | **Sekundäre Zieldatenbank** | MongoDB (Collection: `shipment_events`, Archivierung) |
@@ -439,7 +439,7 @@ Spiegelstruktur zu `WarehouseSKUCreated` auf TMS-Seite. `ban-101` (Kleinbuchstab
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | TMS |
-| **Anzahl Dateien** | 60 (10 Iterationen × 6 Strecken) |
+| **Anzahl Dateien** | 1.512 (252 Bestellungen × 6 Strecken) |
 | **Datenart** | Eventdaten |
 | **Primäre Zieldatenbank** | PostgreSQL (`tms`-Schema, Tabelle: `transport_completions`) |
 | **Sekundäre Zieldatenbank** | MongoDB (Collection: `shipment_events`) |
@@ -471,7 +471,7 @@ Spiegelstruktur zu `WarehouseSKUCreated` auf TMS-Seite. `ban-101` (Kleinbuchstab
 | Attribut | Wert |
 |---|---|
 | **Quellsystem** | TMS |
-| **Anzahl Dateien** | 10 (10 Iterationen, immer an `RETAIL_STORE`) |
+| **Anzahl Dateien** | 252 (1 Lieferung je Bestellung, immer an `RETAIL_STORE`) |
 | **Datenart** | Eventdaten |
 | **Primäre Zieldatenbank** | PostgreSQL (`tms`-Schema, Tabelle: `deliveries`) |
 | **Sekundäre Zieldatenbank** | MongoDB (Collection: `shipment_events`), MinIO (Lieferschein) |

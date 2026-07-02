@@ -198,8 +198,8 @@ flowchart TB
 
 ```
 test_data_generator.py
-   → shared/erp/  (50 JSON-Dateien: Stammdaten + Orders + Batches)
-   → shared/wms/  (70 JSON-Dateien: SKUs + Knotenverarbeitungen)
+   → shared/erp/  (534 JSON-Dateien: Stammdaten + Orders + Batches)
+   → shared/wms/  (1.522 JSON-Dateien: SKUs + Knotenverarbeitungen)
    → shared/tms/  (257 JSON-Dateien: Carrier + Transporte + GPS + Lieferungen)
 ```
 

@@ -29,11 +29,15 @@ CREATE TABLE IF NOT EXISTS dwh.dim_customer (
     customer_sk         SERIAL          PRIMARY KEY,        -- Surrogate Key (DWH-intern)
     customer_number     VARCHAR(20)     NOT NULL UNIQUE,    -- Business Key aus ERP
     customer_name       VARCHAR(100)    NOT NULL,
+    customer_type       VARCHAR(30),                       -- [ANPASSUNG 2026-07-01] Segment (Slicer/Clustering-Dimension)
     city                VARCHAR(50),
     country             VARCHAR(50)     NOT NULL,
     source_created_at   TIMESTAMP,                         -- event_timestamp aus erp.customers (CustomerCreated)
     etl_loaded_at       TIMESTAMP       NOT NULL DEFAULT NOW()
 );
+
+-- [ANPASSUNG 2026-07-01] Segment idempotent für bestehende DBs ergänzen
+ALTER TABLE dwh.dim_customer ADD COLUMN IF NOT EXISTS customer_type VARCHAR(30);
 
 COMMENT ON TABLE  dwh.dim_customer IS 'Kunden-Dimension. Denormalisiert aus erp.customers via ETL. customer_number ist Business Key.';
 COMMENT ON COLUMN dwh.dim_customer.customer_sk        IS 'Surrogate Key (DWH-intern). Wird in fact_fulfillment als FK verwendet.';
@@ -301,6 +305,31 @@ GROUP BY c.carrier_code, c.carrier_name;
 
 COMMENT ON VIEW dwh.v_carrier_speed_performance IS
     'Carrier-Speed-Performance auf GPS-/TMS-Grain: Ø/min/max speed_kmh, GPS-Punkte und Shipments je Carrier. Separate DWH-Analytics-View für PowerBI, damit Fulfillment-Grain und GPS-Grain nicht vermischt werden.';
+
+-- -----------------------------------------------------------------------------
+-- View: Batch-Qualität (Kühlkette -> Qualität, Feature D)
+-- Grain: 1 Zeile pro Kalenderwoche (Erntezeitpunkt)
+-- Verwendung: PowerBI/Chart „Batchqualität über Zeit"; KPI Batchqualitätsrate
+-- Hinweis: Batch-Grain (erp.batches), nicht Fulfillment-Grain -> separate View wie v_carrier_speed_performance.
+-- [ANPASSUNG 2026-07-02]
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS dwh.v_batch_quality;
+
+CREATE OR REPLACE VIEW dwh.v_batch_quality AS
+SELECT
+    DATE_TRUNC('week', harvested_at)::DATE                                              AS kalenderwoche,
+    COUNT(*)                                                                            AS batches,
+    SUM(CASE WHEN quality_status = 'OK'       THEN 1 ELSE 0 END)                        AS ok,
+    SUM(CASE WHEN quality_status = 'REDUCED'  THEN 1 ELSE 0 END)                        AS reduced,
+    SUM(CASE WHEN quality_status = 'REJECTED' THEN 1 ELSE 0 END)                        AS rejected,
+    ROUND(100.0 * SUM(CASE WHEN quality_status = 'OK' THEN 1 ELSE 0 END) / COUNT(*), 1) AS qualitaetsrate_pct,
+    ROUND(AVG(spoilage_pct), 2)                                                         AS avg_schwund_pct
+FROM erp.batches
+GROUP BY DATE_TRUNC('week', harvested_at)
+ORDER BY kalenderwoche;
+
+COMMENT ON VIEW dwh.v_batch_quality IS
+    'Batch-Qualität je Woche (Kühlkette -> Qualität, Feature D). qualitaetsrate_pct = Anteil OK-Batches; avg_schwund_pct = Ø Schwund. Batch-Grain (erp.batches), separate View analog v_carrier_speed_performance. Basis für KPI Batchqualitätsrate und Chart „Batchqualität über Zeit".';
 
 -- -----------------------------------------------------------------------------
 -- View: KPI-Zusammenfassung
