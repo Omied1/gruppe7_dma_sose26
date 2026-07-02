@@ -10,18 +10,17 @@ Methode: ARIMA (AutoRegressive Integrated Moving Average)
   - Geeignet für saisonale Muster (Bananenabsatz: Sommer-Peak)
 
 Datenbasis:
-  - Echter Datenpunkt: Mai 2026 = 4.949 Einheiten (aus dwh.fact_fulfillment)
-  - Synthetische History: Jan 2024 – Apr 2026 (24 Monate)
+  - Echte Monatsdaten aus dwh.v_monthly_revenue
+    (aktueller Generatorstand: 13 Monate, 252 Fulfillments)
+  - Synthetische Vorlauf-History: 24 Monate vor dem ersten echten Monat
     → generiert auf Basis der echten Statistiken (Mittelwert, Saisonalität)
     → TRANSPARENZ: synthetisch generierte Punkte sind im Chart markiert
 
 Begründung synthetische History:
-  Die aktuelle Datenbasis enthält nur 1 Monat (Mai 2026, 10 Lieferungen).
-  ARIMA benötigt mindestens 24-36 Datenpunkte für stabile Prognosen.
-  Da der Datengenerator noch nicht mit historischen Zeitstempeln ausgeführt
-  wurde (→ To-Do), wird eine plausible History simuliert.
-  Nach mehrmaligem Ausführen des Generators mit Monatsstempeln (geplant)
-  kann dieses Skript ohne Änderung auf echte Daten umgestellt werden.
+  Der umgebaute Datengenerator liefert bereits 13 echte Monate. Für ein
+  stabileres ARIMA-Training wird die kurze echte Historie transparent um
+  synthetische Vorlaufmonate ergänzt. Sobald mehr reale Historie vorliegt,
+  kann SYNTHETIC_MONTHS reduziert oder auf 0 gesetzt werden.
 
 Ausgabe:
   analytics/forecast.png
@@ -35,6 +34,7 @@ Ausführung:
 
 import sys
 import os
+import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -45,6 +45,7 @@ try:
     import psycopg2
     import pandas as pd
     import numpy as np
+    os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "matplotlib"))
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -65,8 +66,8 @@ PNG_PATH     = os.path.join(OUTPUT_DIR, "forecast.png")
 PDF_PATH     = os.path.join(OUTPUT_DIR, "forecast.pdf")
 TXT_PATH     = os.path.join(OUTPUT_DIR, "forecast_model_summary.txt")
 
-FORECAST_MONTHS = 3          # Jun, Jul, Aug 2026
-SYNTHETIC_MONTHS = 24        # Jan 2024 – Apr 2026
+FORECAST_MONTHS = 3          # 3 Monate nach der letzten echten DWH-Periode
+SYNTHETIC_MONTHS = 24        # Vorlaufmonate vor der ersten echten DWH-Periode
 RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
@@ -83,22 +84,20 @@ SEASONAL_PATTERN = {
 # Schritt 1: Echte Zeitreihendaten aus DWH laden
 # ---------------------------------------------------------------------------
 def load_real_timeseries() -> pd.DataFrame:
-    """Lädt monatlich aggregierte Absatzdaten aus fact_fulfillment.
-    Gibt Menge (SUM quantity) und Umsatz (SUM total_value) pro Monat zurück."""
+    """Lädt monatlich aggregierte Absatzdaten aus dwh.v_monthly_revenue."""
     print("[1/5] Lade echte Zeitreihendaten aus DWH...")
 
     conn = psycopg2.connect(PG_DSN)
     sql = """
         SELECT
-            dd.year                        AS jahr,
-            dd.month                       AS monat,
-            SUM(f.quantity)                AS menge,
-            ROUND(SUM(f.total_value)::numeric, 2) AS umsatz,
-            COUNT(*)                       AS auftraege
-        FROM dwh.fact_fulfillment f
-        JOIN dwh.dim_date dd ON f.order_date_sk = dd.date_sk
-        GROUP BY dd.year, dd.month
-        ORDER BY dd.year, dd.month
+            year                           AS jahr,
+            month                          AS monat,
+            SUM(total_quantity)            AS menge,
+            ROUND(SUM(total_revenue_eur)::numeric, 2) AS umsatz,
+            SUM(num_shipments)             AS auftraege
+        FROM dwh.v_monthly_revenue
+        GROUP BY year, month
+        ORDER BY year, month
     """
     df = pd.read_sql(sql, conn)
     conn.close()
@@ -108,6 +107,7 @@ def load_real_timeseries() -> pd.DataFrame:
     )
     df["menge"]   = pd.to_numeric(df["menge"], errors="coerce")
     df["umsatz"]  = pd.to_numeric(df["umsatz"], errors="coerce")
+    df["auftraege"] = pd.to_numeric(df["auftraege"], errors="coerce").astype(int)
     df["synthetisch"] = False
 
     print(f"  {len(df)} echte Monate geladen:")
@@ -230,7 +230,7 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
                       real_df: pd.DataFrame, fitted_model, d: int):
     """Berechnet RMSE am echten Datenpunkt und erstellt Prognose-Chart."""
 
-    # RMSE gegen echten Datenpunkt (Mai 2026)
+    # RMSE gegen echte Monatswerte aus dem DWH
     real_vals   = real_df.set_index("datum")["menge"]
     fitted_vals = fitted_model.fittedvalues
 
@@ -264,9 +264,9 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
     ax1.fill_between(synth["datum"], synth["menge"] * 0.85, synth["menge"] * 1.15,
                      color="#94A3B8", alpha=0.15)
 
-    # Echter Datenpunkt
+    # Echte Monatswerte
     ax1.scatter(real["datum"], real["menge"],
-                color="#1E3A5F", s=120, zorder=10, label="Echter Messwert (Mai 2026)")
+                color="#1E3A5F", s=120, zorder=10, label="Echte Monatswerte (DWH)")
     ax1.plot(real["datum"], real["menge"], color="#1E3A5F", linewidth=2)
 
     # Prognose
@@ -351,11 +351,11 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
 
     info_lines += [
         "",
-        "⚠ Hinweis:",
+        "Hinweis:",
         "Synthetische History wurde auf",
         "Basis realer Statistiken erzeugt.",
         "Prognose verbessert sich deutlich",
-        "nach mehreren Generator-Läufen.",
+        "mit längerer echter Historie.",
     ]
 
     ax2.text(0.05, 0.98, "\n".join(info_lines),

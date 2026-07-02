@@ -11,9 +11,10 @@
 
 
 -- ============================================================================
--- KPI-Übersicht (alle 5 Pflicht-KPIs in einer Zeile, via vorberechnete View)
+-- KPI-Übersicht (Fulfillment-Kernwerte via vorberechnete View)
 -- ============================================================================
--- Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Umsatz
+-- Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Umsatz.
+-- Transportdauer und Batchqualitätsrate werden darunter separat berechnet.
 SELECT * FROM dwh.v_kpi_summary;
 
 

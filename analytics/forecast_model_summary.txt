@@ -3,7 +3,7 @@
 Dep. Variable:                  menge   No. Observations:                   37
 Model:                 ARIMA(1, 0, 1)   Log Likelihood                -338.806
 Date:                Thu, 02 Jul 2026   AIC                            685.613
-Time:                        13:49:57   BIC                            692.056
+Time:                        18:30:14   BIC                            692.056
 Sample:                    06-01-2023   HQIC                           687.884
                          - 06-01-2026                                         
 Covariance Type:                  opg                                         

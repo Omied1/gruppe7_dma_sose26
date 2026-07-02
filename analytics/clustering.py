@@ -32,6 +32,7 @@ Ausführung:
 
 import sys
 import os
+import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -43,6 +44,7 @@ try:
     import psycopg2.extras
     import pandas as pd
     import numpy as np
+    os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "matplotlib"))
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

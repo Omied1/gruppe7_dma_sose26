@@ -47,7 +47,7 @@ und getestet.
 | `sql/04_create_tms_tables.sql` | 6 TMS-Tabellen; `event_timestamp` in `carriers` + `transport_product_references`; `carrier_id NOT NULL` in `shipments` | getestet |
 | `sql/05_create_mdm_tables.sql` | 3 MDM-Tabellen; vollst. Seed-Daten (42 GR / 69 Mappings); `resolve_canonical_key()` + `resolve_canonical_key_fuzzy()`; VIEW `mdm.v_golden_overview`; Diagnose-Queries für nicht-harmonisierte Schlüssel; Partial Unique Index; 7 Prüfqueries | erstellt |
 | `sql/06_create_metadata_tables.sql` | 3 Meta-Tabellen; explizite Spalteneinträge für alle ERP/WMS/TMS-Kerntabellen (customers, batches, warehouse_skus, supply_chain_nodes, carriers, transport_product_references ergänzt); delay_minutes Quality Rule um SLA-Schwelle ergänzt; TMS.TRANSPORT_COMPLETIONS und TMS.DELIVERIES vollständig dokumentiert | erstellt |
-| `sql/07_create_dwh_schema.sql` | 7 Dimensionen + 1 Faktentabelle + Date Spine 2025-2027; `on_time_flag` ergaenzt; ALTER TABLE IF NOT EXISTS fuer Upgrade-Sicherheit; 3 analytische Views (v_carrier_performance, v_kpi_summary, v_monthly_revenue); Pruefqueries | abgabefähig |
+| `sql/07_create_dwh_schema.sql` | 7 Dimensionen + 1 Faktentabelle + Date Spine 2025-2027; `on_time_flag` ergaenzt; ALTER TABLE IF NOT EXISTS fuer Upgrade-Sicherheit; 5 analytische Views (`v_carrier_performance`, `v_carrier_speed_performance`, `v_batch_quality`, `v_kpi_summary`, `v_monthly_revenue`); Pruefqueries | abgabefähig |
 | `sql/08_data_quality_checks.sql` | 41 DQ-Prüfungen in 6 Dimensionen (inkl. 7.1–7.7 Kern-Set/Segment/Qualität); 38/41 PASS (3 bewusste FAILs: 4.3/4.4/6.3) | getestet |
 | `sql/08b_dq_audit.sql` | Konsolidierter Audit (41 Checks, 1 Result-Set); 7.1–7.7 ergänzt; 3 bewusste FAILs (4.3/4.4/6.3), 4.10 + 6.4 behoben | getestet |
 | `sql/09_verification_queries.sql` | Befüllungsnachweise: COUNT für alle Tabellen (ERP/WMS/TMS/MDM/Meta/DWH), FK-Integrität (intra-Schema + Cross-Schema), DWH Date Spine, fact_fulfillment Plausibilität, MDM Schlüsselauflösung | erstellt |
@@ -82,7 +82,7 @@ und getestet.
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `analytics/dashboard.py` | 5 BI-Charts (Umsatz-Zeitreihe, Carrier-Performance, Umsatz nach Produkt, Verzoegerung, Kuehlkette); Output: PDF + PNG + HTML | abgabefaehig |
+| `analytics/dashboard.py` | 5 BI-Charts (Umsatz-Zeitreihe nach Kundensegment, Verspaetungsgruende, Bestellwert-Boxplot nach Kundentyp, Transportkosten je Route, Batchqualitaet ueber Zeit); Output: PDF + PNG + HTML | abgabefaehig |
 | `analytics/clustering.py` | Kundensegmentierung k-Means; Elbow-Methode; Silhouette-Score; Output: PDF + PNG | abgabefaehig |
 | `analytics/forecast.py` | Absatzprognose ARIMA(1,0,1); 13 echte Monate + 24 Monate synthetische History (transparent markiert); 3-Monats-Prognose, RMSE 3.626 / MAE 3.035; Output: PDF + PNG + TXT | abgabefaehig |
 | `analytics/descriptive_stats.py` | Deskriptive Statistik (A-1): n/Min/Max/Mittelwert/Median/Std/Q1/Q3/IQR + IQR-Ausreißer fuer delay_minutes, avg_temperature, quantity, unit_price, total_value; Output: Konsole + `descriptive_stats.txt`; getestet gegen DWH (252 Zeilen) | abgabefaehig |
@@ -142,9 +142,9 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 
 | # | Aufgabe | Status | Nachweis |
 |---|---|---|---|
-| A-3 | 5 Python-Charts (Matplotlib/Seaborn/Plotly): Umsatz-Zeitreihe, Carrier-Performance, Umsatz nach Produkt, Verzoegerung pro Knoten, Kuehlkettenqualitaet | **abgabefaehig** | `analytics/dashboard.py` → `dashboard.pdf`, `dashboard.png`, `dashboard.html` |
+| A-3 | 5 Python-Charts (Matplotlib/Seaborn/Plotly): Umsatz-Zeitreihe nach Kundensegment, Verspaetungsgruende, Bestellwert-Boxplot nach Kundentyp, Transportkosten je Route, Batchqualitaet ueber Zeit | **abgabefaehig** | `analytics/dashboard.py` → `dashboard.pdf`, `dashboard.png`, `dashboard.html` |
 | A-5 | Clustering: Kundensegmentierung mit k-Means (Elbow-Methode, 4 Features, Silhouette-Score) | **abgabefaehig** | `analytics/clustering.py` → `clustering.pdf`, `clustering.png` |
-| A-6 | Absatzprognose: ARIMA auf Bestellvolumen (RMSE/MAE im Chart; 26 Monate synthetische History + 1 echter Datenpunkt Mai 2026 – transparent markiert) | **abgabefaehig** | `analytics/forecast.py` → `forecast.pdf`, `forecast.png`, `forecast_model_summary.txt` |
+| A-6 | Absatzprognose: ARIMA auf Bestellvolumen (RMSE/MAE im Chart; 13 echte Monate + 24 Monate synthetische Vorlauf-History transparent markiert) | **abgabefaehig** | `analytics/forecast.py` → `forecast.pdf`, `forecast.png`, `forecast_model_summary.txt` |
 | A-1 | Deskriptive Statistik: n/Min/Max/Mittelwert/Median/Std/Q1/Q3/IQR + IQR-Ausreißer fuer delay_minutes, avg_temperature, quantity, unit_price, total_value | **abgabefaehig** | `analytics/descriptive_stats.py` → `descriptive_stats.txt`; `docs/14_analytics_kpis.md` §2 |
 | A-2 | KPI-Definition: 5 Pflicht-KPIs + Ursachen-KPI mit Formel, Datenquelle, Zielwert, Ist-Wert (SQL aus DWH) | **abgabefaehig** | `sql/10_kpi_queries.sql` (getestet); `docs/14_analytics_kpis.md` §1 |
 | A-4 | PowerBI-Dashboard: Konzept (Datenmodell, DAX-Measures, 4 Report-Seiten, Slicer, Umsetzungsleitfaden) | **abgabefaehig** | `docs/15_powerbi_concept.md` (.pbix optional, Windows-only) |

@@ -243,7 +243,7 @@ ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS transport_cost NUMERIC
 ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS distance_km    NUMERIC(10,2);
 ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS delay_reason   VARCHAR(30);
 
-COMMENT ON COLUMN dwh.fact_fulfillment.transport_cost IS 'Geschätzte Gesamt-Transportkosten je Fulfillment (Summe der 6 Routen-Legs, EUR). [ANNAHME]: da TMS-Shipments nicht an eine Bestellung gebunden sind, Ø je Leg-Typ pro Produkt, über die Route summiert.';
+COMMENT ON COLUMN dwh.fact_fulfillment.transport_cost IS 'Gesamt-Transportkosten je Fulfillment (Summe der 6 Routen-Legs, EUR). Seit dem faithful Mapping werden TMS-Shipments über order_reference exakt der Bestellung zugeordnet.';
 COMMENT ON COLUMN dwh.fact_fulfillment.distance_km    IS 'Geschätzte Gesamt-Transportdistanz je Fulfillment (Summe der 6 Routen-Legs, km). Dominiert von der Seefracht Afrika->Europa.';
 COMMENT ON COLUMN dwh.fact_fulfillment.delay_reason   IS 'Verspätungsgrund des finalen Transport-Legs (NULL = pünktlich). Slicer-Dimension für Ursachenanalyse.';
 
@@ -357,7 +357,7 @@ SELECT
 FROM  dwh.fact_fulfillment;
 
 COMMENT ON VIEW dwh.v_kpi_summary IS
-    'Gesamtaggregat aller 5 Pflicht-KPIs: Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz. Direkte Datenquelle für PowerBI KPI-Cards.';
+    'Fulfillment-Kernwerte: Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz. Batchqualitätsrate liegt separat in v_batch_quality bzw. erp.batches.';
 
 -- -----------------------------------------------------------------------------
 -- View: Monatliche Umsatz-Zeitreihe (Absatzprognose-Basis)
@@ -394,8 +394,8 @@ COMMENT ON VIEW dwh.v_monthly_revenue IS
 -- SELECT COUNT(*) FROM dwh.dim_supply_chain_node;  -- erwartet:  7
 -- SELECT COUNT(*) FROM dwh.dim_date;               -- erwartet: 1095 (2025-01-01 bis 2027-12-31)
 -- SELECT COUNT(*) FROM dwh.dim_delivery_status;    -- erwartet:  4
--- SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 10 (1 Endlieferung pro Order/Batch)
--- SELECT * FROM dwh.v_kpi_summary;                 -- 1 Zeile mit 5 KPI-Werten
+-- SELECT COUNT(*) FROM dwh.fact_fulfillment;       -- erwartet: 252 (1 Endlieferung pro Order/Batch)
+-- SELECT * FROM dwh.v_kpi_summary;                 -- 1 Zeile mit Fulfillment-Kernwerten
 -- SELECT * FROM dwh.v_carrier_performance;         -- Zeilen je nach tatsächlichem Shipment-Aufkommen (INNER JOIN, max. 5)
 -- SELECT * FROM dwh.v_carrier_speed_performance;   -- 1 Zeile pro Carrier mit GPS-Speed-KPIs
 

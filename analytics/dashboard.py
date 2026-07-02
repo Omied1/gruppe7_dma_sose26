@@ -27,6 +27,7 @@ Ausführung:
 import sys
 import os
 import decimal
+import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -44,6 +45,7 @@ try:
 except ImportError:
     MISSING.append("pandas")
 try:
+    os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "matplotlib"))
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -408,19 +410,18 @@ def build_interactive_dashboard(datasets):
         font={"family": "Inter, Arial, sans-serif", "size": 11},
         legend={"orientation": "h", "yanchor": "bottom", "y": -0.08, "x": 0.5, "xanchor": "center"},
         margin={"t": 100, "b": 80},
-        annotations=[
-            {
-                "text": "Datenquelle: DWH + operative Schemas (tms, v_batch_quality) | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
-                "x": 0.5, "y": -0.06, "xref": "paper", "yref": "paper",
-                "showarrow": False, "font": {"size": 10, "color": "#64748B"}
-            }
-        ]
+    )
+    fig.add_annotation(
+        text="Datenquelle: DWH + operative Schemas (tms, v_batch_quality) | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
+        x=0.5, y=-0.06, xref="paper", yref="paper",
+        showarrow=False, font={"size": 10, "color": "#64748B"}
     )
 
     fig.write_html(
         HTML_PATH,
         include_plotlyjs="cdn",
         full_html=True,
+        div_id="banana-supply-chain-dashboard",
         config={"displayModeBar": True, "scrollZoom": True}
     )
     print(f"[OK] Interaktives Dashboard gespeichert:")

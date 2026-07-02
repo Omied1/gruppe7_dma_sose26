@@ -116,7 +116,8 @@ Umsatz nach Lieferdatum =
 Umsatz YTD = TOTALYTD ( [Gesamtumsatz (€)], dim_date[full_date] )
 ```
 
-Erwartete Ist-Werte (zur Validierung des Modells gegen `dwh.v_kpi_summary`):
+Erwartete Ist-Werte (zur Validierung gegen `dwh.v_kpi_summary`,
+`dwh.v_batch_quality` und die Date-Joins):
 Liefertreue **96,8 %**, Ø Transportdauer **14,92 Tage**, Temperaturausreißer
 **7,9 %**, Ø Bestellwert **1.289,72 €**, Gesamtumsatz **325.008,80 €**,
 Batchqualitätsrate **36,5 %**.

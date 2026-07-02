@@ -18,7 +18,9 @@ DWH-Sternschema (`dwh.*`), Grain = **1 Zeile je Endlieferung** in
 
 Fünf Business-KPIs plus ein Ursachen-KPI. Jeder KPI: **Name · Formel ·
 Datenquelle · Zielwert · Ist-Wert**. Die vorberechnete View
-`dwh.v_kpi_summary` liefert die fünf Pflicht-KPIs in einer Zeile.
+`dwh.v_kpi_summary` liefert die Fulfillment-Kernwerte; Transportdauer und
+Batchqualitätsrate werden in `sql/10_kpi_queries.sql` separat aus
+`dim_date` bzw. `erp.batches`/`dwh.v_batch_quality` berechnet.
 
 | # | KPI | Formel | Datenquelle | Zielwert | Ist-Wert | Status |
 |---|-----|--------|-------------|----------|----------|--------|
@@ -156,6 +158,6 @@ docker exec -i postgres psql -U user -d logistics < sql/10_kpi_queries.sql
 # Deskriptive Statistik (Konsole + analytics/descriptive_stats.txt)
 python3 analytics/descriptive_stats.py
 
-# Fünf Pflicht-KPIs in einer Zeile
+# Fulfillment-Kernwerte in einer Zeile
 docker exec -i postgres psql -U user -d logistics -c "SELECT * FROM dwh.v_kpi_summary;"
 ```

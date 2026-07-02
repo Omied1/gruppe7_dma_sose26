@@ -282,7 +282,7 @@ Vier vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenque
 
 ### `dwh.v_kpi_summary`
 **Grain:** 1 Zeile (Gesamtaggregat)  
-**Felder:** Alle 5 Pflicht-KPIs direkt als Spalten (Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz)  
+**Felder:** Fulfillment-Kernwerte (Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz). Die Batchqualitätsrate liegt separat in `dwh.v_batch_quality` / `erp.batches`.  
 **Verwendung:** PowerBI KPI-Cards, Ergebnis-Tabelle im Abschlussbericht
 
 ### `dwh.v_monthly_revenue`
@@ -318,7 +318,7 @@ FROM   dwh.v_carrier_speed_performance
 ORDER  BY avg_speed_kmh DESC;
 ```
 
-### Alle 5 Pflicht-KPIs in einer Abfrage
+### Fulfillment-KPI-Übersicht
 ```sql
 SELECT * FROM dwh.v_kpi_summary;
 ```
