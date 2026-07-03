@@ -143,7 +143,7 @@ bestätigt die Plausibilität des Datengenerators.
 | Baustein | Datei | Nutzt KPIs / Statistik |
 |---|---|---|
 | 5 Python-Charts (A-3) | `analytics/dashboard.py` | Umsatz/Segment, Verspätungsgründe, Bestellwert-Boxplot, Transportkosten, Batchqualität |
-| Clustering (A-5) | `analytics/clustering.py` | Bestellhäufigkeit, Ø Bestellwert, Ø Verzögerung → Segmente |
+| Clustering (A-5) | `analytics/clustering.py` | k=3-Kundensegmente; Business-Sicht Ø Bestellwert vs. Ø Verzögerung |
 | Absatzprognose (A-6) | `analytics/forecast.py` | Monatliche Menge aus `v_monthly_revenue` |
 | PowerBI-Konzept (A-4) | [`docs/15_powerbi_concept.md`](15_powerbi_concept.md) | KPI-Cards aus `v_kpi_summary` |
 

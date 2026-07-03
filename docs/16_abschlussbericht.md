@@ -71,7 +71,7 @@ belastbar (`docs/07`). Fünf vorberechnete Views dienen als direkte
 Analytics-Quelle.
 
 ### 2.6 Verifikation
-`verify_all_systems.py` prüft alle fünf Zielsysteme end-to-end: **43/43 PASS**.
+`verify_all_systems.py` prüft alle fünf Zielsysteme end-to-end: **43 Checks, 0 FAIL** (41 PASS + 2 TTL-WARN beim Redis-Cache).
 
 ---
 
@@ -103,16 +103,17 @@ Kundensegment, Verspätungsgründe, Bestellwert-Boxplot je Kundentyp, Ø
 Transportkosten je Route, Batchqualität über Zeit.
 
 ### 3.4 Clustering (`analytics/clustering.py`)
-k-Means-Kundensegmentierung, Optimum via Elbow/Silhouette bei **k = 5**
-(Silhouette 0,29). Features: Bestellhäufigkeit, Ø Bestellwert, Ø Verzögerung,
-Liefertreue. Eine Kreuztabelle validiert die Cluster gegen das echte
-`customer_type` – Discounter, Vollsortimenter und Premium trennen sich sichtbar.
+k-Means-Kundensegmentierung mit fachlich gewähltem **k = 3** (nur 10 Kunden;
+Elbow/Silhouette dienen als Diagnose, k=5 wäre übersegmentiert). Features:
+Bestellhäufigkeit, Ø Bestellwert, Ø Verzögerung, Liefertreue. Der Scatterplot
+zeigt als Business-Interpretation Ø Bestellwert vs. Ø Verzögerung; eine
+Kreuztabelle validiert die Cluster gegen das echte `customer_type`.
 
 ### 3.5 Absatzprognose (`analytics/forecast.py`)
 ARIMA(1,0,1) auf der monatlichen Bestellmenge (13 echte Monate + 24 Monate
 transparent markierte synthetische History zur Modellstabilität). 3-Monats-
-Prognose mit **RMSE 3.626 / MAE 3.035** Einheiten (Basisniveau ~11.600
-Einheiten/Monat).
+Prognose mit **RMSE 3.626 / MAE 3.035** Einheiten als In-Sample-Fit-Fehler auf
+den echten Monaten (Basisniveau ~11.600 Einheiten/Monat).
 
 ### 3.6 PowerBI-Konzept (`docs/15`)
 Umsetzungsreifes Konzept: Sternschema-Datenmodell (rollenspielende `dim_date`),
@@ -133,7 +134,7 @@ Import-Modus.
 | Neo4j Nodes | 2.058 |
 | MinIO PDFs | 2.444 |
 | DWH fact_fulfillment / dim_date | 252 / 1.095 |
-| Verifikation | **43/43 PASS** |
+| Verifikation | **43 Checks, 0 FAIL** |
 | Datenqualität | **38/41 PASS (93 %)**, 3 bewusste FAILs |
 | Gesamtumsatz | **325.008,80 €** |
 
@@ -155,5 +156,5 @@ Die Plattform deckt beide Projektteile vollständig ab: ein konsistentes,
 polyglottes Datenfundament mit belegter Qualität (Teil 1) und darauf aufbauende,
 wirtschaftlich interpretierbare Analysen (Teil 2). Datengenerator, ETL, alle
 fünf Zielsysteme, DWH und sämtliche Analytics-Skripte laufen reproduzierbar und
-sind gegen die Container getestet (verify 43/43, DQ 38/41). Offene Punkte
+sind gegen die Container getestet (verify 43 Checks/0 FAIL, DQ 38/41). Offene Punkte
 bestehen nur noch als bewusste, dokumentierte Entscheidungen.

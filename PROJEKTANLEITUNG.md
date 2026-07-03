@@ -660,11 +660,11 @@ python3 analytics/clustering.py
 **Erzeugte Dateien:** `analytics/clustering.pdf`, `analytics/clustering.png`
 
 **Methode:**
-1. Features: Bestellhäufigkeit, Ø Bestellwert, Ø Verzögerung, Anzahl Produkte
-2. Elbow-Methode: Optimale Clusteranzahl bestimmen (k=2 bis k=8)
-3. k-Means mit gewähltem k ausführen
-4. Silhouette-Score berechnen (Qualitätsmaß: 1 = perfekt, 0 = zufällig)
-5. Cluster-Labels + fachliche Interpretation je Segment
+1. Features: Bestellhäufigkeit, Ø Bestellwert, Ø Verzögerung, Liefertreue
+2. Elbow-/Silhouette-Diagnose für k=1 bis k=5 berechnen
+3. k-Means mit fachlich gewähltem k=3 ausführen (10 Kunden, keine Mini-Cluster)
+4. Business-Interpretation als Scatterplot: Ø Bestellwert vs. Ø Verzögerung
+5. Cluster-Steckbrief mit Wert, Delay, Liefertreue und fachlichem Label
 
 **Beispiel-Segmente:**
 - Segment A: Großkunden mit hohem Bestellwert, wenig Verzögerungen
@@ -683,9 +683,10 @@ python3 analytics/forecast.py
 
 **Methode:**
 - Modell: ARIMA(1,0,1)
-- Datenbasis: 1 echter Datenpunkt (Mai 2026) + 26 Monate synthetische History (transparent als solche markiert)
-- Prognose: 8 Wochen voraus mit Konfidenzintervall
-- Bewertungsmetriken: RMSE und MAE im Chart ausgewiesen
+- Datenbasis: 13 echte Monate aus `dwh.v_monthly_revenue` + 24 Monate synthetische Vorlauf-History (transparent als solche markiert)
+- Prognose: 3 Monate voraus mit 95%-Konfidenzintervall
+- Bewertungsmetriken: RMSE und MAE als In-Sample-Fit-Fehler auf den echten Monaten im Chart ausgewiesen
+- Hinweis: Erster und letzter echter Monat sind Randmonate der 52-Wochen-Zeitreihe; mit längerer echter Historie wird die Prognose belastbarer.
 
 **Hinweis R-4 aus PROJECT_STATUS.md:** Der Datengenerator erzeugt inzwischen eine 52-Wochen-Zeitreihe mit mehreren Bestellungen pro Woche. Ältere Analytics-Hilfsdaten bzw. synthetische Historien sind nach einem Generator-Refresh zu prüfen und ggf. zu ersetzen.
 
@@ -870,11 +871,15 @@ Dokumentiert die tatsächlichen Prüfergebnisse nach Ausführung von `sql/08b_dq
 # Docker Desktop muss laufen
 docker --version
 
-# Python-Pakete installieren
-pip install psycopg2-binary pymongo redis neo4j minio reportlab pandas matplotlib scikit-learn statsmodels
+# Python-Pakete installieren (feste Versionen aus der getesteten Umgebung)
+pip install -r requirements.txt
+# Alternativ ohne Versionsbindung:
+# pip install psycopg2-binary pymongo redis neo4j minio reportlab pandas numpy matplotlib seaborn plotly scikit-learn statsmodels
 ```
 
 ---
+
+> **⚠️ Immer nur EINEN Docker-Stack starten.** Neben diesem produktiven Stack `bananasupplychain/container/` liegt die unveränderte Dozenten-Vorlage `databasemodels_logistics_playground/container/`. Beide haben **dieselben** `container_name` und Ports und – weil beide im Ordner `container/` liegen – **denselben** Compose-Projektnamen `container` und damit **dieselben** Volumes (`container_postgres_data` …). Startet man beide, kollidieren Namen/Ports; startet man die Vorlage nacheinander, schreibt ihr `initialize_db.py` ein fremdes Demo-Schema (Orders/OrderDetails/Warehouses) in **dieselbe** `logistics`-DB. Für dieses Projekt daher ausschließlich `bananasupplychain/container` starten, nie den Playground.
 
 ### Schritt 1: Docker-Container starten
 
@@ -938,10 +943,10 @@ python3 bananasupplychain/etl_load.py
 
 **Erwartete Ausgabe:**
 ```
-ERP: 50 Events verarbeitet
-WMS: 70 Events verarbeitet
+ERP: 534 Events verarbeitet
+WMS: 1.522 Events verarbeitet
 TMS: 6.300 Events verarbeitet
-PostgreSQL: 10 Suppliers, 10 Customers, 10 Products, 10 Orders, 60 Shipments geladen
+PostgreSQL: 10 Suppliers, 10 Customers, 10 Products, 252 Orders, 1.512 Shipments geladen
 MongoDB: 1.512 shipment_events, 1.512 node_events, 252 batch_tracking, 252 order_events
 Redis: alle Key-Typen gesetzt
 Neo4j: Nodes und Relationships angelegt
@@ -1112,7 +1117,7 @@ mc ls local/delivery-notes/
 |--------|---------|--------|
 | `git: .git/index.lock` | VS Code und git greifen gleichzeitig zu | `rm .git/index.lock` |
 | `etl_load.py` wirft FK-Fehler bei Carriers | Carrier-Events nicht vor Shipment-Events geladen | Reihenfolge: ETL liest `iteration_000_*` vor `iteration_001_*` – ist bereits so implementiert |
-| MongoDB zeigt 248 statt 60 shipment_events | `db.shipment_events.drop()` nicht ausgeführt vor Re-Run | `docker exec -it mongodb mongosh --eval "db.shipment_events.drop()"` und ETL neu ausführen |
+| MongoDB zeigt viele flache Dokumente (1 pro Event) statt Lifecycle-Dokumente (1 pro Shipment) | `db.shipment_events.drop()` nicht ausgeführt vor Re-Run | `docker exec -it mongodb mongosh --eval "db.shipment_events.drop()"` und ETL neu ausführen |
 | PostgreSQL: `relation "erp.batches.order_id" does not exist` | Alter SQL-Code mit entfernter Spalte | Prüfen ob `sql/02_create_erp_tables.sql` aktuell ist (kein `order_id` in `batches`) |
 | DQ-Check 6.3 immer FAIL | Datengenerator-Inkonsistenz: `status = SUCCESSFUL` aber `delay_minutes > 0` | Dokumentiertes, erwartetes FAIL – kein Fehler im Code |
 | `verify_all_systems.py` FAIL Neo4j 6-Hop-Pfad | ETL-Load hat PROCESSED_AT-Kanten nicht vollständig angelegt | `etl_load.py` erneut ausführen; prüfen ob Cypher-Skript `cypher/01_create_graph_model.cypher` manuell eingespielt werden muss |

@@ -2,7 +2,7 @@
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
 **Deadline:** 06.07.2026  
-**Stand:** 2026-05-12 (ETL getestet: 2026-05-12)
+**Stand:** 2026-07-02 (voller `shared/`-Refresh + ETL + verify getestet: 2026-07-02)
 
 **Legende:** ✅ Erfüllt | ⚠️ Teilweise erfüllt | ❌ Offen
 
@@ -145,10 +145,10 @@
 |---|---|---|
 | `shared/erp/` | 534 JSON-Dateien | ✅ Erzeugt |
 | `shared/wms/` | 1.522 JSON-Dateien | ✅ Erzeugt |
-| `shared/tms/` | 275 JSON-Dateien | ✅ Erzeugt |
-| `docs/` | 13 Markdown-Dokumente | ✅ Vollständig |
-| `sql/` | 8 SQL-Dateien | ✅ Vollständig |
-| `cypher/` | 1 Cypher-Datei | ✅ Vollständig |
+| `shared/tms/` | 6.300 JSON-Dateien | ✅ Erzeugt |
+| `docs/` | 17 Markdown-Dokumente (00–16) | ✅ Vollständig |
+| `sql/` | 12 SQL-Dateien (01–10 inkl. 06b/08b) | ✅ Vollständig |
+| `cypher/` | 2 Cypher-Dateien | ✅ Vollständig |
 
 ### Alle Dateien im Überblick
 
@@ -166,6 +166,10 @@
 - `10_neo4j_graph_model.md` – Graphmodell mit Cypher-Abfragen
 - `11_minio_document_model.md` – Bucket-Struktur für Dokumente
 - `12_etl_concept.md` – ETL-Konzept mit Mapping-Tabelle
+- `13_data_quality_results.md` – DQ-Audit: 41 Checks, 38/41 PASS (3 bewusste FAILs)
+- `14_analytics_kpis.md` – Teil 2: KPI-Katalog + deskriptive Statistik
+- `15_powerbi_concept.md` – Teil 2: PowerBI-Konzept (Datenmodell, DAX, Report-Seiten)
+- `16_abschlussbericht.md` – Teil 2: Abschlussbericht (Zusammenfassung Teil 1 + 2)
 
 **SQL (`sql/`):**
 - `01_create_schemas.sql` – 6 PostgreSQL-Schemas
@@ -174,10 +178,12 @@
 - `04_create_tms_tables.sql` – 6 TMS-Tabellen
 - `05_create_mdm_tables.sql` – 3 MDM-Tabellen + Hilfsfunktion
 - `06_create_metadata_tables.sql` – 3 Metadaten-Tabellen + exemplarische Einträge
+- `06b_metadata_complete.sql` – vollständige Spalten-/Skalenniveau-Metadaten (alle Tabellen)
 - `07_create_dwh_schema.sql` – 7 Dimensionen + 1 Faktentabelle + Date Spine 2025-2027
 - `08_data_quality_checks.sql` – 41 SQL-Qualitätsprüfungen (6 Dimensionen, 38/41 PASS)
 - `08b_dq_audit.sql` – konsolidierter DQ-Audit (ein Ergebnis-Set)
 - `09_verification_queries.sql` – Befüllungsnachweise alle Schemas + DWH + FK-Checks
+- `10_kpi_queries.sql` – Teil 2: KPI-Berechnungen aus dem DWH
 
 **Cypher (`cypher/`):**
 - `01_create_graph_model.cypher` – Constraints, Stammdaten, Supply-Chain-Topologie, Beispiel-Fulfillment
@@ -188,30 +194,32 @@
 
 ---
 
-## Erfolgreich getestete Komponenten (2026-05-12)
+## Erfolgreich getestete Komponenten (2026-07-02)
 
 Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funktionieren:
 
 | Komponente | Test-Ergebnis | Details |
 |---|---|---|
-| PostgreSQL: SQL 01–08 | ✅ Alle ausgeführt | 6 Schemas, 26 Tabellen (inkl. `erp.document_references`) |
+| PostgreSQL: SQL 01–10 | ✅ Alle ausgeführt | 6 Schemas, 26 Tabellen (inkl. `erp.document_references`) |
 | PostgreSQL: MDM-Funktion | ✅ Funktioniert | `BAN_101`/`ban-101`/`BAN-101` → alle → `BAN-101` |
 | PostgreSQL: DWH dim_date | ✅ 1095 Zeilen | 2025-01-01 bis 2027-12-31 |
-| MongoDB: Collections | ✅ 4 Collections | shipment_events (60), node_events (60), batch_tracking (10), order_events (10) |
+| PostgreSQL: DWH fact_fulfillment | ✅ 252 Zeilen | faithful (`order_reference`), 13 Monate, Umsatz 325.008,80 € |
+| MongoDB: Collections | ✅ 4 Collections | shipment_events (1.512), node_events (1.512), batch_tracking (252), order_events (252) |
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
-| Neo4j: Graphmodell | ✅ Nodes + Rels | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
-| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 98 Dokument-Referenzen in PostgreSQL nach generate_documents.py |
-| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 395 Events in PostgreSQL, MongoDB, Redis, Neo4j |
+| Neo4j: Graphmodell | ✅ 2.058 Nodes | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
+| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 2.444 Dokumente in MinIO (Referenzen in PostgreSQL) nach generate_documents.py |
+| verify_all_systems.py | ✅ 43 Checks, 0 FAIL | 41 PASS + 2 TTL-WARN (Redis-Cache) über alle 5 Zielsysteme |
+| ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 8.356 Events in PostgreSQL, MongoDB, Redis, Neo4j |
 
-### ETL-Ergebnis (395 JSON-Events → alle 5 Systeme)
+### ETL-Ergebnis (8.356 JSON-Events → alle 5 Systeme)
 
 | System | Einträge geladen |
 |---|---|
-| PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 10 Orders, 10 Batches, 60 Shipments, 112 Positions, 60 Completions, 10 Deliveries |
+| PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 252 Orders, 252 Batches, 1.512 Shipments, 3.009 Positions, 1.512 Completions, 252 Deliveries |
 | MongoDB | 1.512 shipment_events (Lifecycle-Dokumente), 1.512 node_events, 252 batch_tracking, 252 order_events |
-| Redis | 60 Shipment-Status, 112 Position-Updates, 10 Delivery-Status |
-| Neo4j | 60 Shipments, 10 Orders, 10 Batches + Stammdaten |
-| MinIO (generate_documents.py) | 60 Lieferscheine, 8 Rechnungen, 10 B/L, 10 Zollfreigaben, 10 Qualitätszertifikate → 98 Referenzen gesamt |
+| Redis | 1.512 Shipment-Status, 252 Order-Status, 1.512 Route-Verläufe (Sorted Sets) |
+| Neo4j | 1.512 Shipments, 252 Orders, 252 Batches + Stammdaten (2.058 Nodes) |
+| MinIO (generate_documents.py) | 1.512 Lieferscheine, 176 Rechnungen, 252 B/L, 252 Zollfreigaben, 252 Qualitätszertifikate → 2.444 gesamt |
 
 ---
 
@@ -219,4 +227,4 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 
 | Punkt | Beschreibung | Priorität |
 |---|---|---|
-| **Teil 2: Analytics** | Deskriptive Statistik, KPIs, 5 Python-Charts, PowerBI-Dashboard, Cluster+Prognose | Separat |
+| **Teil 2: Analytics** | A-1 bis A-7 vollständig (KPIs, deskr. Statistik, 5 Charts, PowerBI-Konzept, Clustering, ARIMA, Abschlussbericht) | ✅ abgabefähig |

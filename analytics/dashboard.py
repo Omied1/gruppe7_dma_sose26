@@ -16,7 +16,7 @@ Charts [ANPASSUNG 2026-07-02 – auf neue Generator-Felder gehoben]:
 Voraussetzung:
   - PostgreSQL läuft auf localhost:5432, DB: logistics
   - dwh.fact_fulfillment + Dimensionen sind via ETL befüllt
-  - pip install psycopg2-binary pandas matplotlib seaborn plotly kaleido
+  - pip install psycopg2-binary pandas matplotlib seaborn plotly
 
 Ausführung:
   cd analytics

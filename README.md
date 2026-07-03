@@ -28,10 +28,16 @@ Dieses Projekt implementiert eine vollständige Datenplattform für eine Banana 
 
 **Docker Desktop** muss installiert und gestartet sein.
 
-Python-Pakete installieren:
+Python-Pakete installieren (empfohlen, feste Versionen aus der getesteten Umgebung):
 
 ```bash
-pip install psycopg2-binary pymongo redis neo4j minio reportlab pandas matplotlib scikit-learn statsmodels
+pip install -r requirements.txt
+```
+
+Alternativ direkt (gleiche Pakete, ohne Versionsbindung):
+
+```bash
+pip install psycopg2-binary pymongo redis neo4j minio reportlab pandas numpy matplotlib seaborn plotly scikit-learn statsmodels
 ```
 
 ---
@@ -39,6 +45,8 @@ pip install psycopg2-binary pymongo redis neo4j minio reportlab pandas matplotli
 ## Startsequenz
 
 > **Wichtig:** Den Datengenerator und alle ETL-Skripte immer aus dem **Repo-Root** starten, nie aus dem Unterordner `bananasupplychain/`.
+
+> **⚠️ Immer nur EINEN Docker-Stack starten.** Neben dem produktiven Stack `bananasupplychain/container/` liegt die unveränderte Dozenten-Vorlage `databasemodels_logistics_playground/container/`. Beide haben **dieselben** `container_name` (postgres, mongodb, redis, neo4j, minio, cleanup) und Ports (5432/27017/6379/7474/7687/9000/9001) und – weil beide im Ordner `container/` liegen – **denselben** Compose-Projektnamen `container` und damit **dieselben** Volumes (`container_postgres_data` …). Für dieses Projekt daher ausschließlich `bananasupplychain/container` hochfahren; die Vorlage nie parallel oder nacheinander gegen dieselbe `logistics`-DB starten (ihr `initialize_db.py` schriebe sein generisches Demo-Schema Orders/OrderDetails/Warehouses in dieselben Volumes).
 
 ### Schritt 1: Infrastruktur starten
 
@@ -69,9 +77,9 @@ docker exec -i postgres psql -U user -d logistics < sql/07_create_dwh_schema.sql
 >
 > **Aktuelle Generator-Anpassungen (Transport-Kern-Set, [ANPASSUNG 2026-07-01]):** Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist-Ankunft = Plan + carrier-spezifisches `delay_minutes`) und Verspätungsgrund (`delay_reason`). Diese Felder fließen über `etl_load.py` in `tms.shipments`/`tms.transport_completions` und über `etl_dwh.py` als Measures/Slicer in `dwh.fact_fulfillment` (für Power BI).
 >
-> **Realistische GPS-Positionen + deterministische IDs (Block 2, [ANPASSUNG 2026-07-01]):** GPS-Punkte werden zwischen den Knoten interpoliert (Ghana → Rotterdam → Deutschland → plausible Power-BI-Geokarte statt Zufallspunkten weltweit), Geschwindigkeit modusabhängig (LKW 45–90, See 25–40 km/h). UUIDs/Dateinamen stammen aus einem geseedeten RNG (`det_uuid()`) → Läufe **exakt reproduzierbar**, IDs überschreiben sich beim Re-Generieren statt zu akkumulieren. Getestet: `verify_all_systems` 43/43, DQ-Check 6.4 + 7.1–7.4 PASS, DQ 4.10 (GPS-Routenkorridore) durch die Interpolation → PASS.
+> **Realistische GPS-Positionen + deterministische IDs (Block 2, [ANPASSUNG 2026-07-01]):** GPS-Punkte werden zwischen den Knoten interpoliert (Ghana → Rotterdam → Deutschland → plausible Power-BI-Geokarte statt Zufallspunkten weltweit), Geschwindigkeit modusabhängig (LKW 45–90, See 25–40 km/h). UUIDs/Dateinamen stammen aus einem geseedeten RNG (`det_uuid()`) → Läufe **exakt reproduzierbar**, IDs überschreiben sich beim Re-Generieren statt zu akkumulieren. Getestet: `verify_all_systems` 43 Checks/0 FAIL, DQ-Check 6.4 + 7.1–7.4 PASS, DQ 4.10 (GPS-Routenkorridore) durch die Interpolation → PASS.
 >
-> **Kunden-Segmente + Preis-nach-Kategorie ([ANPASSUNG 2026-07-01]):** Jeder Retailer hat ein festes Segment `customer_type` (DISCOUNTER: ALDI/LIDL/KAUFLAND · VOLLSORTIMENTER: REWE/EDEKA/TESCO/SPAR · PREMIUM: METRO/CARREFOUR/AUCHAN) mit eigenem Verhaltensprofil: gewichtete Bestellhäufigkeit, segment-abhängige Menge und bevorzugte Produktkategorie. Der `unit_price` hängt an der Produktkategorie (Standard < Sustainable < Specialty < Premium, alle in [1,50; 5,00] €). `customer_type` fließt bis `dwh.dim_customer` → **Clustering** (Teil 2) findet echte Segmente, **Umsatz-/Boxplot-Analysen** werden aussagekräftig. **Fix:** `etl_dwh` leert die Dimensionen jetzt vor dem Laden (sonst blieben Dim-Werte via `ON CONFLICT DO NOTHING` veraltet). Getestet: `verify_all_systems` 43/43, DQ 7.5 (Segment gültig) PASS; im DWH klar getrennte Segmente (Discounter Ø-Menge 843 vs. Premium 294).
+> **Kunden-Segmente + Preis-nach-Kategorie ([ANPASSUNG 2026-07-01]):** Jeder Retailer hat ein festes Segment `customer_type` (DISCOUNTER: ALDI/LIDL/KAUFLAND · VOLLSORTIMENTER: REWE/EDEKA/TESCO/SPAR · PREMIUM: METRO/CARREFOUR/AUCHAN) mit eigenem Verhaltensprofil: gewichtete Bestellhäufigkeit, segment-abhängige Menge und bevorzugte Produktkategorie. Der `unit_price` hängt an der Produktkategorie (Standard < Sustainable < Specialty < Premium, alle in [1,50; 5,00] €). `customer_type` fließt bis `dwh.dim_customer` → **Clustering** (Teil 2) findet echte Segmente, **Umsatz-/Boxplot-Analysen** werden aussagekräftig. **Fix:** `etl_dwh` leert die Dimensionen jetzt vor dem Laden (sonst blieben Dim-Werte via `ON CONFLICT DO NOTHING` veraltet). Getestet: `verify_all_systems` 43 Checks/0 FAIL, DQ 7.5 (Segment gültig) PASS; im DWH klar getrennte Segmente (Discounter Ø-Menge 843 vs. Premium 294).
 >
 > **Kühlkette → Qualität ([ANPASSUNG 2026-07-02]):** Aus den Knoten-Temperaturen eines Batches wird ein `quality_status` (OK = keine Brüche · REDUCED = 1–2 Brüche · REJECTED = ≥3 Brüche) und ein `spoilage_pct` (Schwund) abgeleitet → die vorhandenen Kühlkettenbrüche werden zur **belegbaren Ursache** von Qualitätsverlust. Felder liegen in `erp.batches`; die View `dwh.v_batch_quality` liefert Qualitätsrate + Ø-Schwund je Woche (KPI Batchqualitätsrate, Chart „Batchqualität über Zeit"). Getestet: Kausalität belegt (OK Ø0 Brüche, REDUCED Ø1,3, REJECTED Ø3,1), DQ 7.6/7.7 PASS.
 
@@ -148,11 +156,12 @@ docker exec -i postgres psql -U user -d logistics < sql/10_kpi_queries.sql
 
 ```
 shared/                    # ERP/WMS/TMS JSON-Quelldaten (534 + 1.522 + 6.300 Dateien)
-sql/                       # PostgreSQL DDL (01–09)
+sql/                       # PostgreSQL DDL (01–10, inkl. 06b/08b)
 bananasupplychain/         # ETL-Skripte + Docker-Compose
 analytics/                 # Python Charts, Clustering, Absatzprognose
-docs/                      # Vollständige Dokumentation (00–13)
+docs/                      # Vollständige Dokumentation (00–16)
 cypher/                    # Neo4j Graphmodell + Verifikationsqueries
+databasemodels_logistics_playground/   # Dozenten-Vorlage aus Moodle – NICHT starten (Stack-Kollision, s. Startsequenz)
 ```
 
 ---

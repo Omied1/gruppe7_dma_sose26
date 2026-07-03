@@ -506,17 +506,17 @@ Spiegelstruktur zu `WarehouseSKUCreated` auf TMS-Seite. `ban-101` (Kleinbuchstab
 | 1 | `SupplierCreated` | ERP | 10 | Stammdaten | PostgreSQL (erp) | Neo4j, MDM |
 | 2 | `CustomerCreated` | ERP | 10 | Stammdaten | PostgreSQL (erp) | Neo4j, MDM |
 | 3 | `ProductCreated` | ERP | 10 | Stammdaten | PostgreSQL (erp) | Neo4j, MDM |
-| 4 | `OrderCreated` | ERP | 10 | Bewegungsdaten | PostgreSQL (erp) | Neo4j, MinIO |
-| 5 | `BatchHarvested` | ERP | 10 | Bewegungsdaten | PostgreSQL (erp) | Neo4j, MinIO |
+| 4 | `OrderCreated` | ERP | 252 | Bewegungsdaten | PostgreSQL (erp) | Neo4j, MinIO |
+| 5 | `BatchHarvested` | ERP | 252 | Bewegungsdaten | PostgreSQL (erp) | Neo4j, MinIO |
 | 6 | `WarehouseSKUCreated` | WMS | 10 | Stammdaten | PostgreSQL (wms) | MDM |
-| 7 | `NodeProcessed` | WMS | 60 | Eventdaten | PostgreSQL (wms) | MongoDB, Neo4j |
+| 7 | `NodeProcessed` | WMS | 1.512 | Eventdaten | PostgreSQL (wms) | MongoDB, Neo4j |
 | 8 | `CarrierCreated` | TMS | 5 | Stammdaten | PostgreSQL (tms) | Neo4j |
 | 9 | `TransportProductReferenceCreated` | TMS | 10 | Stammdaten | PostgreSQL (tms) | MDM |
-| 10 | `TransportStarted` | TMS | 60 | Bewegungsdaten | PostgreSQL (tms) | MongoDB, Neo4j, MinIO |
-| 11 | `ShipmentPositionUpdated` | TMS | 112 | **Echtzeitdaten** | **Redis** | MongoDB |
-| 12 | `TransportCompleted` | TMS | 60 | Eventdaten | PostgreSQL (tms) | MongoDB |
-| 13 | `DeliveryCompleted` | TMS | 10 | Eventdaten | PostgreSQL (tms) | MongoDB, MinIO |
-| | **Gesamt** | | **377** | | | |
+| 10 | `TransportStarted` | TMS | 1.512 | Bewegungsdaten | PostgreSQL (tms) | MongoDB, Neo4j, MinIO |
+| 11 | `ShipmentPositionUpdated` | TMS | 3.009 | **Echtzeitdaten** | **Redis** | MongoDB |
+| 12 | `TransportCompleted` | TMS | 1.512 | Eventdaten | PostgreSQL (tms) | MongoDB |
+| 13 | `DeliveryCompleted` | TMS | 252 | Eventdaten | PostgreSQL (tms) | MongoDB, MinIO |
+| | **Gesamt** | | **8.356** | | | |
 
 ---
 

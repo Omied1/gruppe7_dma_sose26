@@ -1,0 +1,25 @@
+# requirements.txt – Banana Supply Chain Datenplattform (DMA, Gruppe 7)
+# Python-Pakete für Datengenerator, ETL (Phase 1 + 2), Verifikation und Analytics.
+# Versionen = getestete Umgebung (Stand 2026-07-02). Installation aus Repo-Root:
+#   pip install -r requirements.txt
+# Nur Drittanbieter-Pakete gelistet; die Standardbibliothek (json, datetime, uuid,
+# glob, io, decimal, math, os, sys, random, tempfile, warnings) braucht kein Install.
+
+# --- Datenbank-Clients (ETL Phase 1 + verify_all_systems.py) ---
+psycopg2-binary==2.9.10   # PostgreSQL (erp/wms/tms/mdm/meta/dwh)
+pymongo==4.13.2           # MongoDB (Event-Collections)
+redis==7.4.0              # Redis (Echtzeit-Tracking)
+neo4j==6.2.0              # Neo4j (Supply-Chain-Graph)
+minio==7.2.20             # MinIO (Logistikdokumente)
+
+# --- Dokumentenerzeugung ---
+reportlab==4.5.1          # PDF-Erzeugung (generate_documents.py + Analytics-PDFs)
+
+# --- Analytics (Teil 2) ---
+pandas==3.0.3             # DataFrames (alle Analytics-Skripte)
+numpy==2.4.4              # Numerik (clustering.py, forecast.py)
+matplotlib==3.10.9        # Charts (Basis für alle Grafiken)
+seaborn==0.13.2           # Statistische Charts (dashboard.py)
+plotly==6.7.0             # Interaktive HTML-Charts (dashboard.py)
+scikit-learn==1.8.0       # k-Means-Kundensegmentierung (clustering.py)
+statsmodels==0.14.6       # ARIMA-Absatzprognose (forecast.py)

@@ -14,9 +14,9 @@ Ansatz:
 
 Methode:
   - StandardScaler (Features auf gleiche Skala bringen)
-  - Elbow-Methode (WSS für k=1..n-1 → optimales k ablesen)
-  - k-Means (sklearn)
-  - Visualisierung: Elbow-Kurve + Scatter-Plot (2 wichtigste Features)
+  - Elbow-/Silhouette-Diagnose (WSS für k=1..5)
+  - k-Means (sklearn), fachlich gewählt: k=3
+  - Visualisierung: Diagnosekurve + Business-Interpretation im Scatter-Plot
 
 Datenbasis:
   dwh.fact_fulfillment + dwh.dim_customer (PostgreSQL, logistics-DB)
@@ -65,11 +65,17 @@ PG_DSN     = "host=localhost port=5432 dbname=logistics user=user password=passw
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 PNG_PATH   = os.path.join(OUTPUT_DIR, "clustering.png")
 PDF_PATH   = os.path.join(OUTPUT_DIR, "clustering.pdf")
+SELECTED_K  = 3  # fachlich interpretierbar bei 10 Kunden: Großkunden, stabile Kunden, Service-Risiko
 
 # Cluster-Farben und -Labels (werden nach Analyse vergeben)
-# [ANPASSUNG 2026-07-02] Palette auf 6 Farben erweitert – mit faithful Daten kann die
-# Elbow-/Silhouette-Analyse bis k=5 (theoretisch 6) wählen (vorher IndexError bei k>4).
+# [ANPASSUNG 2026-07-03] k=3 wird fachlich gewählt. Die Diagnose zeigt weiterhin
+# k=1..5, aber k=5 würde bei nur 10 Kunden zu schwer interpretierbaren Mini-Clustern führen.
 CLUSTER_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#D97706", "#7C3AED", "#0891B2"]
+
+
+def display_cluster_id(cluster_id: int) -> int:
+    """Zeigt Cluster für Präsentation/Reporting 1-basiert an."""
+    return int(cluster_id) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +138,7 @@ def scale_features(df: pd.DataFrame):
 # ---------------------------------------------------------------------------
 def elbow_analysis(X_scaled: np.ndarray) -> int:
     """Berechnet WSS (Within-Cluster Sum of Squares) für k=1..n-1.
-    Das 'Elbow' (Knick in der Kurve) zeigt das optimale k."""
+    Für die Abgabe wird k=3 fachlich gewählt, weil nur 10 Kunden vorliegen."""
 
     n = len(X_scaled)
     max_k = min(n - 1, 5)  # k muss < Anzahl Datenpunkte sein
@@ -148,16 +154,19 @@ def elbow_analysis(X_scaled: np.ndarray) -> int:
             sil = silhouette_score(X_scaled, km.labels_)
             silhouettes.append((k, round(sil, 3)))
 
-    # Bestes k via Silhouette-Score wählen (objektiver als Elbow-Sicht)
-    best_k = max(silhouettes, key=lambda x: x[1])[0] if silhouettes else 2
+    # Mathematische Diagnose separat ausweisen; nicht automatisch übernehmen.
+    # Bei nur 10 Kunden wäre k=5 übersegmentiert (Einzelkunden-Cluster).
+    best_k = max(silhouettes, key=lambda x: x[1])[0] if silhouettes else SELECTED_K
+    chosen_k = min(SELECTED_K, max_k)
 
     print(f"[3/5] Elbow-Analyse (k=1..{max_k}):")
     for i, (k, w) in enumerate(zip(ks, wss)):
         sil_str = f"  Silhouette={silhouettes[i-1][1]}" if i >= 1 else ""
         print(f"  k={k}: WSS={w:.2f}{sil_str}")
-    print(f"  → Optimales k = {best_k} (höchster Silhouette-Score)")
+    print(f"  → Höchster Silhouette-Score bei k={best_k}")
+    print(f"  → Gewähltes k = {chosen_k} (fachlich interpretierbare Kundensegmente)")
 
-    return best_k, list(ks), wss, silhouettes
+    return chosen_k, list(ks), wss, silhouettes
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +175,14 @@ def elbow_analysis(X_scaled: np.ndarray) -> int:
 def fit_kmeans(X_scaled: np.ndarray, k: int, df: pd.DataFrame) -> pd.DataFrame:
     """Führt k-Means mit dem gewählten k durch und fügt Cluster-Labels zum
     DataFrame hinzu. Labels werden nach avg_verzoegerung aufsteigend vergeben,
-    damit Cluster 0 = 'bester' Cluster."""
+    damit der erste angezeigte Cluster der pünktlichste Cluster ist."""
 
     km = KMeans(n_clusters=k, random_state=42, n_init=10)
     km.fit(X_scaled)
     df = df.copy()
     df["cluster_raw"] = km.labels_
 
-    # Cluster nach avg_verzoegerung sortieren (Cluster 0 = pünktlichster)
+    # Cluster nach avg_verzoegerung sortieren (intern 0-basiert, Anzeige 1-basiert)
     cluster_means = df.groupby("cluster_raw")["avg_verzoegerung"].mean()
     rank_map = {old: new for new, old in enumerate(cluster_means.sort_values().index)}
     df["cluster"] = df["cluster_raw"].map(rank_map)
@@ -183,7 +192,7 @@ def fit_kmeans(X_scaled: np.ndarray, k: int, df: pd.DataFrame) -> pd.DataFrame:
         members = df[df["cluster"] == c]["kunde"].tolist()
         avg_d   = df[df["cluster"] == c]["avg_verzoegerung"].mean()
         avg_lt  = df[df["cluster"] == c]["liefertreue"].mean()
-        print(f"  Cluster {c}: {members}  |  Ø Delay={avg_d:.0f} min  |  Liefertreue={avg_lt:.0%}")
+        print(f"  Cluster {display_cluster_id(c)}: {members}  |  Ø Delay={avg_d:.0f} min  |  Liefertreue={avg_lt:.0%}")
 
     return df, km
 
@@ -194,12 +203,17 @@ def fit_kmeans(X_scaled: np.ndarray, k: int, df: pd.DataFrame) -> pd.DataFrame:
 def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
                   ks, wss, silhouettes):
     """Erstellt ein 3-teiliges Dashboard:
-      Links:  Elbow-Kurve mit Silhouette-Scores
-      Mitte:  Scatter-Plot (Bestellwert vs. Verzögerung)
+      Links:  WSS-/Silhouette-Diagnose
+      Mitte:  Business-Interpretation (Bestellwert vs. Verzögerung)
       Rechts: Cluster-Steckbrief (Ø KPIs je Cluster als Tabelle)"""
 
     print("[5/5] Erstelle Visualisierung...")
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6), facecolor="#F8FAFC")
+    fig, axes = plt.subplots(
+        1, 3,
+        figsize=(22, 6.5),
+        facecolor="#F8FAFC",
+        gridspec_kw={"width_ratios": [1.0, 1.0, 1.25]},
+    )
     fig.suptitle("Kundensegmentierung – Banana Supply Chain",
                  fontsize=16, fontweight="bold", color="#1E3A5F", y=1.02)
 
@@ -210,7 +224,7 @@ def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
     ax1.plot(list(ks), wss, "o-", color="#2563EB", linewidth=2, markersize=8)
     ax1.axvline(x=k, color="#DC2626", linestyle="--", linewidth=1.5,
                 label=f"Gewähltes k={k}")
-    ax1.set_title("Elbow-Methode\n(WSS je k)", fontweight="bold", color="#1E3A5F")
+    ax1.set_title("Cluster-Diagnose\n(WSS + Silhouette)", fontweight="bold", color="#1E3A5F")
     ax1.set_xlabel("Anzahl Cluster k")
     ax1.set_ylabel("WSS (Within-Cluster Sum of Squares)")
     ax1.legend(fontsize=9)
@@ -233,10 +247,19 @@ def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
                      xytext=(6, 4), textcoords="offset points",
                      fontsize=9, color="#1E3A5F")
 
-    ax2.set_title("Cluster-Verteilung\n(Ø Bestellwert vs. Ø Verzögerung)",
+    ax2.set_title("Business-Interpretation\n(Ø Bestellwert vs. Ø Verzögerung)",
                   fontweight="bold", color="#1E3A5F")
     ax2.set_xlabel("Ø Bestellwert (EUR)")
     ax2.set_ylabel("Ø Verzögerung (Minuten)")
+    ax2.text(
+        0.02, 0.98,
+        "k-Means nutzt 4 Features;\ndieser Plot zeigt die 2D-Business-Sicht.",
+        transform=ax2.transAxes,
+        va="top",
+        fontsize=8,
+        color="#64748B",
+        bbox={"boxstyle": "round,pad=0.3", "facecolor": "#F8FAFC", "edgecolor": "#CBD5E1"},
+    )
 
     # SLA-Linie bei 60 min
     ax2.axhline(y=60, color="#D97706", linestyle=":", linewidth=1.5,
@@ -245,7 +268,7 @@ def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
     # Legende für Cluster
     legend_patches = [
         mpatches.Patch(color=CLUSTER_COLORS[c],
-                       label=f"Cluster {c}: {get_cluster_label(df, c)}")
+                       label=f"Cluster {display_cluster_id(c)}: {get_cluster_label(df, c)}")
         for c in sorted(df["cluster"].unique())
     ]
     legend_patches.append(
@@ -263,9 +286,13 @@ def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
     col_labels = ["Cluster", "Kunden", "Ø Wert (€)", "Ø Delay", "Liefertreue"]
     for c in sorted(df["cluster"].unique()):
         sub = df[df["cluster"] == c]
-        kunden = ", ".join(sub["kunde"].tolist())
+        kunden_liste = sub["kunde"].tolist()
+        kunden = "\n".join(
+            ", ".join(kunden_liste[i:i + 2])
+            for i in range(0, len(kunden_liste), 2)
+        )
         table_data.append([
-            f"Cluster {c}\n{get_cluster_label(df, c)}",
+            f"Cluster {display_cluster_id(c)}\n{get_cluster_label(df, c)}",
             kunden,
             f"{sub['avg_bestellwert'].mean():.0f} €",
             f"{sub['avg_verzoegerung'].mean():.0f} min",
@@ -277,10 +304,11 @@ def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
         colLabels=col_labels,
         loc="center",
         cellLoc="center",
+        colWidths=[0.22, 0.34, 0.15, 0.14, 0.15],
     )
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(9)
-    tbl.scale(1, 2.5)
+    tbl.set_fontsize(8)
+    tbl.scale(1.05, 3.0)
 
     # Cluster-Zeilen einfärben
     for row_idx, c in enumerate(sorted(df["cluster"].unique())):
@@ -309,18 +337,20 @@ def plot_clusters(df: pd.DataFrame, X_scaled: np.ndarray, k: int,
 
 
 def get_cluster_label(df: pd.DataFrame, cluster_id: int) -> str:
-    """Vergibt fachliche Cluster-Bezeichnung basierend auf Ø Verzögerung.
+    """Vergibt fachliche Cluster-Bezeichnung basierend auf Wert, Frequenz und Servicequalität.
     Ermöglicht business-verständliche Segmentierung statt technischer IDs."""
     sub = df[df["cluster"] == cluster_id]
-    avg_delay  = sub["avg_verzoegerung"].mean()
+    avg_value  = sub["avg_bestellwert"].mean()
+    avg_orders = sub["bestellungen"].mean()
     avg_lt     = sub["liefertreue"].mean()
 
-    if avg_delay <= 80 and avg_lt >= 0.4:
-        return "Zuverlässige\nKunden"
-    elif avg_delay <= 110:
-        return "Durchschnitt"
-    else:
-        return "Risiko-\nKunden"
+    if avg_lt < 0.95:
+        return "Service-Risiko\nKunden"
+    if avg_value >= 1300 and avg_orders >= 25:
+        return "Wertstarke\nGroßkunden"
+    if avg_lt >= 0.99:
+        return "Stabile\nService-Kunden"
+    return "Mittelwert-\nKunden"
 
 
 # ---------------------------------------------------------------------------
@@ -340,21 +370,23 @@ def main():
     print()
     print("=" * 60)
     print("  Clustering abgeschlossen")
-    print(f"  Optimales k = {k} Cluster")
+    print(f"  Gewähltes k = {k} Cluster")
     print(f"  Ausgabe: clustering.png / clustering.pdf")
     print("=" * 60)
 
     # Prüfnachweis
     print()
     print("Ergebnis-Übersicht:")
-    print(df[["kunde", "cluster", "avg_verzoegerung", "liefertreue"]].to_string(index=False))
+    result_df = df[["kunde", "cluster", "avg_verzoegerung", "liefertreue"]].copy()
+    result_df["cluster"] = result_df["cluster"].apply(display_cluster_id)
+    print(result_df.to_string(index=False))
 
     # [ANPASSUNG 2026-07-02] Validierung: decken sich die datengetrieben gefundenen Cluster
     # mit den echten Kundensegmenten (customer_type)? Kreuztabelle Cluster x Segment.
     if "segment" in df.columns and df["segment"].notna().any():
         print()
         print("Validierung – Cluster x echtes Segment (customer_type):")
-        print(pd.crosstab(df["cluster"], df["segment"]).to_string())
+        print(pd.crosstab(df["cluster"].apply(display_cluster_id), df["segment"]).to_string())
 
 
 if __name__ == "__main__":

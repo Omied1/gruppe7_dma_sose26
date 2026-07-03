@@ -228,9 +228,10 @@ def make_forecast(fitted_model, last_date: pd.Timestamp,
 # ---------------------------------------------------------------------------
 def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
                       real_df: pd.DataFrame, fitted_model, d: int):
-    """Berechnet RMSE am echten Datenpunkt und erstellt Prognose-Chart."""
+    """Berechnet den In-Sample-Fit-Fehler auf echten Monaten und erstellt den Chart."""
 
-    # RMSE gegen echte Monatswerte aus dem DWH
+    # In-Sample-Fehler gegen echte Monatswerte aus dem DWH.
+    # Das ist kein echter Holdout-Test, weil alle realen Monate im Training enthalten sind.
     real_vals   = real_df.set_index("datum")["menge"]
     fitted_vals = fitted_model.fittedvalues
 
@@ -239,7 +240,7 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
     if len(common_idx) > 0:
         rmse = float(np.sqrt(((real_vals[common_idx] - fitted_vals[common_idx])**2).mean()))
         mae  = float((real_vals[common_idx] - fitted_vals[common_idx]).abs().mean())
-        print(f"[5/5] Modellbewertung (n={len(common_idx)} echte Punkte):")
+        print(f"[5/5] Modellbewertung (In-Sample, n={len(common_idx)} echte Punkte):")
         print(f"  RMSE = {rmse:.1f} Einheiten")
         print(f"  MAE  = {mae:.1f} Einheiten")
     else:
@@ -247,7 +248,12 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
         print("[5/5] Modellbewertung: keine Überschneidung echte/gefittete Punkte")
 
     # ── Plot ────────────────────────────────────────────────────────────
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6), facecolor="#F8FAFC")
+    fig, axes = plt.subplots(
+        1, 2,
+        figsize=(17, 6.4),
+        facecolor="#F8FAFC",
+        gridspec_kw={"width_ratios": [1.08, 1.0]},
+    )
     fig.suptitle("Absatzprognose – Banana Supply Chain (Monatsmengen)",
                  fontsize=16, fontweight="bold", color="#1E3A5F", y=1.02)
 
@@ -317,7 +323,7 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
         colLabels=["Monat", "Prognose\n(Einheiten)", "95%-Konfidenz\nintervall"],
         loc="center",
         cellLoc="center",
-        bbox=[0.0, 0.45, 1.0, 0.45],
+        bbox=[0.02, 0.58, 0.96, 0.34],
     )
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(10)
@@ -344,9 +350,11 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
     ]
     if rmse is not None:
         info_lines += [
-            "Modellgüte (vs. echte Daten):",
+            "Fit-Fehler (echte Monate):",
             f"  RMSE = {rmse:.1f} Einheiten",
             f"  MAE  = {mae:.1f} Einheiten",
+            "  Hinweis: In-Sample,",
+            "  kein Holdout-Test.",
         ]
 
     info_lines += [
@@ -354,11 +362,13 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
         "Hinweis:",
         "Synthetische History wurde auf",
         "Basis realer Statistiken erzeugt.",
+        "Erster/letzter Realmonat sind",
+        "Randmonate der 52-Wochen-Reihe.",
         "Prognose verbessert sich deutlich",
         "mit längerer echter Historie.",
     ]
 
-    ax2.text(0.05, 0.98, "\n".join(info_lines),
+    ax2.text(0.05, 0.52, "\n".join(info_lines),
              transform=ax2.transAxes,
              verticalalignment="top", fontsize=9,
              fontfamily="monospace",

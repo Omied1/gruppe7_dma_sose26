@@ -454,45 +454,45 @@ se.update_one(
 
 ---
 
-## 7. ETL-Nachweis (Referenzbestand vor Generator-Refresh)
+## 7. ETL-Nachweis (aktueller Datenbestand)
 
-Erwartetes ETL-Ergebnis auf Basis des zuletzt vollständig geladenen Referenzdatenbestands (395 JSON-Events). Nach den Generatoränderungen vom 2026-06-30/2026-07-01 müssen `shared/` neu generiert und dieser Nachweis erneut aktualisiert werden.
+Erwartetes ETL-Ergebnis auf Basis des aktuellen, vollständig geladenen Datenbestands (8.356 JSON-Events, Stand 2026-07-02, gegen die laufenden Container verifiziert).
 
 | System | Ziel-Tabelle / Collection | Geladene Datensätze |
 |---|---|---|
 | PostgreSQL | `erp.suppliers` | 10 |
 | PostgreSQL | `erp.customers` | 10 |
 | PostgreSQL | `erp.products` | 10 |
-| PostgreSQL | `erp.orders` | 10 |
-| PostgreSQL | `erp.batches` | 10 |
-| PostgreSQL | `tms.shipments` | 60 |
-| PostgreSQL | `tms.shipment_positions` | 112 |
-| PostgreSQL | `tms.transport_completions` | 60 |
-| PostgreSQL | `tms.deliveries` | 10 |
+| PostgreSQL | `erp.orders` | 252 |
+| PostgreSQL | `erp.batches` | 252 |
+| PostgreSQL | `tms.shipments` | 1.512 |
+| PostgreSQL | `tms.shipment_positions` | 3.009 |
+| PostgreSQL | `tms.transport_completions` | 1.512 |
+| PostgreSQL | `tms.deliveries` | 252 |
 | PostgreSQL | `wms.warehouse_skus` | 10 |
-| PostgreSQL | `wms.node_processings` | 60 |
-| MDM | `mdm.golden_records` | 5 Entity-Typen, je 5–10 Einträge |
-| MongoDB | `shipment_events` | 60 (Lifecycle-Dokumente, 1 pro Shipment) |
-| MongoDB | `node_events` | 60 |
-| MongoDB | `batch_tracking` | 60 |
-| MongoDB | `order_events` | 10 |
-| Redis | Shipment-Status-Keys | 60 |
-| Redis | Position-Updates | 112 |
-| Redis | Delivery-Status-Keys | 10 |
-| Neo4j | Shipments | 60 |
-| Neo4j | Orders / Batches / Deliveries | je 10 |
-| MinIO | Lieferscheine (`delivery-notes/`) | 60 |
-| MinIO | Rechnungen (`invoices/`) | 8 |
-| MinIO | B/L + Zollfreigaben (`transport-docs/`) | je 10 |
-| MinIO | Qualitätszertifikate (`batch-certificates/`) | 10 |
+| PostgreSQL | `wms.node_processings` | 1.512 |
+| MDM | `mdm.golden_records` | 42 Golden Records (5 Entity-Typen) / 69 Source-Mappings |
+| MongoDB | `shipment_events` | 1.512 (Lifecycle-Dokumente, 1 pro Shipment) |
+| MongoDB | `node_events` | 1.512 |
+| MongoDB | `batch_tracking` | 252 |
+| MongoDB | `order_events` | 252 |
+| Redis | Shipment-Status-Keys | 1.512 |
+| Redis | Position-Updates (GPS) | 3.009 |
+| Redis | Delivery-/Order-Status-Keys | 252 |
+| Neo4j | Shipments | 1.512 |
+| Neo4j | Orders / Batches / Deliveries | je 252 |
+| MinIO | Lieferscheine (`delivery-notes/`) | 1.512 |
+| MinIO | Rechnungen (`invoices/`) | 176 |
+| MinIO | B/L + Zollfreigaben (`transport-docs/`) | je 252 |
+| MinIO | Qualitätszertifikate (`batch-certificates/`) | 252 |
 
 **Prüfqueries:**
 
 ```sql
 -- PostgreSQL: Grundzählung
 SELECT COUNT(*) FROM erp.suppliers;        -- Erwartet: 10
-SELECT COUNT(*) FROM tms.shipments;        -- Erwartet: 60
-SELECT COUNT(*) FROM wms.node_processings; -- Erwartet: 60
+SELECT COUNT(*) FROM tms.shipments;        -- Erwartet: 1512
+SELECT COUNT(*) FROM wms.node_processings; -- Erwartet: 1512
 
 -- MDM-Funktion: Schlüsselauflösung
 SELECT mdm.resolve_canonical_key('BAN_101', 'WMS');  -- Erwartet: BAN-101
