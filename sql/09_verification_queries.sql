@@ -370,6 +370,86 @@ SELECT
     (SELECT COUNT(*) FROM dwh.dim_date)                 AS dwh_dim_date,
     (SELECT COUNT(*) FROM dwh.fact_fulfillment)         AS dwh_facts;
 
+-- ============================================================================
+-- [ANPASSUNG 2026-07-05] 7. PROFITABILITÄT & INVENTORY
+-- Prüft die neuen Kennzahlen (COGS / Lagerkosten / logistischer Deckungsbeitrag)
+-- und das abgeleitete Bestandsmodell (wms.stock_movements). Alle Checks: PASS.
+-- Bewusst NICHT Teil der 41 DQ-Checks in sql/08 (stabile Zählung) – dies sind
+-- Befüllungs-/Konsistenznachweise wie der Rest dieser Datei.
+-- ============================================================================
+
+\echo ''
+\echo '--- 7. Profitabilität & Inventory ---'
+
+-- P-1: Transportkostenquote im Zielkorridor 15–30 % (Allokations-Kalibrierung)
+SELECT 'P-1 Transportkostenquote 15-30%' AS check_name,
+       ROUND(100.0 * SUM(transport_cost) / SUM(total_value), 1) AS quote_pct,
+       CASE WHEN 100.0 * SUM(transport_cost) / SUM(total_value) BETWEEN 15 AND 30
+            THEN 'PASS' ELSE 'FAIL' END AS status
+FROM dwh.fact_fulfillment;
+
+-- P-2: unit_cost < unit_price für jede Fact-Zeile (COGS-Plausibilität)
+SELECT 'P-2 unit_cost < unit_price' AS check_name,
+       COUNT(*) AS verletzungen,
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END AS status
+FROM dwh.fact_fulfillment
+WHERE unit_cost IS NULL OR unit_cost >= unit_price;
+
+-- P-3: cogs_total = quantity × unit_cost (Formelkonsistenz)
+SELECT 'P-3 cogs_total = quantity*unit_cost' AS check_name,
+       COUNT(*) AS verletzungen,
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END AS status
+FROM dwh.fact_fulfillment
+WHERE cogs_total IS DISTINCT FROM ROUND(quantity * unit_cost, 2);
+
+-- P-4: storage_cost >= 0 und storage_days >= 0
+SELECT 'P-4 storage_cost/days >= 0' AS check_name,
+       COUNT(*) AS verletzungen,
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END AS status
+FROM dwh.fact_fulfillment
+WHERE storage_cost < 0 OR storage_days < 0;
+
+-- P-5: Deckungsbeitrag korrekt berechnet
+--      contribution_margin = total_value − cogs_total − transport_cost − storage_cost
+SELECT 'P-5 Deckungsbeitrags-Formel' AS check_name,
+       COUNT(*) AS verletzungen,
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END AS status
+FROM dwh.fact_fulfillment
+WHERE contribution_margin IS DISTINCT FROM
+      ROUND(total_value - cogs_total - COALESCE(transport_cost, 0) - COALESCE(storage_cost, 0), 2);
+
+-- I-1: Bestandsbewegungen vollständig (je node_processing 1×IN und 1×OUT)
+SELECT 'I-1 stock_movements = 2 x node_processings' AS check_name,
+       (SELECT COUNT(*) FROM wms.stock_movements)      AS movements,
+       (SELECT 2 * COUNT(*) FROM wms.node_processings) AS erwartet,
+       CASE WHEN (SELECT COUNT(*) FROM wms.stock_movements)
+               = (SELECT 2 * COUNT(*) FROM wms.node_processings)
+            THEN 'PASS' ELSE 'FAIL' END AS status;
+
+-- I-2: kein negativer Bestandsverlauf je Knoten (kumulative IN−OUT-Bilanz;
+--      bei Zeitgleichheit zählt IN vor OUT via direction-Sortierung)
+SELECT 'I-2 kein negativer Bestand' AS check_name,
+       COUNT(*) AS verletzungen,
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END AS status
+FROM (
+    SELECT SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END)
+               OVER (PARTITION BY node_id ORDER BY moved_at, direction, movement_id) AS bilanz
+    FROM wms.stock_movements
+) x
+WHERE x.bilanz < 0;
+
+-- I-3: Endbestand je Knoten = 0 (alle Batches vollständig ausgeliefert)
+SELECT 'I-3 Endbestand = 0 je Knoten' AS check_name,
+       COUNT(*) AS knoten_mit_restbestand,
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END AS status
+FROM (
+    SELECT node_id,
+           SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END) AS endbestand
+    FROM wms.stock_movements
+    GROUP BY node_id
+) x
+WHERE x.endbestand <> 0;
+
 DO $$
 BEGIN
     RAISE NOTICE '=== Verifikation abgeschlossen. Alle FAIL-Einträge erfordern Nacharbeit. ===';

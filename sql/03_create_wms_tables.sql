@@ -49,8 +49,19 @@ CREATE TABLE IF NOT EXISTS wms.supply_chain_nodes (
                     )),
     region          VARCHAR(50),    -- z.B. "Africa", "Europe"
     sequence_order  INT             NOT NULL, -- Position im Supply-Chain-Flow (1-7)
+    storage_cost_per_unit_day NUMERIC(8,4),  -- [ANPASSUNG 2026-07-05] Lagerkostensatz (EUR/Einheit/Tag), nur Lagerknoten
     created_at      TIMESTAMP       NOT NULL DEFAULT NOW()
 );
+
+-- [ANPASSUNG 2026-07-05] Lagerkostensatz idempotent für bestehende DBs ergänzen und setzen.
+-- [ANNAHME] Vereinfachte Sätze: Kühlknoten teurer als trockenes Lager (Energie/Kühlung);
+-- Nicht-Lagerknoten (Plantage, Sammelstelle, QC, Retail) verursachen keine Lagerkosten.
+ALTER TABLE wms.supply_chain_nodes ADD COLUMN IF NOT EXISTS storage_cost_per_unit_day NUMERIC(8,4);
+UPDATE wms.supply_chain_nodes SET storage_cost_per_unit_day = CASE node_type
+    WHEN 'COLD_STORAGE' THEN 0.0200   -- Kühlhaus: Energie + Kühlkette
+    WHEN 'WAREHOUSE'    THEN 0.0120   -- Zentrallager: trockene Lagerung
+    ELSE 0
+END;
 
 COMMENT ON TABLE  wms.supply_chain_nodes IS 'Stammdaten aller Supply-Chain-Knoten. sequence_order definiert die logische Reihenfolge im Prozessfluss. Hinweis: RETAIL_STORE ist als Knoten modelliert, erzeugt aber keine NodeProcessed-Events – der Retail Store liegt außerhalb des WMS-Verantwortungsbereichs und wird ausschließlich über TMS DeliveryCompleted-Events abgebildet.';
 COMMENT ON COLUMN wms.supply_chain_nodes.node_code      IS 'Interner Code wie im Datengenerator: BANANA_PLANTATION, COLLECTION_CENTER, etc.';
@@ -96,14 +107,43 @@ COMMENT ON COLUMN wms.node_processings.temperature     IS 'Containertemperatur i
 COMMENT ON COLUMN wms.node_processings.sku             IS 'WMS-SKU-Format (BAN_108). Harmonisierung mit ERP-Code via mdm.source_mappings.';
 
 -- -----------------------------------------------------------------------------
+-- Bestandsbewegungen (einfaches Inventory-Modell)
+-- [ANPASSUNG 2026-07-05] KEIN eigener Quell-Eventtyp: Bewegungen werden im ETL
+-- deterministisch aus NodeProcessed abgeleitet (IN = Ankunft am Knoten,
+-- OUT = Ankunft am Folgeknoten; letzter WMS-Knoten: OUT = delivered_at der
+-- Endlieferung). Dadurch keine neuen JSON-Dateien und strukturell keine
+-- negativen Bestände (IN liegt je Batch/Knoten immer vor OUT).
+-- Idempotenz: ETL leert die Tabelle vor dem Ableiten (DELETE + Rebuild).
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wms.stock_movements (
+    movement_id     SERIAL          PRIMARY KEY,
+    node_id         INT             NOT NULL REFERENCES wms.supply_chain_nodes(node_id),
+    sku             VARCHAR(20)     NOT NULL,   -- WMS-Format (BAN_108), wie node_processings.sku
+    batch_reference VARCHAR(60)     NOT NULL,   -- Referenz auf erp.batches.batch_identifier
+    quantity        INT             NOT NULL CHECK (quantity > 0),
+    direction       VARCHAR(3)      NOT NULL CHECK (direction IN ('IN', 'OUT')),
+    moved_at        TIMESTAMP       NOT NULL,
+    created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
+    source          VARCHAR(50)     NOT NULL DEFAULT 'ETL_DERIVED_NodeProcessed',
+    -- Jeder Batch hat je Knoten genau einen Wareneingang und einen Warenausgang
+    CONSTRAINT uq_wms_stock_movement UNIQUE (batch_reference, node_id, direction)
+);
+
+COMMENT ON TABLE  wms.stock_movements IS 'Bestandsbewegungen je Knoten/SKU/Batch (IN = Wareneingang, OUT = Warenausgang). Im ETL deterministisch aus NodeProcessed + Endlieferung abgeleitet, kein eigener Quell-Eventtyp. Aktueller Bestand am Simulationsende ist 0 (alle Batches ausgeliefert), daher bewusst keine Redis-Echtzeitbestände.';
+COMMENT ON COLUMN wms.stock_movements.direction IS 'IN = Ankunft am Knoten (processed_at), OUT = Abgang (Ankunft Folgeknoten bzw. delivered_at am letzten WMS-Knoten).';
+COMMENT ON COLUMN wms.stock_movements.quantity  IS 'Batchmenge in Kartons (erp.batches.quantity). [ANNAHME] Schwund reduziert die Bewegungsmenge nicht (vereinfachtes Modell).';
+
+-- -----------------------------------------------------------------------------
 -- Indizes für Performance
 -- -----------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_wms_node_processings_node        ON wms.node_processings(node_id);
 CREATE INDEX IF NOT EXISTS idx_wms_node_processings_batch       ON wms.node_processings(batch_reference);
 CREATE INDEX IF NOT EXISTS idx_wms_node_processings_processed   ON wms.node_processings(processed_at);
 CREATE INDEX IF NOT EXISTS idx_wms_node_processings_sku         ON wms.node_processings(sku);
+CREATE INDEX IF NOT EXISTS idx_wms_stock_movements_node         ON wms.stock_movements(node_id, moved_at);
+CREATE INDEX IF NOT EXISTS idx_wms_stock_movements_batch        ON wms.stock_movements(batch_reference);
 
 DO $$
 BEGIN
-    RAISE NOTICE 'WMS-Tabellen erstellt: warehouse_skus, supply_chain_nodes (mit 7 Knoten befüllt), node_processings';
+    RAISE NOTICE 'WMS-Tabellen erstellt: warehouse_skus, supply_chain_nodes (mit 7 Knoten + Lagerkostensätzen befüllt), node_processings, stock_movements';
 END $$;

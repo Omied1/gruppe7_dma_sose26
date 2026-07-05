@@ -181,7 +181,8 @@ def fill_fact_fulfillment(cur):
                 p.product_code,
                 oi.quantity,
                 oi.unit_price,
-                (oi.quantity * oi.unit_price)                   AS total_value
+                (oi.quantity * oi.unit_price)                   AS total_value,
+                p.unit_cost                                     -- [ANPASSUNG 2026-07-05] COGS-Basis
             FROM  erp.orders      o
             JOIN  erp.order_items oi ON oi.order_id    = o.order_id
             JOIN  erp.customers   c  ON c.customer_id  = o.customer_id
@@ -208,6 +209,33 @@ def fill_fact_fulfillment(cur):
             FROM  erp.batches             b
             LEFT JOIN wms.node_processings np ON np.batch_reference = b.batch_identifier
             GROUP BY b.batch_identifier
+        ),
+
+        -- [ANPASSUNG 2026-07-05] Lagerkosten je Batch aus ECHTEN WMS-Zeitstempeln:
+        -- Verweildauer an Lagerknoten (COLD_STORAGE/WAREHOUSE) = Ankunft
+        -- (node_processings.processed_at) bis Abgang (started_at des TMS-Legs, das den
+        -- Knoten verlässt). GREATEST(0, ...) fängt Zeitjitter des Generators ab.
+        -- Kostensatz je Knoten: wms.supply_chain_nodes.storage_cost_per_unit_day ([ANNAHME]).
+        storage AS (
+            SELECT
+                np.batch_reference,
+                ROUND(SUM(GREATEST(
+                    EXTRACT(EPOCH FROM (dep.departed_at - np.processed_at)) / 86400.0, 0
+                ))::NUMERIC, 2)                                            AS storage_days,
+                SUM(GREATEST(
+                    EXTRACT(EPOCH FROM (dep.departed_at - np.processed_at)) / 86400.0, 0
+                ) * n.storage_cost_per_unit_day)                           AS storage_cost_per_unit
+            FROM  wms.node_processings   np
+            JOIN  wms.supply_chain_nodes n ON n.node_id = np.node_id
+            LEFT JOIN LATERAL (
+                SELECT MIN(sh.started_at) AS departed_at
+                FROM   tms.shipments sh
+                WHERE  sh.batch_identifier = np.batch_reference
+                  AND  UPPER(sh.source_node) = n.node_code
+            ) dep ON TRUE
+            WHERE n.node_type IN ('COLD_STORAGE', 'WAREHOUSE')
+              AND dep.departed_at IS NOT NULL
+            GROUP BY np.batch_reference
         )
 
         INSERT INTO dwh.fact_fulfillment (
@@ -217,6 +245,7 @@ def fill_fact_fulfillment(cur):
             quantity, unit_price, total_value,
             delay_minutes, avg_temperature, num_supply_chain_hops, delivery_priority_code,
             transport_cost, distance_km, delay_reason,
+            unit_cost, cogs_total, gross_profit, storage_days, storage_cost, contribution_margin,
             on_time_flag
         )
         SELECT
@@ -241,6 +270,18 @@ def fill_fact_fulfillment(cur):
             rm.transport_cost,
             rm.distance_km,
             dl.delay_reason,
+            -- [ANPASSUNG 2026-07-05] Profitabilität: COGS (simuliert), Bruttogewinn,
+            -- Lagerkosten (Verweildauer × Knotensatz) und vereinfachter LOGISTISCHER
+            -- Deckungsbeitrag (kein Unternehmensgewinn: ohne Personal/Verwaltung/Vertrieb).
+            ofa.unit_cost,
+            ROUND(ofa.quantity * ofa.unit_cost, 2)                          AS cogs_total,
+            ROUND(ofa.total_value - ofa.quantity * ofa.unit_cost, 2)        AS gross_profit,
+            COALESCE(st.storage_days, 0)                                    AS storage_days,
+            ROUND(COALESCE(st.storage_cost_per_unit, 0) * ofa.quantity, 2)  AS storage_cost,
+            ROUND(ofa.total_value
+                  - ofa.quantity * ofa.unit_cost
+                  - COALESCE(rm.transport_cost, 0)
+                  - COALESCE(st.storage_cost_per_unit, 0) * ofa.quantity, 2) AS contribution_margin,
             -- Liefertreue-Flag: TRUE wenn delay_minutes <= 60 (SLA-Schwellenwert),
             -- gleiche Logik wie die delivery_status-Ableitung oben.
             (dl.delay_minutes <= 60) AS on_time_flag
@@ -250,6 +291,7 @@ def fill_fact_fulfillment(cur):
         JOIN  order_facts       ofa ON ofa.order_reference  = dl.order_reference
         LEFT JOIN route_metrics rm  ON rm.order_reference   = dl.order_reference
         LEFT JOIN batch_temp    bt  ON bt.batch_identifier  = dl.batch_identifier
+        LEFT JOIN storage       st  ON st.batch_reference   = dl.batch_identifier
         JOIN  dwh.dim_customer  dc  ON dc.customer_number    = ofa.customer_number
         JOIN  dwh.dim_product   dp  ON dp.product_code       = ofa.product_code
         JOIN  dwh.dim_supplier  ds  ON ds.supplier_code      = ofa.supplier_code

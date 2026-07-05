@@ -2,8 +2,8 @@
 ==============================================================================
 Dep. Variable:                  menge   No. Observations:                   37
 Model:                 ARIMA(1, 0, 1)   Log Likelihood                -338.806
-Date:                Fri, 03 Jul 2026   AIC                            685.613
-Time:                        05:27:29   BIC                            692.056
+Date:                Sun, 05 Jul 2026   AIC                            685.613
+Time:                        19:16:06   BIC                            692.056
 Sample:                    06-01-2023   HQIC                           687.884
                          - 06-01-2026                                         
 Covariance Type:                  opg                                         
@@ -23,3 +23,23 @@ Prob(H) (two-sided):                  0.00   Kurtosis:                         4
 
 Warnings:
 [1] Covariance matrix calculated using the outer product of gradients (complex-step).
+
+==============================================================================
+Vergleichsmodell: Lineare Regression [ANPASSUNG 2026-07-05]
+==============================================================================
+Modelltyp:  sklearn.linear_model.LinearRegression
+Features:   t (Monatsindex), month_sin, month_cos  (leakage-frei, nur Kalender-Features)
+Koeffizienten:
+  t (Monatsindex)         18.6639
+  month_sin            -1378.4555
+  month_cos             -103.3180
+  Intercept            11144.2031
+RMSE (echte Monate, In-Sample): 3281.5 Einheiten
+MAE  (echte Monate, In-Sample): 2525.8 Einheiten
+Prognose (Regression):
+  2026-07: 12613 Einheiten
+  2026-08: 13099 Einheiten
+  2026-09: 13251 Einheiten
+
+Hinweis: Regression nutzt Trend + saisonale Monatsfeatures;
+ARIMA modelliert die Autokorrelation der Zeitreihe.

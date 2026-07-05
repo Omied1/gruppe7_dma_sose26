@@ -157,6 +157,34 @@ Diese Granularität stellt sicher, dass `SUM(total_value)` den tatsächlichen Ge
 | `avg_temperature` | NUMERIC(5,2) | Ø Containertemperatur über alle Knotenverarbeitungen des Batches | INTERVAL | Kühlketten-Compliance (10–15 °C) |
 | `num_supply_chain_hops` | INT | Anzahl Transportetappen der Supply Chain (Konstante: 6) | RATIO | Prozessanalyse, Abweichungserkennung |
 | `on_time_flag` | BOOLEAN | TRUE = delay_minutes ≤ 60 (SLA-konform) | NOMINAL | Direktes Liefertreue-Flag für PowerBI |
+| `transport_cost` | NUMERIC(12,2) | **Allokierte** Transportkosten je Fulfillment (Σ der 6 Legs) | RATIO | Kostenquote, Deckungsbeitrag |
+| `distance_km` | NUMERIC(10,2) | Gesamt-Transportdistanz (Σ der 6 Legs) | RATIO | Kosten-/Routenanalyse |
+| `unit_cost` | NUMERIC(10,2) | Simulierter Wareneinsatz je Einheit (aus `erp.products`) | RATIO | COGS-Basis |
+| `cogs_total` | NUMERIC(12,2) | Wareneinsatz = quantity × unit_cost | RATIO | Bruttogewinn/-marge |
+| `gross_profit` | NUMERIC(12,2) | Bruttogewinn = total_value − cogs_total | RATIO | `gross_margin_pct` in Views |
+| `storage_days` | NUMERIC(8,2) | Σ Verweildauer an Lagerknoten (aus WMS-Zeitstempeln) | RATIO | Lagerkosten-Treiber, Umschlags-Proxy |
+| `storage_cost` | NUMERIC(12,2) | Lagerkosten = Σ(qty × Verweildauer × Knotensatz) | RATIO | Kostenstruktur |
+| `contribution_margin` | NUMERIC(12,2) | Logistischer Deckungsbeitrag = Umsatz − COGS − Transport − Lager | RATIO | `contribution_margin_pct`, Wasserfall |
+
+**Profitabilitäts-Kennzahlen ([ANPASSUNG 2026-07-05]):** Die Kette lautet
+`Umsatz − COGS = Bruttogewinn` und `Umsatz − COGS − allokierte Transportkosten −
+Lagerkosten = logistischer Deckungsbeitrag`. Drei Annahmen sind bewusst gesetzt
+und in den Spaltenkommentaren dokumentiert:
+- **[ANNAHME] COGS sind simuliert:** `unit_cost` = 50–65 % der Untergrenze des
+  Kategorie-Preisbands (separater Generator-RNG) → strukturell `unit_cost < unit_price`;
+  kein realer Beschaffungspreis.
+- **[ANNAHME] Transportkosten sind kapazitätsallokiert:** Eine Bestellung trägt nur ihren
+  Mengenanteil an den Vollkosten der Transporteinheit (LKW-Sammeltour 2.000 Kartons,
+  Sammelverschiffung 13.800 Kartons) plus 0,02 €/Karton Handling je Leg. Vorher trugen
+  Bestellungen die Vollkosten aller 6 Legs (Transportkostenquote 137 % – wirtschaftlich
+  unbrauchbar); kalibriert auf **24,9 %** (Zielkorridor 15–30 %).
+- **[ANNAHME] Lagerkostensätze:** 0,020 (Kühlhaus) / 0,012 (Warehouse) €/Karton/Tag in
+  `wms.supply_chain_nodes.storage_cost_per_unit_day`; Verweildauer stammt aus echten
+  WMS-/TMS-Zeitstempeln (Ankunft `processed_at` → Abgang `started_at` des Folge-Legs).
+
+Der `contribution_margin` ist ein **vereinfachter logistischer Deckungsbeitrag** aus
+Supply-Chain-Sicht — bewusst **kein** vollständiger Unternehmensgewinn (Personal-,
+Verwaltungs- und Vertriebskosten fehlen).
 
 **Hinweis zu `quantity` und `unit_price`:** Der Datengenerator legt keine physikalische Einheit fest. Im Dashboard und in Analysen wird `quantity` daher in **ME (Mengeneinheiten)** ausgewiesen, `unit_price` als **EUR/ME**. Der Wertebereich (100–1.000 ME, 1,50–5,00 EUR/ME) ist simulationsbedingt und hat keine direkte Entsprechung im realen Bananenhandel.
 
@@ -263,7 +291,7 @@ Produkt-Schlüssel kommen in drei Formaten vor:
 
 ## 6. Analytische Views
 
-Vier vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenquelle für PowerBI-Visuals und Python-Charts.
+Sieben vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenquelle für PowerBI-Visuals und Python-Charts.
 
 ### `dwh.v_carrier_performance`
 **Grain:** 1 Zeile pro Carrier  
@@ -289,6 +317,23 @@ Vier vorberechnete Views liegen im `dwh`-Schema. Sie dienen als direkte Datenque
 **Grain:** 1 Zeile pro Produkt und Monat  
 **Felder:** `year`, `month`, `product_code`, `total_quantity`, `total_revenue_eur`, `num_shipments`  
 **Verwendung:** Python Absatzprognose (ARIMA/Prophet), PowerBI Zeitreihen-Liniendiagramm
+
+### `dwh.v_batch_quality`
+**Grain:** 1 Zeile pro Kalenderwoche (Erntezeitpunkt)  
+**Felder:** `kalenderwoche`, `batches`, `ok`, `reduced`, `rejected`, `qualitaetsrate_pct`, `avg_schwund_pct`  
+**Verwendung:** KPI Batchqualitätsrate, Chart „Batchqualität über Zeit" (Batch-Grain, separat vom Fulfillment-Grain)
+
+### `dwh.v_profitability` ([ANPASSUNG 2026-07-05])
+**Grain:** 1 Zeile pro (Jahr, Monat, Kundensegment)  
+**Felder:** `revenue_eur`, `cogs_eur`, `gross_profit_eur`, `gross_margin_pct`, `transport_cost_eur`, `storage_cost_eur`, `contribution_margin_eur`, `contribution_margin_pct`  
+**Hinweis:** Margen-Prozente werden auf Summen gerechnet (nicht zeilenweise gemittelt), damit sie korrekt aggregieren.  
+**Verwendung:** `analytics/dashboard.py` (Chart 5 Profitabilitäts-Wasserfall), `sql/10` (DB je Segment), PowerBI-Seite „Profitabilität"
+
+### `dwh.v_stock_by_node` ([ANPASSUNG 2026-07-05])
+**Grain:** 1 Zeile pro (Knoten, Kalenderwoche)  
+**Felder:** `node_code`, `kalenderwoche`, `qty_in`, `qty_out`, `net_change`, `balance_end_of_week`  
+**Quelle:** `wms.stock_movements` – Bestandsbewegungen, im ETL deterministisch aus NodeProcessed abgeleitet (IN = Ankunft, OUT = Ankunft am Folgeknoten bzw. `delivered_at`; kein eigener Quell-Eventtyp). Negative Bestände sind strukturell unmöglich; am Simulationsende ist die Bilanz überall 0 (alle 252 Batches ausgeliefert – deshalb bewusst keine Redis-Echtzeitbestände).  
+**Verwendung:** Bestandsverlauf/Durchfluss-Peaks je Knoten, Lagerumschlags-Proxy
 
 ---
 

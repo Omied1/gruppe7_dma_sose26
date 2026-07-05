@@ -5,9 +5,16 @@ forecast.py – Absatzprognose Banana Supply Chain
 Aufgabe (Aufgabenstellung.pdf):
   "Führen Sie mit python [...] eine Absatzprognose durch."
 
-Methode: ARIMA (AutoRegressive Integrated Moving Average)
-  - Klassische Zeitreihen-Methode für Absatzprognosen
-  - Geeignet für saisonale Muster (Bananenabsatz: Sommer-Peak)
+Methoden: ARIMA-Zeitreihenmodell + lineare Regressionsprognose
+  1) ARIMA (AutoRegressive Integrated Moving Average)
+     - Zeitreihenmodell: nutzt die AUTOKORRELATION der Reihe selbst
+     - geeignet für saisonale Muster (Bananenabsatz: Sommer-Peak)
+  2) Lineare Regression (Vergleichsmodell, [ANPASSUNG 2026-07-05])
+     - erklärt die Menge aus deterministischen Kalender-Features:
+       Trend (Monatsindex t) + Saison (month_sin/month_cos)
+     - bewusst KEINE Ziel-Leakage (kein umsatz/auftraege als Feature –
+       für Zukunftsmonate unbekannt); beide Modelle trainieren auf
+       derselben Zeitreihe (synthetische History + echte DWH-Monate)
 
 Datenbasis:
   - Echte Monatsdaten aus dwh.v_monthly_revenue
@@ -52,9 +59,10 @@ try:
     import matplotlib.dates as mdates
     from statsmodels.tsa.arima.model import ARIMA
     from statsmodels.tsa.stattools import adfuller
+    from sklearn.linear_model import LinearRegression
 except ImportError as e:
     print(f"[FEHLER] Fehlendes Paket: {e}")
-    print("  pip3 install psycopg2-binary pandas numpy matplotlib statsmodels")
+    print("  pip3 install psycopg2-binary pandas numpy matplotlib statsmodels scikit-learn")
     sys.exit(1)
 
 # ---------------------------------------------------------------------------
@@ -224,11 +232,66 @@ def make_forecast(fitted_model, last_date: pd.Timestamp,
 
 
 # ---------------------------------------------------------------------------
+# Schritt 4b: Lineare Regression (Vergleichsmodell) [ANPASSUNG 2026-07-05]
+# Abgrenzung: Die Regression erklärt die Menge aus deterministischen
+# Kalender-Features (Trend + Saison); ARIMA modelliert die Autokorrelation
+# der Zeitreihe selbst. Beide nutzen dieselbe Trainingsreihe (synth + real).
+# ---------------------------------------------------------------------------
+REG_FEATURES = ["t (Monatsindex)", "month_sin", "month_cos"]
+
+
+def _regression_features(dates, t0):
+    """Leakage-freie Kalender-Features: Monatsindex seit Reihenstart (Trend)
+    + Sinus/Cosinus des Monats (zyklische Saison, ohne Dezember/Januar-Bruch)."""
+    t     = np.array([(d.year - t0.year) * 12 + (d.month - t0.month) for d in dates], dtype=float)
+    month = np.array([d.month for d in dates], dtype=float)
+    return np.column_stack([t,
+                            np.sin(2 * np.pi * month / 12.0),
+                            np.cos(2 * np.pi * month / 12.0)])
+
+
+def fit_regression_and_forecast(full_df, real_df, forecast_dates):
+    """Fittet LinearRegression auf der vollständigen Modellzeitreihe und
+    prognostiziert dieselben Zukunftsmonate wie ARIMA. Fehlermaße werden –
+    analog zu ARIMA – In-Sample auf den ECHTEN Monaten berechnet."""
+    print("[4b/5] Fitte lineare Regression (Vergleichsmodell)...")
+    t0 = full_df["datum"].min()
+
+    X_train = _regression_features(full_df["datum"], t0)
+    y_train = full_df["menge"].astype(float).values
+    model   = LinearRegression().fit(X_train, y_train)
+
+    # In-Sample-Fehler auf den echten DWH-Monaten (kein Holdout-Test)
+    X_real  = _regression_features(real_df["datum"], t0)
+    y_real  = real_df["menge"].astype(float).values
+    y_hat   = model.predict(X_real)
+    rmse    = float(np.sqrt(((y_real - y_hat) ** 2).mean()))
+    mae     = float(np.abs(y_real - y_hat).mean())
+    print(f"  Features: {', '.join(REG_FEATURES)}")
+    print(f"  RMSE = {rmse:.1f} / MAE = {mae:.1f} Einheiten (In-Sample, echte Monate)")
+
+    # Prognose für dieselben Zukunftsmonate wie ARIMA (Absatz >= 0)
+    X_fut   = _regression_features(forecast_dates, t0)
+    y_fut   = np.clip(model.predict(X_fut), 0, None)
+    reg_forecast_df = pd.DataFrame({"datum": forecast_dates, "prognose": y_fut})
+    for _, row in reg_forecast_df.iterrows():
+        print(f"  • {row['datum'].strftime('%Y-%m')}: {row['prognose']:.0f} Einheiten")
+
+    return {
+        "model": model, "forecast_df": reg_forecast_df,
+        "rmse": rmse, "mae": mae,
+        "coefs": dict(zip(REG_FEATURES, model.coef_)),
+        "intercept": float(model.intercept_),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Schritt 5: Modellbewertung + Visualisierung
 # ---------------------------------------------------------------------------
 def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
-                      real_df: pd.DataFrame, fitted_model, d: int):
-    """Berechnet den In-Sample-Fit-Fehler auf echten Monaten und erstellt den Chart."""
+                      real_df: pd.DataFrame, fitted_model, d: int, reg: dict):
+    """Berechnet den In-Sample-Fit-Fehler auf echten Monaten und erstellt den Chart
+    (beide Prognosen: ARIMA-Zeitreihe + Regressions-Vergleichsmodell)."""
 
     # In-Sample-Fehler gegen echte Monatswerte aus dem DWH.
     # Das ist kein echter Holdout-Test, weil alle realen Monate im Training enthalten sind.
@@ -275,13 +338,18 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
                 color="#1E3A5F", s=120, zorder=10, label="Echte Monatswerte (DWH)")
     ax1.plot(real["datum"], real["menge"], color="#1E3A5F", linewidth=2)
 
-    # Prognose
+    # Prognose 1: ARIMA (Zeitreihe) + Konfidenzintervall
     ax1.plot(forecast_df["datum"], forecast_df["prognose"],
              color="#2563EB", linewidth=2.5, marker="o", markersize=7,
-             label=f"ARIMA(1,{d},1)-Prognose")
+             label="ARIMA-Prognose")
     ax1.fill_between(forecast_df["datum"],
                      forecast_df["lower_95"], forecast_df["upper_95"],
-                     color="#2563EB", alpha=0.15, label="95%-Konfidenzintervall")
+                     color="#2563EB", alpha=0.15, label="95%-Konfidenzintervall (ARIMA)")
+
+    # Prognose 2: lineare Regression (Vergleichsmodell) [ANPASSUNG 2026-07-05]
+    ax1.plot(reg["forecast_df"]["datum"], reg["forecast_df"]["prognose"],
+             color="#B45309", linewidth=2, linestyle="--", marker="s", markersize=6,
+             label="Regression-Prognose")
 
     # Trennlinie Vergangenheit / Zukunft
     last_real = full_df["datum"].max()
@@ -298,85 +366,90 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
     ax1.legend(fontsize=8, loc="upper left")
     ax1.set_facecolor("#FFFFFF")
 
-    # Prognose-Werte annotieren
+    # Prognose-Werte annotieren: ARIMA unterhalb, Regression oberhalb der Punkte –
+    # die Labels wandern voneinander weg (Regressionslinie liegt über der ARIMA-Linie),
+    # dadurch keine Kollision im Band zwischen den beiden Prognoselinien.
     for _, row in forecast_df.iterrows():
         ax1.annotate(f"{row['prognose']:.0f}",
                      xy=(row["datum"], row["prognose"]),
-                     xytext=(0, 12), textcoords="offset points",
+                     xytext=(0, -16), textcoords="offset points",
                      ha="center", fontsize=8, color="#2563EB", fontweight="bold")
+    for _, row in reg["forecast_df"].iterrows():
+        ax1.annotate(f"{row['prognose']:.0f}",
+                     xy=(row["datum"], row["prognose"]),
+                     xytext=(0, 10), textcoords="offset points",
+                     ha="center", fontsize=8, color="#B45309", fontweight="bold")
 
     # -- Subplot 2: Modell-Info + Prognose-Tabelle -----------------------
     ax2 = axes[1]
     ax2.axis("off")
 
-    # Prognose-Tabelle
+    # Prognose-Tabelle: beide Modelle nebeneinander (gleiche Zukunftsmonate)
+    reg_by_date = {row["datum"]: row["prognose"] for _, row in reg["forecast_df"].iterrows()}
     table_rows = []
     for _, row in forecast_df.iterrows():
         table_rows.append([
             row["datum"].strftime("%b %Y"),
             f"{row['prognose']:.0f}",
             f"{row['lower_95']:.0f} – {row['upper_95']:.0f}",
+            f"{reg_by_date[row['datum']]:.0f}",
         ])
 
     tbl = ax2.table(
         cellText=table_rows,
-        colLabels=["Monat", "Prognose\n(Einheiten)", "95%-Konfidenz\nintervall"],
+        colLabels=["Monat", "ARIMA\n(Einheiten)", "95%-KI\n(ARIMA)", "Regression\n(Einheiten)"],
         loc="center",
         cellLoc="center",
-        bbox=[0.02, 0.58, 0.96, 0.34],
+        bbox=[0.02, 0.62, 0.96, 0.30],
     )
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(10)
+    tbl.set_fontsize(9)
     tbl.scale(1, 2)
-    for col in range(3):
+    for col in range(4):
         tbl[0, col].set_facecolor("#1E3A5F")
         tbl[0, col].set_text_props(color="white", fontweight="bold")
     for row_i in range(1, len(table_rows) + 1):
-        for col in range(3):
+        for col in range(4):
             tbl[row_i, col].set_facecolor("#EFF6FF")
 
-    # Modell-Info-Box
+    # Modell-Info-Box: beide Modelle im Vergleich [ANPASSUNG 2026-07-05]
     info_lines = [
-        "Modell-Details",
-        "─" * 30,
-        f"Methode:   ARIMA(1,{d},1)",
-        f"Stationarität: d={d} {'✓ stationär' if d == 0 else '→ 1x diff.'}",
-        f"Training:  {SYNTHETIC_MONTHS} Monate (synth.)",
-        f"           + {len(real_df)} Monat(e) real",
-        "",
-        f"Prognose:  {FORECAST_MONTHS} Monate voraus",
-        f"KI-Niveau: 95%",
-        "",
+        "Modell-Vergleich",
+        "─" * 34,
+        f"ARIMA(1,{d},1) – Zeitreihenmodell",
+        f"  d={d} ({'✓ stationär' if d == 0 else '→ 1x differenziert'}), KI 95%",
+        f"  Training: {SYNTHETIC_MONTHS} synth. + {len(real_df)} reale Monate",
     ]
     if rmse is not None:
-        info_lines += [
-            "Fit-Fehler (echte Monate):",
-            f"  RMSE = {rmse:.1f} Einheiten",
-            f"  MAE  = {mae:.1f} Einheiten",
-            "  Hinweis: In-Sample,",
-            "  kein Holdout-Test.",
-        ]
-
+        info_lines += [f"  RMSE {rmse:.1f} / MAE {mae:.1f} Einheiten"]
     info_lines += [
         "",
-        "Hinweis:",
-        "Synthetische History wurde auf",
-        "Basis realer Statistiken erzeugt.",
-        "Erster/letzter Realmonat sind",
-        "Randmonate der 52-Wochen-Reihe.",
-        "Prognose verbessert sich deutlich",
-        "mit längerer echter Historie.",
+        "Lineare Regression – Vergleichsmodell",
+        "  Features: t, month_sin, month_cos",
+        f"  RMSE {reg['rmse']:.1f} / MAE {reg['mae']:.1f} Einheiten",
+        "",
+        "Fehler jeweils In-Sample auf den",
+        "echten Monaten, kein Holdout-Test.",
+        "",
+        "Regression nutzt Trend + saisonale",
+        "Monatsfeatures; ARIMA modelliert",
+        "Autokorrelation der Zeitreihe.",
+        "",
+        "Synthetische History aus realen",
+        "Statistiken erzeugt; beide Prognosen",
+        "werden mit längerer echter Historie",
+        "belastbarer.",
     ]
 
-    ax2.text(0.05, 0.52, "\n".join(info_lines),
+    ax2.text(0.05, 0.57, "\n".join(info_lines),
              transform=ax2.transAxes,
-             verticalalignment="top", fontsize=9,
+             verticalalignment="top", fontsize=8.5,
              fontfamily="monospace",
              bbox=dict(boxstyle="round", facecolor="#F0F9FF",
                        edgecolor="#2563EB", alpha=0.8))
 
     fig.text(0.5, -0.04,
-             "Methode: ARIMA(statsmodels) | Saisonales Muster: Bananen-Sommer-Peak "
+             "Methoden: ARIMA (statsmodels) + Lineare Regression (sklearn) | Saisonales Muster: Bananen-Sommer-Peak "
              "| Gruppe 7 – DMA SoSe 26 | TH Lübeck",
              ha="center", fontsize=8, color="#64748B")
 
@@ -387,9 +460,26 @@ def evaluate_and_plot(full_df: pd.DataFrame, forecast_df: pd.DataFrame,
     print(f"  Gespeichert: {PNG_PATH}")
     print(f"  Gespeichert: {PDF_PATH}")
 
-    # Modell-Summary als Text speichern
+    # Modell-Summary als Text speichern: ARIMA-Summary + Regressions-Block
     with open(TXT_PATH, "w") as f:
         f.write(str(fitted_model.summary()))
+        f.write("\n\n")
+        f.write("=" * 78 + "\n")
+        f.write("Vergleichsmodell: Lineare Regression [ANPASSUNG 2026-07-05]\n")
+        f.write("=" * 78 + "\n")
+        f.write("Modelltyp:  sklearn.linear_model.LinearRegression\n")
+        f.write(f"Features:   {', '.join(REG_FEATURES)}  (leakage-frei, nur Kalender-Features)\n")
+        f.write("Koeffizienten:\n")
+        for name, coef in reg["coefs"].items():
+            f.write(f"  {name:<18} {coef:>12.4f}\n")
+        f.write(f"  {'Intercept':<18} {reg['intercept']:>12.4f}\n")
+        f.write(f"RMSE (echte Monate, In-Sample): {reg['rmse']:.1f} Einheiten\n")
+        f.write(f"MAE  (echte Monate, In-Sample): {reg['mae']:.1f} Einheiten\n")
+        f.write("Prognose (Regression):\n")
+        for _, row in reg["forecast_df"].iterrows():
+            f.write(f"  {row['datum'].strftime('%Y-%m')}: {row['prognose']:.0f} Einheiten\n")
+        f.write("\nHinweis: Regression nutzt Trend + saisonale Monatsfeatures;\n")
+        f.write("ARIMA modelliert die Autokorrelation der Zeitreihe.\n")
     print(f"  Modell-Summary: {TXT_PATH}")
 
     return rmse, mae
@@ -414,7 +504,10 @@ def main():
 
     fitted_model, d = fit_arima(ts)
     forecast_df     = make_forecast(fitted_model, full_df["datum"].max())
-    rmse, mae       = evaluate_and_plot(full_df, forecast_df, real_df, fitted_model, d)
+    # [ANPASSUNG 2026-07-05] Regressions-Vergleichsmodell auf derselben Datenbasis,
+    # Prognose für dieselben Zukunftsmonate wie ARIMA
+    reg             = fit_regression_and_forecast(full_df, real_df, list(forecast_df["datum"]))
+    rmse, mae       = evaluate_and_plot(full_df, forecast_df, real_df, fitted_model, d, reg)
 
     print()
     print("=" * 60)

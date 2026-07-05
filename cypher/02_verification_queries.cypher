@@ -91,9 +91,11 @@ RETURN [n IN nodes(path) | n.node_name]              AS stationen,
 // Prüft den vollständigen Order-to-Delivery-Pfad aus 01_create_graph_model.cypher
 // =============================================================================
 
-// 6.1 Batch-Weg durch alle 7 Stationen
+// 6.1 Batch-Weg durch die 6 WMS-Stationen
 // Hinweis: ETL (WMS-NodeProcessed) und cypher/01 erzeugen parallele PROCESSED_AT-Kanten
-// fuer denselben Demo-Batch. collect(r)[0] waehlt eine Kante je Station -> genau 7 Zeilen.
+// fuer denselben Demo-Batch. collect(r)[0] waehlt eine Kante je Station -> genau 6 Zeilen.
+// [KORREKTUR 2026-07-05] RETAIL_STORE hat KEIN PROCESSED_AT (kein WMS-Event, vgl. sql/03);
+// die 7. Station wird ueber die Endlieferung (DELIVERED_TO) erreicht.
 MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
       -[r:PROCESSED_AT]->(n:SupplyChainNode)
 WITH b, n, collect(r)[0] AS r

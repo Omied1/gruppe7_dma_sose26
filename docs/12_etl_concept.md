@@ -224,6 +224,14 @@ Schritt 7: MDM (mdm.golden_records, mdm.source_mappings)
            → 5 Entity-Typen: PRODUCT (3 Quellsysteme), CUSTOMER, SUPPLIER, CARRIER,
              SUPPLY_CHAIN_NODE
 
+Schritt 7b: Bestandsbewegungen ableiten (wms.stock_movements) [ANPASSUNG 2026-07-05]
+           → KEIN Quell-Eventtyp: deterministisch aus Schritt 5+6 abgeleitet
+             (IN = node_processings.processed_at, OUT = Ankunft am Folgeknoten
+             bzw. deliveries.delivered_at am letzten WMS-Knoten; Menge = Batchmenge)
+           → 2 Bewegungen je NodeProcessed (1.512 IN + 1.512 OUT = 3.024)
+           → Idempotenz: DELETE + Rebuild (Ableitung ist deterministisch);
+             IN-vor-OUT je Batch/Knoten macht negative Bestände strukturell unmöglich
+
 Schritt 8: MongoDB – Event-Collections (parallel zu Schritt 4–6)
 Schritt 9: Redis – Echtzeitzustände (aus TMS-Events)
 Schritt 10: Neo4j – Graph-Knoten und Beziehungen (BatchHarvested → product_code auf Batch,
@@ -303,7 +311,7 @@ WHERE  d.delivery_status IS NOT NULL;  -- Nur abgeschlossene Fulfillments
 |---|---|---|---|---|
 | `shared/erp/` | `SupplierCreated` | `normalize_key()` auf supplier_code | PostgreSQL `erp.suppliers` | Stammdaten, referenzielle Integrität |
 | `shared/erp/` | `CustomerCreated` | `normalize_key()` auf customer_number | PostgreSQL `erp.customers` | Stammdaten, referenzielle Integrität |
-| `shared/erp/` | `ProductCreated` | `normalize_key()` auf product_code, supplier_reference → FK | PostgreSQL `erp.products` | Stammdaten mit FK |
+| `shared/erp/` | `ProductCreated` | `normalize_key()` auf product_code, supplier_reference → FK; `unit_cost` (simulierter Wareneinsatz) 1:1 | PostgreSQL `erp.products` | Stammdaten mit FK; COGS-Basis ([ANPASSUNG 2026-07-05]) |
 | `shared/wms/` | `WarehouseSKUCreated` | `normalize_key()`: `BAN_101` → `BAN-101` | PostgreSQL `wms.warehouse_skus` | WMS-Stammdaten (Inkonsistenz wird im ETL aufgelöst) |
 | `shared/tms/` | `CarrierCreated` | `normalize_key()` auf carrier_id | PostgreSQL `tms.carriers` | TMS-Stammdaten |
 | `shared/tms/` | `TransportProductReferenceCreated` | `normalize_key()`: `ban-101` → `BAN-101` | PostgreSQL `tms.transport_product_references` | TMS-Stammdaten (Inkonsistenz wird im ETL aufgelöst) |

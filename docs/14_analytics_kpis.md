@@ -30,6 +30,8 @@ Batchqualitätsrate werden in `sql/10_kpi_queries.sql` separat aus
 | 4 | **Ø Bestellwert** | `AVG(total_value)` | `fact_fulfillment.total_value` (= `quantity × unit_price`) | ≥ 1.000 € | **1.289,72 €** | ✅ erfüllt |
 | 5 | **Batchqualitätsrate** | `100 * COUNT(quality_status='OK') / COUNT(*)` | `erp.batches.quality_status` / `dwh.v_batch_quality` | ≥ 40 % OK | **36,5 %** OK | ⚠️ knapp verfehlt |
 | + | **Gesamtumsatz** | `SUM(total_value)` | `fact_fulfillment.total_value` | – (Monitoring) | **325.008,80 €** | – |
+| 6 | **Bruttomarge** | `100 * SUM(gross_profit) / SUM(total_value)` | `fact_fulfillment.gross_profit` (= Umsatz − COGS; COGS **simuliert**) | ≥ 40 % | **53,2 %** | ✅ erfüllt |
+| 7 | **Log. Deckungsbeitragsquote** | `100 * SUM(contribution_margin) / SUM(total_value)` | `fact_fulfillment.contribution_margin` (= Umsatz − COGS − Transport − Lager) | > 0 % (Orientierung 15–30 %) | **27,3 %** | ✅ erfüllt |
 
 **Zielwerte** sind aus dem Supply-Chain-Kontext abgeleitet, nicht extern
 vorgegeben (`[ANNAHME]`): 95 % Liefertreue ist ein branchenüblicher
@@ -95,6 +97,42 @@ Kundensegment (`dim_customer.customer_type`):
 | MECHANICAL | 17 | 6,7 % |
 | TRAFFIC | 15 | 6,0 % |
 
+### 1.2 Profitabilität – KPI 6/7 im Detail ([ANPASSUNG 2026-07-05])
+
+Kostenkette über alle 252 Fulfillments (Nachweis: `sql/10_kpi_queries.sql` KPI 6/7,
+Chart: `analytics/dashboard.py` → Chart 5 „Profitabilitäts-Wasserfall"):
+
+| Position | EUR | Anteil am Umsatz |
+|---|--:|--:|
+| Umsatz | 325.008,80 € | 100,0 % |
+| − COGS (simulierter Wareneinsatz) | 151.962,01 € | 46,8 % |
+| − Transportkosten (**allokiert**) | 81.057,50 € | 24,9 % |
+| − Lagerkosten (Verweildauer × Knotensatz) | 3.358,73 € | 1,0 % |
+| **= Logistischer Deckungsbeitrag** | **88.630,56 €** | **27,3 %** |
+
+**Begriffliche Einordnung (bewusst):** Der Deckungsbeitrag ist ein **vereinfachter
+logistischer Deckungsbeitrag** aus Supply-Chain-Sicht – kein vollständiger
+Unternehmensgewinn (Personal-, Verwaltungs-, Vertriebskosten fehlen). Drei
+`[ANNAHME]`-Parameter: COGS = 50–65 % der Preisband-Untergrenze je Kategorie;
+Transportkosten kapazitätsallokiert (LKW-Sammeltour 2.000 / Sammelverschiffung
+13.800 Kartons – vorher trugen Bestellungen die Vollkosten aller 6 Legs, Quote 137 %);
+Lagerkostensätze 0,020 / 0,012 €/Karton/Tag (Kühlhaus/Warehouse).
+
+**Deckungsbeitrag nach Kundensegment** (aus `dwh.v_profitability`):
+
+| Segment | Deckungsbeitrag | DB-Quote |
+|---|--:|--:|
+| DISCOUNTER | 39.969 € | 23,3 % |
+| VOLLSORTIMENTER | 38.183 € | 30,6 % |
+| PREMIUM | 10.479 € | 36,8 % |
+
+> Kernaussage: Discounter liefern den höchsten **absoluten** Deckungsbeitrag, aber die
+> **niedrigste Quote** – ihre Großmengen (Ø 843 Kartons) treiben die mengenabhängigen
+> Transport- und Handlingkosten. Premium ist pro Umsatz-Euro am profitabelsten
+> (36,8 %), bleibt aber volumenschwach. Die Lagerkosten (1,0 %) spielen bei
+> schnelldrehender Frischware mit Ø ~1–2 Tagen Verweildauer je Lagerknoten eine
+> untergeordnete Rolle – der Kostenhebel liegt im Transport.
+
 ---
 
 ## 2. Deskriptive Statistik
@@ -142,9 +180,9 @@ bestätigt die Plausibilität des Datengenerators.
 
 | Baustein | Datei | Nutzt KPIs / Statistik |
 |---|---|---|
-| 5 Python-Charts (A-3) | `analytics/dashboard.py` | Umsatz/Segment, Verspätungsgründe, Bestellwert-Boxplot, Transportkosten, Batchqualität |
+| 5 Python-Charts (A-3) | `analytics/dashboard.py` | Umsatzentwicklung/Segment, Pareto Top-Kunden, Verzögerungsverteilung + SLA, Verspätungsgründe, Profitabilitäts-Wasserfall (KPI 6/7) |
 | Clustering (A-5) | `analytics/clustering.py` | k=3-Kundensegmente; Business-Sicht Ø Bestellwert vs. Ø Verzögerung |
-| Absatzprognose (A-6) | `analytics/forecast.py` | Monatliche Menge aus `v_monthly_revenue` |
+| Absatzprognose (A-6) | `analytics/forecast.py` | Monatliche Menge aus `v_monthly_revenue`; ARIMA-Zeitreihe + lineare Regression (Vergleichsmodell) |
 | PowerBI-Konzept (A-4) | [`docs/15_powerbi_concept.md`](15_powerbi_concept.md) | KPI-Cards aus `v_kpi_summary` |
 
 ---

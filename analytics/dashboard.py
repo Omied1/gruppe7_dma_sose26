@@ -4,23 +4,26 @@ dashboard.py – BI-Dashboard Banana Supply Chain
 =============================================================================
 Erstellt 5 wirtschaftlich getriebene Charts als:
   - dashboard.pdf / dashboard.png  (statisch, matplotlib + seaborn)
-  - dashboard.html                 (interaktiv, plotly)
+  - dashboard.html                 (interaktiv, plotly – dieselben 5 Visuals)
 
-Charts [ANPASSUNG 2026-07-02 – auf neue Generator-Felder gehoben]:
-  1. Umsatz-Zeitreihe nach Kundensegment    (Line Chart, customer_type)
-  2. Verspätungsgründe je Transport-Leg     (Horizontal Bar, delay_reason)
-  3. Bestellwert nach Kundentyp             (Box Plot, customer_type)
-  4. Ø Transportkosten je Route             (Horizontal Bar, transport_cost/distance)
-  5. Batchqualität über Zeit                (Line Chart, v_batch_quality)
+Charts [ANPASSUNG 2026-07-05 – Auswahl neu geschnitten, Profitabilität integriert]:
+  1. Umsatzentwicklung nach Kundensegment       (Line Chart, customer_type)
+  2. Pareto Top-Kunden nach Umsatz              (Bar + kumulative %-Linie, EINE %-Achse)
+  3. Verzögerungsverteilung mit SLA-Grenze      (Histogramm delay_minutes, SLA 60 min)
+  4. Verspätungsgründe je Transportabschnitt    (Horizontal Bar, delay_reason > 30 Min.)
+  5. Profitabilitäts-Wasserfall                 (Umsatz → COGS → Transport → Lager → log. DB)
+
+Begriffliche Einordnung (bewusst): COGS sind SIMULIERT, Transportkosten
+KAPAZITÄTSALLOKIERT; der Wasserfall endet im vereinfachten LOGISTISCHEN
+Deckungsbeitrag – kein Unternehmensgewinn (ohne Personal/Verwaltung/Vertrieb).
 
 Voraussetzung:
   - PostgreSQL läuft auf localhost:5432, DB: logistics
-  - dwh.fact_fulfillment + Dimensionen sind via ETL befüllt
+  - dwh.fact_fulfillment inkl. Profitabilitäts-Spalten via etl_dwh.py befüllt
   - pip install psycopg2-binary pandas matplotlib seaborn plotly
 
 Ausführung:
-  cd analytics
-  python dashboard.py
+  python3 analytics/dashboard.py
 =============================================================================
 """
 
@@ -55,7 +58,6 @@ except ImportError:
     MISSING.append("matplotlib seaborn")
 try:
     import plotly.graph_objects as go
-    import plotly.express as px
     from plotly.subplots import make_subplots
 except ImportError:
     MISSING.append("plotly")
@@ -74,12 +76,26 @@ PDF_PATH    = os.path.join(OUTPUT_DIR, "dashboard.pdf")
 PNG_PATH    = os.path.join(OUTPUT_DIR, "dashboard.png")
 HTML_PATH   = os.path.join(OUTPUT_DIR, "dashboard.html")
 
-# Farben: Corporate Look (Banana-Gelb + Blau)
-COLOR_PALETTE   = ["#2563EB", "#16A34A", "#DC2626", "#D97706", "#7C3AED"]
-COLOR_SUCCESS   = "#16A34A"
-COLOR_DELAYED   = "#D97706"
-COLOR_FAILED    = "#DC2626"
-STATUS_COLORS   = {"SUCCESSFUL": COLOR_SUCCESS, "DELAYED": COLOR_DELAYED, "FAILED": COLOR_FAILED}
+# Serienfarben (Segmente, feste Reihenfolge) + Funktionsfarben
+COLOR_PALETTE  = ["#2563EB", "#16A34A", "#DC2626", "#D97706", "#7C3AED"]
+C_SERIES       = "#2563EB"   # Einzelserien-Blau
+C_TOTAL        = "#3B6BA5"   # Wasserfall: Summe (dataviz-validiert)
+C_COST         = "#C2410C"   # Wasserfall: Kostenabzug
+C_RESULT       = "#15803D"   # Wasserfall: Ergebnis
+C_SLA          = "#DC2626"   # SLA-Grenzlinie
+C_INK, C_MUTED = "#1E293B", "#64748B"
+
+SLA_MINUTES    = 60          # Fulfillment-SLA (on_time_flag-Schwelle)
+
+FOOTER = ("COGS simuliert · Transportkosten allokiert · logistischer Deckungsbeitrag, "
+          "kein Unternehmensgewinn  |  Datenquelle: dwh.fact_fulfillment + tms.transport_completions  |  "
+          "Gruppe 7 – DMA SoSe 26 | TH Lübeck")
+
+
+def fmt_eur(v):
+    # Deutsche Tausendertrennung für Direktbeschriftungen (z. B. 325.009 €)
+    return f"{v:,.0f} €".replace(",", ".")
+
 
 # ---------------------------------------------------------------------------
 # Datenbankverbindung & Queries
@@ -99,9 +115,6 @@ def load_data(conn):
     """Alle 5 Datasets in einem Schritt laden."""
     print("[...] Lade Daten aus DWH...")
     datasets = {}
-    # [ANPASSUNG 2026-07-02] Dashboard auf die neuen Generator-Felder gehoben:
-    # Kundensegmente (customer_type), Verspätungsgründe (delay_reason), Transportkosten,
-    # Batchqualität (v_batch_quality).
     queries = {
 
         # Chart 1: Monatlicher Umsatz nach Kundensegment
@@ -118,7 +131,27 @@ def load_data(conn):
             ORDER BY dd.year, dd.month, dc.customer_type
         """,
 
-        # Chart 2: Verspätungsgründe (delay_reason je Transport-Leg)
+        # Chart 2: Pareto Top-Kunden nach Umsatz [ANPASSUNG 2026-07-05]
+        "pareto_kunden": """
+            SELECT
+                dc.customer_name            AS kunde,
+                dc.customer_type            AS segment,
+                SUM(f.total_value)          AS umsatz
+            FROM dwh.fact_fulfillment f
+            JOIN dwh.dim_customer dc ON f.customer_sk = dc.customer_sk
+            GROUP BY dc.customer_name, dc.customer_type
+            ORDER BY umsatz DESC
+        """,
+
+        # Chart 3: Verzögerungsverteilung (Fulfillment-Grain) [ANPASSUNG 2026-07-05]
+        "delay_verteilung": """
+            SELECT delay_minutes
+            FROM dwh.fact_fulfillment
+            WHERE delay_minutes IS NOT NULL
+        """,
+
+        # Chart 4: Verspätungsgründe je Transportabschnitt (Generator setzt
+        # delay_reason nur bei Leg-Verspätung > 30 Min.)
         "verspaetungsgruende": """
             SELECT delay_reason AS grund, COUNT(*) AS anzahl
             FROM tms.transport_completions
@@ -127,30 +160,15 @@ def load_data(conn):
             ORDER BY anzahl DESC
         """,
 
-        # Chart 3: Bestellwert-Verteilung nach Kundentyp (Boxplot)
-        "bestellwert_segment": """
-            SELECT dc.customer_type AS segment, f.total_value AS bestellwert
-            FROM dwh.fact_fulfillment f
-            JOIN dwh.dim_customer dc ON f.customer_sk = dc.customer_sk
-            WHERE dc.customer_type IS NOT NULL
-        """,
-
-        # Chart 4: Ø Transportkosten je Route
-        "transportkosten_route": """
+        # Chart 5: Profitabilitäts-Wasserfall [ANPASSUNG 2026-07-05]
+        "profitabilitaet": """
             SELECT
-                source_node || ' -> ' || target_node AS route,
-                ROUND(AVG(transport_cost), 2)        AS avg_kosten,
-                ROUND(AVG(distance_km), 1)           AS avg_distanz
-            FROM tms.shipments
-            GROUP BY source_node, target_node
-            ORDER BY avg_kosten DESC
-        """,
-
-        # Chart 5: Batchqualität über Zeit (Kühlkette -> Qualität)
-        "batchqualitaet_zeit": """
-            SELECT kalenderwoche, qualitaetsrate_pct, avg_schwund_pct, batches
-            FROM dwh.v_batch_quality
-            ORDER BY kalenderwoche
+                ROUND(SUM(total_value), 2)         AS umsatz,
+                ROUND(SUM(cogs_total), 2)          AS cogs,
+                ROUND(SUM(transport_cost), 2)      AS transport,
+                ROUND(SUM(storage_cost), 2)        AS lager,
+                ROUND(SUM(contribution_margin), 2) AS deckungsbeitrag
+            FROM dwh.fact_fulfillment
         """,
     }
 
@@ -177,29 +195,31 @@ def load_data(conn):
 def build_static_dashboard(datasets):
     print("[...] Erstelle statisches Dashboard (PDF/PNG)...")
 
-    sns.set_theme(style="whitegrid", font_scale=0.9)
-    fig = plt.figure(figsize=(20, 14), facecolor="#F8FAFC")
+    sns.set_theme(style="whitegrid", font_scale=1.0)
+    fig = plt.figure(figsize=(19, 16), facecolor="#F8FAFC")
     fig.suptitle(
         "Banana Supply Chain – BI Dashboard",
-        fontsize=18, fontweight="bold", color="#1E3A5F", y=0.98
+        fontsize=19, fontweight="bold", color="#1E3A5F", y=0.985
     )
 
+    # 3 Zeilen: oben Zeitreihe + Pareto, Mitte Histogramm + Gründe,
+    # unten Wasserfall über die volle Breite (braucht die 5 Stufen nebeneinander)
     gs = gridspec.GridSpec(
-        2, 3,
+        3, 2,
         figure=fig,
-        hspace=0.45,
-        wspace=0.35,
-        top=0.93, bottom=0.07,
+        height_ratios=[1.0, 1.0, 1.15],
+        hspace=0.42, wspace=0.22,
+        top=0.94, bottom=0.055,
         left=0.06, right=0.97
     )
 
-    ax1 = fig.add_subplot(gs[0, :2])   # Chart 1: breiter oben links
-    ax2 = fig.add_subplot(gs[0, 2])    # Chart 2: oben rechts
-    ax3 = fig.add_subplot(gs[1, 0])    # Chart 3: unten links
-    ax4 = fig.add_subplot(gs[1, 1])    # Chart 4: unten mitte
-    ax5 = fig.add_subplot(gs[1, 2])    # Chart 5: unten rechts
+    ax1 = fig.add_subplot(gs[0, 0])   # 1. Umsatzentwicklung
+    ax2 = fig.add_subplot(gs[0, 1])   # 2. Pareto Top-Kunden
+    ax3 = fig.add_subplot(gs[1, 0])   # 3. Verzögerungsverteilung + SLA
+    ax4 = fig.add_subplot(gs[1, 1])   # 4. Verspätungsgründe
+    ax5 = fig.add_subplot(gs[2, :])   # 5. Wasserfall (volle Breite)
 
-    # -- Chart 1: Umsatz-Zeitreihe nach Kundensegment --
+    # -- Chart 1: Umsatzentwicklung nach Kundensegment (beibehalten) ----------
     df1 = datasets["umsatz_segment"].copy()
     if not df1.empty:
         df1["periode"] = df1["jahr"].astype(str) + "-" + df1["monat"].astype(str).str.zfill(2)
@@ -208,83 +228,140 @@ def build_static_dashboard(datasets):
         for col, color in zip(pivot.columns, COLOR_PALETTE):
             ax1.plot(pivot.index, pivot[col], marker="o", linewidth=2,
                      markersize=4, label=col, color=color)
-        ax1.set_title("① Monatlicher Umsatz nach Kundensegment (EUR)", fontweight="bold", color="#1E3A5F")
+        ax1.set_title("1. Umsatzentwicklung nach Kundensegment (EUR/Monat)",
+                      fontweight="bold", color="#1E3A5F", fontsize=12)
         ax1.set_xlabel("Monat")
         ax1.set_ylabel("Umsatz (EUR)")
-        ax1.tick_params(axis="x", rotation=45)
-        ax1.legend(loc="upper left", fontsize=7, ncol=3)
+        ax1.tick_params(axis="x", rotation=45, labelsize=8)
+        ax1.legend(loc="upper left", fontsize=9, ncol=3)
         ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
     else:
         ax1.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax1.transAxes)
-        ax1.set_title("① Monatlicher Umsatz nach Kundensegment", fontweight="bold")
+        ax1.set_title("1. Umsatzentwicklung nach Kundensegment", fontweight="bold")
 
-    # -- Chart 2: Verspätungsgründe (delay_reason) --
-    df2 = datasets["verspaetungsgruende"].copy()
+    # -- Chart 2: Pareto Top-Kunden nach Umsatz --------------------------------
+    # dataviz-konform mit EINER Achse: Balken = Umsatzanteil %, Linie = kumulierter
+    # Anteil % (gleiche Skala 0-100). Absolute EUR als Direktbeschriftung.
+    df2 = datasets["pareto_kunden"].copy()
     if not df2.empty:
-        df2 = df2.sort_values("anzahl", ascending=True)
-        bars2 = ax2.barh(df2["grund"], df2["anzahl"], color=COLOR_PALETTE[:len(df2)], height=0.6)
-        ax2.set_title("② Verspätungsgründe\n(Transport-Legs)", fontweight="bold", color="#1E3A5F")
-        ax2.set_xlabel("Anzahl Legs")
-        for bar, val in zip(bars2, df2["anzahl"]):
-            ax2.text(val, bar.get_y() + bar.get_height() / 2, f" {int(val)}", va="center", fontsize=7)
+        total = df2["umsatz"].sum()
+        df2["anteil_pct"] = 100.0 * df2["umsatz"] / total
+        df2["kum_pct"]    = df2["anteil_pct"].cumsum()
+        x2 = range(len(df2))
+
+        bars2 = ax2.bar(x2, df2["anteil_pct"], color=C_SERIES, width=0.62,
+                        edgecolor="#F8FAFC", linewidth=1.5, label="Umsatzanteil je Kunde")
+        ax2.plot(x2, df2["kum_pct"], color=C_INK, marker="o", markersize=5,
+                 linewidth=2, label="kumuliert")
+        ax2.axhline(80, color=C_MUTED, linestyle="--", linewidth=1)
+        ax2.text(len(df2) - 0.4, 81.5, "80 %", fontsize=8, color=C_MUTED, ha="right")
+
+        # Direktbeschriftung: EUR am Balken, kumulierte % an ausgewählten Punkten
+        for i, (rect, (_, row)) in enumerate(zip(bars2, df2.iterrows())):
+            ax2.annotate(f"{row['umsatz']/1000:,.0f}k".replace(",", "."),
+                         xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()),
+                         xytext=(0, 3), textcoords="offset points",
+                         ha="center", fontsize=8, color=C_INK)
+        # Kumulierte %: nur selektiv beschriften (80 %-Überschreitung + Endpunkt);
+        # der erste Punkt entfällt, weil er auf dem EUR-Balkenlabel läge (Kollision).
+        over80 = (df2["kum_pct"] >= 80).idxmax()
+        for i in {int(over80), len(df2) - 1}:
+            ax2.annotate(f"{df2['kum_pct'].iloc[i]:.0f} %",
+                         xy=(i, df2["kum_pct"].iloc[i]), xytext=(0, 8),
+                         textcoords="offset points", ha="center",
+                         fontsize=8, fontweight="bold", color=C_INK)
+
+        ax2.set_xticks(list(x2))
+        ax2.set_xticklabels(df2["kunde"], rotation=35, ha="right", fontsize=8)
+        ax2.set_ylim(0, 112)
+        ax2.set_ylabel("Anteil am Gesamtumsatz (%)")
+        ax2.set_title("2. Pareto: Top-Kunden nach Umsatz\n(Balken = Anteil, Linie = kumuliert; Beschriftung in EUR)",
+                      fontweight="bold", color="#1E3A5F", fontsize=12)
+        ax2.legend(loc="center right", fontsize=9)
     else:
         ax2.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax2.transAxes)
-        ax2.set_title("② Verspätungsgründe", fontweight="bold")
+        ax2.set_title("2. Pareto: Top-Kunden nach Umsatz", fontweight="bold")
 
-    # -- Chart 3: Bestellwert nach Kundentyp (Boxplot) --
-    df3 = datasets["bestellwert_segment"].copy()
+    # -- Chart 3: Verzögerungsverteilung mit SLA-Grenze ------------------------
+    df3 = datasets["delay_verteilung"].copy()
     if not df3.empty:
-        order3 = [s for s in ["DISCOUNTER", "VOLLSORTIMENTER", "PREMIUM"] if s in df3["segment"].unique()]
-        data3 = [df3[df3["segment"] == s]["bestellwert"].astype(float).values for s in order3]
-        bp3 = ax3.boxplot(data3, labels=order3, patch_artist=True,
-                          medianprops={"color": "black", "linewidth": 2})
-        for patch, color in zip(bp3["boxes"], COLOR_PALETTE):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.7)
-        ax3.set_title("③ Bestellwert nach Kundentyp\n(EUR)", fontweight="bold", color="#1E3A5F")
-        ax3.set_ylabel("Bestellwert (EUR)")
-        ax3.tick_params(axis="x", rotation=15, labelsize=7)
-        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x/1000:.0f}k"))
+        delays = df3["delay_minutes"].astype(float)
+        bins = range(0, int(delays.max()) + 10, 5)
+        ax3.hist(delays, bins=bins, color=C_SERIES, edgecolor="#F8FAFC", linewidth=1.2)
+        ax3.axvline(SLA_MINUTES, color=C_SLA, linestyle="--", linewidth=2)
+        n_over = int((delays > SLA_MINUTES).sum())
+        ax3.annotate(f"SLA {SLA_MINUTES} min\n({n_over} von {len(delays)} = "
+                     f"{100 * n_over / len(delays):.1f} % darüber)",
+                     xy=(SLA_MINUTES, ax3.get_ylim()[1] * 0.82),
+                     xytext=(-8, 0), textcoords="offset points",
+                     ha="right", fontsize=9, fontweight="bold", color=C_SLA)
+        ax3.set_title(f"3. Verzögerungsverteilung der Endlieferungen\n(Fulfillment-SLA: {SLA_MINUTES} Minuten)",
+                      fontweight="bold", color="#1E3A5F", fontsize=12)
+        ax3.set_xlabel("Verzögerung (Minuten)")
+        ax3.set_ylabel("Anzahl Lieferungen")
     else:
         ax3.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax3.transAxes)
-        ax3.set_title("③ Bestellwert nach Kundentyp", fontweight="bold")
+        ax3.set_title("3. Verzögerungsverteilung", fontweight="bold")
 
-    # -- Chart 4: Ø Transportkosten je Route --
-    df4 = datasets["transportkosten_route"].copy()
+    # -- Chart 4: Verspätungsgründe je Transportabschnitt (beibehalten) --------
+    df4 = datasets["verspaetungsgruende"].copy()
     if not df4.empty:
-        df4 = df4.sort_values("avg_kosten", ascending=True)
-        bars4 = ax4.barh(df4["route"], df4["avg_kosten"].astype(float),
-                         color=COLOR_PALETTE[3], height=0.6)
-        ax4.set_title("④ Ø Transportkosten je Route\n(EUR)", fontweight="bold", color="#1E3A5F")
-        ax4.set_xlabel("Ø Kosten (EUR)")
-        ax4.tick_params(axis="y", labelsize=6)
-        for bar, val in zip(bars4, df4["avg_kosten"].astype(float)):
-            ax4.text(val, bar.get_y() + bar.get_height() / 2, f" {val:,.0f}", va="center", fontsize=6)
+        df4 = df4.sort_values("anzahl", ascending=True)
+        bars4 = ax4.barh(df4["grund"], df4["anzahl"], color="#D97706", height=0.55,
+                         edgecolor="#F8FAFC", linewidth=1.5)
+        ax4.set_title("4. Verspätungsgründe je Transportabschnitt (>30 Min.)\n"
+                      "(tms.transport_completions, nur Legs mit gesetztem Grund)",
+                      fontweight="bold", color="#1E3A5F", fontsize=12)
+        ax4.set_xlabel("Anzahl Transportabschnitte")
+        ax4.tick_params(axis="y", labelsize=9)
+        for bar, val in zip(bars4, df4["anzahl"]):
+            ax4.text(val, bar.get_y() + bar.get_height() / 2, f" {int(val)}",
+                     va="center", fontsize=9, fontweight="bold", color=C_INK)
     else:
         ax4.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax4.transAxes)
-        ax4.set_title("④ Ø Transportkosten je Route", fontweight="bold")
+        ax4.set_title("4. Verspätungsgründe je Transportabschnitt (>30 Min.)", fontweight="bold")
 
-    # -- Chart 5: Batchqualität über Zeit --
-    df5 = datasets["batchqualitaet_zeit"].copy()
-    if not df5.empty:
-        df5 = df5.sort_values("kalenderwoche")
-        x5 = pd.to_datetime(df5["kalenderwoche"])
-        ax5.plot(x5, df5["qualitaetsrate_pct"].astype(float), marker="o", linewidth=2,
-                 markersize=3, color=COLOR_SUCCESS, label="Qualitätsrate %")
-        ax5.plot(x5, df5["avg_schwund_pct"].astype(float), marker="s", linewidth=1.5,
-                 markersize=3, color=COLOR_FAILED, label="Ø Schwund %")
-        ax5.set_title("⑤ Batchqualität über Zeit\n(Kühlkette → Qualität)", fontweight="bold", color="#1E3A5F")
-        ax5.set_ylabel("Prozent")
-        ax5.tick_params(axis="x", rotation=45, labelsize=7)
-        ax5.legend(fontsize=7)
+    # -- Chart 5: Profitabilitäts-Wasserfall (volle Breite) --------------------
+    df5 = datasets["profitabilitaet"]
+    if not df5.empty and df5.iloc[0]["umsatz"]:
+        rev   = float(df5.iloc[0]["umsatz"])
+        cogs  = float(df5.iloc[0]["cogs"])
+        trans = float(df5.iloc[0]["transport"])
+        stor  = float(df5.iloc[0]["lager"])
+        cm    = float(df5.iloc[0]["deckungsbeitrag"])
+
+        labels  = ["Umsatz", "− COGS\n(simuliert)", "− Transport\n(allokiert)",
+                   "− Lager", "= Logistischer\nDeckungsbeitrag"]
+        bottoms = [0, rev - cogs, rev - cogs - trans, rev - cogs - trans - stor, 0]
+        heights = [rev, cogs, trans, stor, cm]
+        colors  = [C_TOTAL, C_COST, C_COST, C_COST, C_RESULT]
+
+        bars5 = ax5.bar(labels, heights, bottom=bottoms, color=colors, width=0.6,
+                        edgecolor="#F8FAFC", linewidth=2)
+        # Verbindungslinien zwischen den Stufen
+        running = [rev, rev - cogs, rev - cogs - trans, rev - cogs - trans - stor]
+        for i, lvl in enumerate(running):
+            ax5.plot([i + 0.3, i + 1 - 0.3], [lvl, lvl],
+                     color=C_MUTED, linewidth=1, linestyle="--", zorder=1)
+        # Direktbeschriftung: Betrag + Anteil am Umsatz
+        for i, (h, b) in enumerate(zip(heights, bottoms)):
+            ax5.annotate(f"{fmt_eur(h)}  ({100 * h / rev:.1f} %)",
+                         xy=(i, b + h), xytext=(0, 6), textcoords="offset points",
+                         ha="center", fontsize=10, fontweight="bold", color=C_INK)
+
+        ax5.set_ylim(0, rev * 1.14)
+        ax5.set_ylabel("EUR")
+        ax5.set_title("5. Profitabilitäts-Wasserfall: Umsatz → COGS → Transportkosten → Lagerkosten → logistischer Deckungsbeitrag",
+                      fontweight="bold", color="#1E3A5F", fontsize=12)
+        ax5.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+        ax5.tick_params(axis="x", labelsize=10)
     else:
-        ax5.text(0.5, 0.5, "Keine Daten", ha="center", va="center", transform=ax5.transAxes)
-        ax5.set_title("⑤ Batchqualität über Zeit", fontweight="bold")
+        ax5.text(0.5, 0.5, "Keine Daten (Profitabilitäts-Spalten via etl_dwh.py befüllen)",
+                 ha="center", va="center", transform=ax5.transAxes)
+        ax5.set_title("5. Profitabilitäts-Wasserfall", fontweight="bold")
 
-    # Fußzeile
-    fig.text(0.5, 0.01,
-             "Datenquelle: DWH + operative Schemas (tms, v_batch_quality) | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
-             ha="center", fontsize=8, color="#64748B")
+    # Fußzeile (Annahmenhinweis, prüfungsrelevant)
+    fig.text(0.5, 0.012, FOOTER, ha="center", fontsize=9, color=C_MUTED)
 
     # Speichern
     fig.savefig(PNG_PATH, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
@@ -296,31 +373,31 @@ def build_static_dashboard(datasets):
 
 
 # ---------------------------------------------------------------------------
-# Interaktives Dashboard (plotly → HTML)
+# Interaktives Dashboard (plotly → HTML, dieselben 5 Visuals)
 # ---------------------------------------------------------------------------
 
 def build_interactive_dashboard(datasets):
     print("[...] Erstelle interaktives Dashboard (HTML)...")
 
     fig = make_subplots(
-        rows=2, cols=3,
+        rows=3, cols=2,
         subplot_titles=(
-            "① Monatlicher Umsatz nach Kundensegment (EUR)",
-            "② Verspätungsgründe (Transport-Legs)",
-            "③ Bestellwert nach Kundentyp (EUR)",
-            "④ Ø Transportkosten je Route (EUR)",
-            "⑤ Batchqualität über Zeit (%)",
-            ""
+            "1. Umsatzentwicklung nach Kundensegment (EUR/Monat)",
+            "2. Pareto: Top-Kunden nach Umsatz (% + kumuliert)",
+            "3. Verzögerungsverteilung (Fulfillment-SLA: 60 Minuten)",
+            "4. Verspätungsgründe je Transportabschnitt (>30 Min.)",
+            "5. Profitabilitäts-Wasserfall: Umsatz → COGS → Transport → Lager → log. Deckungsbeitrag",
         ),
         specs=[
-            [{"colspan": 2}, None, {}],
-            [{}, {}, {}],
+            [{}, {}],
+            [{}, {}],
+            [{"colspan": 2}, None],
         ],
-        vertical_spacing=0.18,
-        horizontal_spacing=0.1,
+        vertical_spacing=0.12,
+        horizontal_spacing=0.09,
     )
 
-    # -- Chart 1: Umsatz nach Kundensegment --
+    # -- Chart 1: Umsatzentwicklung nach Kundensegment --
     df1 = datasets["umsatz_segment"].copy()
     if not df1.empty:
         df1["periode"] = df1["jahr"].astype(str) + "-" + df1["monat"].astype(str).str.zfill(2)
@@ -336,64 +413,86 @@ def build_interactive_dashboard(datasets):
                 row=1, col=1
             )
 
-    # -- Chart 2: Verspätungsgründe --
-    df2 = datasets["verspaetungsgruende"].copy()
+    # -- Chart 2: Pareto (eine %-Achse: Balken Anteil, Linie kumuliert) --
+    df2 = datasets["pareto_kunden"].copy()
     if not df2.empty:
-        df2 = df2.sort_values("anzahl", ascending=True)
+        total = df2["umsatz"].sum()
+        df2["anteil_pct"] = 100.0 * df2["umsatz"] / total
+        df2["kum_pct"]    = df2["anteil_pct"].cumsum()
         fig.add_trace(
             go.Bar(
-                y=df2["grund"], x=df2["anzahl"], orientation="h",
-                marker_color=COLOR_PALETTE[1],
-                hovertemplate="<b>%{y}</b><br>%{x} Legs<extra></extra>",
-                name="Gründe", showlegend=False,
+                x=df2["kunde"], y=df2["anteil_pct"], name="Umsatzanteil je Kunde",
+                marker_color=C_SERIES,
+                customdata=df2["umsatz"],
+                hovertemplate="<b>%{x}</b><br>Anteil %{y:.1f} %<br>EUR %{customdata:,.0f}<extra></extra>",
+                showlegend=False,
             ),
-            row=1, col=3
+            row=1, col=2
         )
+        fig.add_trace(
+            go.Scatter(
+                x=df2["kunde"], y=df2["kum_pct"], mode="lines+markers",
+                name="kumuliert", line={"color": C_INK, "width": 2},
+                hovertemplate="<b>%{x}</b><br>kumuliert %{y:.1f} %<extra></extra>",
+                showlegend=False,
+            ),
+            row=1, col=2
+        )
+        fig.add_hline(y=80, line_dash="dash", line_color=C_MUTED, row=1, col=2)
 
-    # -- Chart 3: Bestellwert nach Kundentyp (Box) --
-    df3 = datasets["bestellwert_segment"].copy()
+    # -- Chart 3: Verzögerungshistogramm + SLA-Linie --
+    df3 = datasets["delay_verteilung"].copy()
     if not df3.empty:
-        segs3 = [s for s in ["DISCOUNTER", "VOLLSORTIMENTER", "PREMIUM"] if s in df3["segment"].unique()]
-        for i, seg in enumerate(segs3):
-            fig.add_trace(
-                go.Box(
-                    y=df3[df3["segment"] == seg]["bestellwert"].astype(float), name=seg,
-                    marker_color=COLOR_PALETTE[i % len(COLOR_PALETTE)], boxmean=True,
-                    hovertemplate=f"<b>{seg}</b><br>EUR %{{y:,.0f}}<extra></extra>", showlegend=False,
-                ),
-                row=2, col=1
-            )
+        fig.add_trace(
+            go.Histogram(
+                x=df3["delay_minutes"].astype(float), xbins={"size": 5},
+                marker_color=C_SERIES, name="Lieferungen",
+                hovertemplate="%{x} min: %{y} Lieferungen<extra></extra>",
+                showlegend=False,
+            ),
+            row=2, col=1
+        )
+        fig.add_vline(x=SLA_MINUTES, line_dash="dash", line_color=C_SLA,
+                      annotation_text=f"SLA {SLA_MINUTES} min",
+                      annotation_font_color=C_SLA, row=2, col=1)
 
-    # -- Chart 4: Ø Transportkosten je Route --
-    df4 = datasets["transportkosten_route"].copy()
+    # -- Chart 4: Verspätungsgründe --
+    df4 = datasets["verspaetungsgruende"].copy()
     if not df4.empty:
-        df4 = df4.sort_values("avg_kosten", ascending=True)
+        df4 = df4.sort_values("anzahl", ascending=True)
         fig.add_trace(
             go.Bar(
-                y=df4["route"], x=df4["avg_kosten"].astype(float), orientation="h",
-                marker_color=COLOR_PALETTE[3],
-                hovertemplate="<b>%{y}</b><br>Ø EUR %{x:,.0f}<extra></extra>",
-                name="Kosten", showlegend=False,
+                y=df4["grund"], x=df4["anzahl"], orientation="h",
+                marker_color="#D97706",
+                hovertemplate="<b>%{y}</b><br>%{x} Transportabschnitte<extra></extra>",
+                name="Gründe", showlegend=False,
             ),
             row=2, col=2
         )
 
-    # -- Chart 5: Batchqualität über Zeit --
-    df5 = datasets["batchqualitaet_zeit"].copy()
-    if not df5.empty:
-        df5 = df5.sort_values("kalenderwoche")
-        x5 = pd.to_datetime(df5["kalenderwoche"])
+    # -- Chart 5: Wasserfall (natives plotly-Waterfall-Visual) --
+    df5 = datasets["profitabilitaet"]
+    if not df5.empty and df5.iloc[0]["umsatz"]:
+        rev   = float(df5.iloc[0]["umsatz"])
+        cogs  = float(df5.iloc[0]["cogs"])
+        trans = float(df5.iloc[0]["transport"])
+        stor  = float(df5.iloc[0]["lager"])
+        cm    = float(df5.iloc[0]["deckungsbeitrag"])
         fig.add_trace(
-            go.Scatter(x=x5, y=df5["qualitaetsrate_pct"].astype(float), mode="lines+markers",
-                       name="Qualitätsrate %", line={"color": COLOR_SUCCESS, "width": 2},
-                       hovertemplate="%{x}<br>Qualität %{y:.1f}%<extra></extra>", showlegend=False),
-            row=2, col=3
-        )
-        fig.add_trace(
-            go.Scatter(x=x5, y=df5["avg_schwund_pct"].astype(float), mode="lines+markers",
-                       name="Ø Schwund %", line={"color": COLOR_FAILED, "width": 1.5},
-                       hovertemplate="%{x}<br>Schwund %{y:.1f}%<extra></extra>", showlegend=False),
-            row=2, col=3
+            go.Waterfall(
+                x=["Umsatz", "− COGS (simuliert)", "− Transport (allokiert)",
+                   "− Lager", "= Logistischer Deckungsbeitrag"],
+                measure=["absolute", "relative", "relative", "relative", "total"],
+                y=[rev, -cogs, -trans, -stor, 0],
+                text=[f"{v:,.0f} € ({100 * v / rev:.1f} %)" for v in [rev, cogs, trans, stor, cm]],
+                textposition="outside",
+                decreasing={"marker": {"color": C_COST}},
+                increasing={"marker": {"color": C_TOTAL}},
+                totals={"marker": {"color": C_RESULT}},
+                connector={"line": {"color": C_MUTED, "dash": "dot", "width": 1}},
+                showlegend=False,
+            ),
+            row=3, col=1
         )
 
     # Layout
@@ -403,18 +502,21 @@ def build_interactive_dashboard(datasets):
             "x": 0.5, "xanchor": "center",
             "font": {"size": 22, "color": "#1E3A5F"}
         },
-        barmode="stack",
-        height=800,
+        height=1150,
         paper_bgcolor="#F8FAFC",
         plot_bgcolor="#FFFFFF",
         font={"family": "Inter, Arial, sans-serif", "size": 11},
-        legend={"orientation": "h", "yanchor": "bottom", "y": -0.08, "x": 0.5, "xanchor": "center"},
-        margin={"t": 100, "b": 80},
+        legend={"orientation": "h", "yanchor": "bottom", "y": -0.06, "x": 0.5, "xanchor": "center"},
+        margin={"t": 100, "b": 90},
     )
+    fig.update_yaxes(title_text="Anteil am Gesamtumsatz (%)", row=1, col=2)
+    fig.update_yaxes(title_text="Anzahl Lieferungen", row=2, col=1)
+    fig.update_xaxes(title_text="Verzögerung (Minuten)", row=2, col=1)
+    fig.update_yaxes(title_text="EUR", row=3, col=1)
     fig.add_annotation(
-        text="Datenquelle: DWH + operative Schemas (tms, v_batch_quality) | Gruppe 7 – DMA SoSe 26 | TH Lübeck",
-        x=0.5, y=-0.06, xref="paper", yref="paper",
-        showarrow=False, font={"size": 10, "color": "#64748B"}
+        text=FOOTER,
+        x=0.5, y=-0.075, xref="paper", yref="paper",
+        showarrow=False, font={"size": 10, "color": C_MUTED}
     )
 
     fig.write_html(

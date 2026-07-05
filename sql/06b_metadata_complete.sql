@@ -23,6 +23,8 @@ FROM (
     VALUES
     -- ERP-Erweiterung
     ('ERP', 'erp', 'document_references',  'Referenzen auf MinIO-Dokumente (Bucket+Objektpfad pro Entität)', 'METADATEN',     NULL),
+    -- [ANPASSUNG 2026-07-05] WMS-Inventory-Modell (ETL-abgeleitet aus NodeProcessed)
+    ('WMS', 'wms', 'stock_movements',      'Bestandsbewegungen je Knoten/SKU/Batch (IN/OUT), ETL-abgeleitet', 'BEWEGUNGSDATEN', NULL),
     -- DWH-Sternschema
     ('DWH', 'dwh', 'dim_customer',         'Kunden-Dimension (denormalisiert aus erp.customers)',             'ANALYTIK',      NULL),
     ('DWH', 'dwh', 'dim_product',          'Produkt-Dimension mit eingefalteten Lieferantenattributen',       'ANALYTIK',      NULL),
@@ -85,10 +87,16 @@ classified AS (
                 THEN 'INTERVAL'
 
             -- RATIO: alle echten Verhältnisgrößen mit natürlichem Nullpunkt
+            -- [ANPASSUNG 2026-07-05] um Profitabilitäts-/Transport-/Lagerkennzahlen ergänzt
+            -- (Geldbeträge, Distanzen, Tage, Prozentwerte haben einen absoluten Nullpunkt)
             WHEN ac.column_name IN ('quantity','unit_price','total_value',
                                     'delay_minutes','speed_kmh','sequence_order',
                                     'num_supply_chain_hops','quality_score',
-                                    'avg_temperature')
+                                    'avg_temperature',
+                                    'unit_cost','cogs_total','gross_profit',
+                                    'storage_days','storage_cost','contribution_margin',
+                                    'storage_cost_per_unit_day',
+                                    'transport_cost','distance_km','spoilage_pct')
                 THEN CASE
                     -- Bonus: avg_temperature ist INTERVAL, nicht RATIO (kein absoluter Nullpunkt)
                     WHEN ac.column_name = 'avg_temperature' THEN 'INTERVAL'
@@ -167,6 +175,20 @@ JOIN meta.tables mt ON mt.schema_name = cl.table_schema
                    AND mt.table_name  = cl.table_name
 WHERE cl.data_category IS NOT NULL
 ON CONFLICT (table_id, column_name) DO NOTHING;
+
+-- -----------------------------------------------------------------------------
+-- B2) [ANPASSUNG 2026-07-05] Re-Klassifikation: heilt Altbestände aus früheren
+-- Läufen (ON CONFLICT DO NOTHING aktualisiert bestehende Zeilen nicht).
+-- Betroffen: Kennzahlen-Spalten, die vor der Pattern-Erweiterung als NOMINAL
+-- klassifiziert wurden (Geld/Distanz/Tage/Prozent = RATIO).
+-- -----------------------------------------------------------------------------
+UPDATE meta.columns
+SET    scale_level = 'RATIO'
+WHERE  column_name IN ('unit_cost','cogs_total','gross_profit',
+                       'storage_days','storage_cost','contribution_margin',
+                       'storage_cost_per_unit_day',
+                       'transport_cost','distance_km','spoilage_pct')
+  AND  scale_level <> 'RATIO';
 
 -- -----------------------------------------------------------------------------
 -- C) Nachweis-Queries

@@ -114,19 +114,30 @@ Umsatz nach Lieferdatum =
 
 -- Time Intelligence
 Umsatz YTD = TOTALYTD ( [Gesamtumsatz (€)], dim_date[full_date] )
+
+-- [ANPASSUNG 2026-07-05] KPI 6/7: Profitabilität (COGS simuliert, Transport allokiert)
+COGS (€)                 = SUM ( fact_fulfillment[cogs_total] )
+Bruttogewinn (€)         = SUM ( fact_fulfillment[gross_profit] )
+Bruttomarge (%)          = DIVIDE ( [Bruttogewinn (€)], [Gesamtumsatz (€)] ) * 100
+Transportkosten (€)      = SUM ( fact_fulfillment[transport_cost] )
+Lagerkosten (€)          = SUM ( fact_fulfillment[storage_cost] )
+Deckungsbeitrag (€)      = SUM ( fact_fulfillment[contribution_margin] )
+Deckungsbeitragsquote (%) = DIVIDE ( [Deckungsbeitrag (€)], [Gesamtumsatz (€)] ) * 100
 ```
 
 Erwartete Ist-Werte (zur Validierung gegen `dwh.v_kpi_summary`,
 `dwh.v_batch_quality` und die Date-Joins):
 Liefertreue **96,8 %**, Ø Transportdauer **14,92 Tage**, Temperaturausreißer
 **7,9 %**, Ø Bestellwert **1.289,72 €**, Gesamtumsatz **325.008,80 €**,
-Batchqualitätsrate **36,5 %**.
+Batchqualitätsrate **36,5 %**; Profitabilität ([ANPASSUNG 2026-07-05]):
+Bruttomarge **53,2 %**, Transportkostenquote **24,9 %**, Lagerkosten **1,0 %**,
+Deckungsbeitragsquote **27,3 %** (88.630,56 €).
 
 ---
 
 ## 4. Report-Seiten und Visuals
 
-Vier Report-Seiten, jede mit klarer wirtschaftlicher Aussage.
+Fünf Report-Seiten, jede mit klarer wirtschaftlicher Aussage.
 
 ### Seite 1 – Management-Überblick (KPI-Cards + Trend)
 | Visual | Feld / Measure |
@@ -159,6 +170,15 @@ Vier Report-Seiten, jede mit klarer wirtschaftlicher Aussage.
 | Box-Plot / Säulen | Ø Bestellwert je Segment |
 | Matrix | Kunde × Monat, Wert `[Gesamtumsatz (€)]` |
 | Balken | Umsatz je Produktkategorie (`dim_product`) |
+
+### Seite 5 – Profitabilität ([ANPASSUNG 2026-07-05])
+| Visual | Feld / Measure |
+|---|---|
+| **Wasserfall** (natives PowerBI-Visual) | Umsatz → −COGS → −Transport → −Lager → Deckungsbeitrag (Kategorien als Measures-Spalten) |
+| 4 KPI-Cards | `[Bruttomarge (%)]` (Ist 53,2), `[Deckungsbeitragsquote (%)]` (Ist 27,3), `[Transportkosten (€)]`, `[Lagerkosten (€)]` |
+| Gruppierte Säulen | DB-Quote je `dim_customer[customer_type]` (Discounter 23,3 / Voll 30,6 / Premium 36,8 %) |
+| Balken | Lagerkosten je Knoten (Quelle: View `v_stock_by_node` + Knotensätze bzw. Direct-SQL wie `sql/10`) |
+| Hinweis-Textbox | „COGS simuliert · Transportkosten kapazitätsallokiert · vereinfachter logistischer Deckungsbeitrag (kein Unternehmensgewinn)" |
 
 ---
 
@@ -196,7 +216,7 @@ Auf jeder Seite als synchronisierte Slicer:
    *inaktiv* setzen.
 3. `dim_date` als Datumstabelle markieren (`full_date`).
 4. Tabelle `_Measures` anlegen, DAX aus Abschnitt 3 eintragen.
-5. Vier Report-Seiten gemäß Abschnitt 4 aufbauen, Slicer aus Abschnitt 5 ergänzen
+5. Fünf Report-Seiten gemäß Abschnitt 4 aufbauen, Slicer aus Abschnitt 5 ergänzen
    und über *Sync slicers* seitenübergreifend koppeln.
 6. Werte gegen `sql/10_kpi_queries.sql` gegenprüfen (z. B. Liefertreue = 96,8 %).
 7. Als `analytics/dashboard.pbix` speichern.

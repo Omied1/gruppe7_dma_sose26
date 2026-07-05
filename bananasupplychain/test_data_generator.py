@@ -64,6 +64,16 @@ _CATEGORY_PRICE = {
     "Premium":     (3.80, 4.90),
 }
 
+# [ANPASSUNG 2026-07-05] Wareneinsatz (COGS-Basis) je Produkt: unit_cost = Faktor x UNTERGRENZE
+# des Kategorie-Preisbands -> unit_cost < unit_price ist strukturell garantiert, weil jeder
+# Order-Einzelpreis >= Band-Untergrenze gezogen wird. [ANNAHME] Faktor 0,50-0,65 (simulierter
+# Einkaufspreis, kein realer Beschaffungspreis). WICHTIG: eigener RNG (nicht die globale
+# random.seed(42)-Sequenz!), damit alle bestehenden Zufallswerte (Mengen, Preise, Delays,
+# Temperaturen, UUIDs) exakt reproduzierbar bleiben und die kanonischen Kennzahlen
+# (z. B. Umsatz 325.008,80 EUR) unverändert gelten.
+_COGS_RNG = random.Random(4242)
+_UNIT_COST_FACTOR = (0.50, 0.65)
+
 
 # ============================================================
 # MASTER DATA CONFIG
@@ -565,8 +575,18 @@ _CARRIERS_BY_MODE = {
     "TRUCK":       ["DHL", "DB Schenker"],
     "SEA_FREIGHT": ["Maersk", "MSC", "Hapag Lloyd"],
 }
-_COST_BASE = {"TRUCK": 120.0, "SEA_FREIGHT": 750.0}   # Fixkosten je Transport (Handling/Umschlag)
-_COST_PER_UNIT = 0.05                                  # €/Einheit (mengen-/gewichtsabhängiger Anteil)
+_COST_BASE = {"TRUCK": 120.0, "SEA_FREIGHT": 750.0}   # VOLLkosten je Transporteinheit (Handling/Umschlag)
+# [ANPASSUNG 2026-07-05] Transportkosten werden ALLOKIERT statt als Vollkosten verbucht.
+# Vorher trug jede Bestellung die Vollkosten aller 6 Legs -> Transportkostenquote 137 % des
+# Umsatzes (wirtschaftlich unbrauchbar). Neu: Eine Bestellung belegt nur ihren Kapazitätsanteil
+# der Transporteinheit (LKW-Sammeltour bzw. Sammelverschiffung):
+#   transport_cost = Vollkosten(Leg) * (quantity / Kapazität[Modus]) + quantity * _COST_PER_UNIT
+# [ANNAHME] Kapazitäten: LKW-Sammeltour 2.000 Kartons; Seefracht 13.800 Kartons
+# (~12 Reefer-Container à 1.150 Kartons je Sammelverschiffung). Kalibriert auf eine
+# Transportkostenquote von ~20-25 % des Umsatzes (Zielkorridor 15-30 %).
+# Deterministisch (keine neuen random-Aufrufe) -> globale Seed-Sequenz bleibt unverändert.
+_TRANSPORT_UNIT_CAPACITY = {"TRUCK": 2000, "SEA_FREIGHT": 13800}
+_COST_PER_UNIT = 0.02                                  # €/Einheit je Leg (Handling; vorher 0.05)
 DELAY_LATE_THRESHOLD_MIN = 30                          # ab hier gilt ein Leg als verspätet -> Grund gesetzt
 
 # Zielknoten -> Routen-Key (für Plan/Ist-Rekonstruktion in _assign_timestamp; Ziele sind im Flow eindeutig).
@@ -892,6 +912,12 @@ class ERPService:
                 supplier_codes
             )
 
+            # [ANPASSUNG 2026-07-05] simulierter Wareneinsatz je Einheit (EUR) aus separatem
+            # RNG (_COGS_RNG) -> globale Seed-Sequenz und damit alle Bestandskennzahlen
+            # bleiben unverändert. Basis: Untergrenze des Kategorie-Preisbands.
+            price_lo, _price_hi = _CATEGORY_PRICE.get(category, (1.50, 5.00))
+            unit_cost = round(price_lo * _COGS_RNG.uniform(*_UNIT_COST_FACTOR), 2)
+
             product = {
 
                 "event_type":
@@ -905,6 +931,10 @@ class ERPService:
 
                 "category":
                     category,
+
+                # [ANPASSUNG 2026-07-05] COGS-Basis für Bruttogewinn/-marge im DWH
+                "unit_cost":
+                    unit_cost,
 
                 "supplier_reference":
                     supplier_code,
@@ -1300,9 +1330,16 @@ class TMSService:
 
         route = f"{source_node.lower()}_to_{target_node.lower()}"
         distance_km = _ROUTE_DISTANCE_KM.get(route, 100)
-        transport_cost = round(
+        # [ANPASSUNG 2026-07-05] Kapazitätsallokation statt Vollkosten: Die Bestellung trägt
+        # nur ihren Mengenanteil (load_share) an den Vollkosten der Transporteinheit plus
+        # mengenabhängiges Handling. Deterministisch -> Seed-Sequenz unverändert.
+        full_leg_cost = (
             _COST_BASE.get(transport_mode, 150.0)
             + distance_km * cost_per_km
+        )
+        load_share = quantity / _TRANSPORT_UNIT_CAPACITY.get(transport_mode, 2000)
+        transport_cost = round(
+            full_leg_cost * load_share
             + quantity * _COST_PER_UNIT,
             2
         )

@@ -138,7 +138,7 @@ ALTER TABLE tms.shipments             ADD COLUMN IF NOT EXISTS batch_identifier 
 ALTER TABLE tms.transport_completions ADD COLUMN IF NOT EXISTS delay_reason   VARCHAR(30);
 
 COMMENT ON COLUMN tms.shipments.distance_km               IS 'Streckenlänge des Transport-Legs in km (deterministisch je Route). Basis für Kosten-/Geschwindigkeitsanalysen.';
-COMMENT ON COLUMN tms.shipments.transport_cost           IS 'Transportkosten des Legs in EUR: Fixkosten(Modus) + distance_km × Carrier-Satz + Menge × Stücksatz.';
+COMMENT ON COLUMN tms.shipments.transport_cost           IS '[ANPASSUNG 2026-07-05] ALLOKIERTE Transportkosten des Legs in EUR: Vollkosten der Transporteinheit (Fixkosten(Modus) + distance_km × Carrier-Satz) × Kapazitätsanteil (quantity/Kapazität[Modus]: LKW-Sammeltour 2.000, Sammelverschiffung 13.800 Kartons) + Menge × 0,02 EUR Handling. [ANNAHME] Kalibriert auf ~20-25 % Transportkostenquote (vorher Vollkosten je Bestellung = 137 % vom Umsatz).';
 COMMENT ON COLUMN tms.transport_completions.delay_reason IS 'Verspätungsgrund (nur wenn verspätet, sonst NULL). SEA: CUSTOMS/PORT_CONGESTION/WEATHER/COLD_CHAIN_INCIDENT; Land: TRAFFIC/MECHANICAL/WEATHER/COLD_CHAIN_INCIDENT.';
 
 -- -----------------------------------------------------------------------------

@@ -558,7 +558,7 @@ python3 bananasupplychain/verify_all_systems.py
 
 ### `test_data_generator.py` – Datengenerator (anpassbar, mit Dokumentationspflicht)
 
-Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen, Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty` sowie das **Transport-Kern-Set [ANPASSUNG 2026-07-01]**: Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist = Plan + `delay_minutes`, carrier-spezifische Verzögerung) und Verspätungsgrund (`delay_reason`), sowie **Block 2 [ANPASSUNG 2026-07-01]**: realistische GPS-Positionen (Interpolation zwischen den Knoten Ghana→Rotterdam→Deutschland, modusabhängige Geschwindigkeit → Power-BI-Geokarte) und deterministische UUIDs/Dateinamen (geseedeter RNG `det_uuid()` → Läufe reproduzierbar, kein Akkumulieren beim Re-Load), sowie **Kunden-Segmente + Preis-nach-Kategorie [ANPASSUNG 2026-07-01]**: `customer_type` (DISCOUNTER/VOLLSORTIMENTER/PREMIUM) mit festem Verhaltensprofil (gewichtete Bestellhäufigkeit, segment-abhängige Menge/Kategorie) und `unit_price` nach Produktkategorie (Standard<Sustainable<Specialty<Premium) → schaltet Clustering + Umsatz-Analysen frei; `customer_type` läuft bis `dwh.dim_customer`. Hinweis: `etl_dwh` leert die Dimensionen vor dem Laden, damit Quelländerungen übernommen werden. Weiter **Kühlkette→Qualität [ANPASSUNG 2026-07-02]**: aus den Knoten-Temperaturen eines Batches werden `quality_status` (OK/REDUCED/REJECTED) und `spoilage_pct` abgeleitet (Kühlkettenbruch = außerhalb 10–15 °C) → Felder in `erp.batches`, View `dwh.v_batch_quality` (Qualitätsrate + Schwund je Woche) für KPI Batchqualitätsrate und Chart „Batchqualität über Zeit". Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
+Erzeugt die JSON-Quelldaten. **Anpassung erlaubt.** Jede Änderung am Generator muss in `PROJECT_STATUS.md`, `README.md` und dieser Anleitung dokumentiert werden. Aktuelle Generator-Anpassungen: 52-Wochen-Zeitreihe, variable Bestellungen pro Woche, Kühlkettenausreißer, fester Seed für stabile Werteverteilungen, Produktkategorien `Standard`, `Sustainable`, `Premium`, `Specialty` sowie das **Transport-Kern-Set [ANPASSUNG 2026-07-01]**: Distanz je Route (`distance_km`), modusgerechte Carrier-Zuordnung mit konsistenter `carrier_id` (Land→TRUCK, See→SEA_FREIGHT), Transportkosten je Leg (`transport_cost`/`currency`), Plan/Ist-konsistente Zeiten (`estimated_arrival` = Plan, Ist = Plan + `delay_minutes`, carrier-spezifische Verzögerung) und Verspätungsgrund (`delay_reason`), sowie **Block 2 [ANPASSUNG 2026-07-01]**: realistische GPS-Positionen (Interpolation zwischen den Knoten Ghana→Rotterdam→Deutschland, modusabhängige Geschwindigkeit → Power-BI-Geokarte) und deterministische UUIDs/Dateinamen (geseedeter RNG `det_uuid()` → Läufe reproduzierbar, kein Akkumulieren beim Re-Load), sowie **Kunden-Segmente + Preis-nach-Kategorie [ANPASSUNG 2026-07-01]**: `customer_type` (DISCOUNTER/VOLLSORTIMENTER/PREMIUM) mit festem Verhaltensprofil (gewichtete Bestellhäufigkeit, segment-abhängige Menge/Kategorie) und `unit_price` nach Produktkategorie (Standard<Sustainable<Specialty<Premium) → schaltet Clustering + Umsatz-Analysen frei; `customer_type` läuft bis `dwh.dim_customer`. Hinweis: `etl_dwh` leert die Dimensionen vor dem Laden, damit Quelländerungen übernommen werden. Weiter **Kühlkette→Qualität [ANPASSUNG 2026-07-02]**: aus den Knoten-Temperaturen eines Batches werden `quality_status` (OK/REDUCED/REJECTED) und `spoilage_pct` abgeleitet (Kühlkettenbruch = außerhalb 10–15 °C) → Felder in `erp.batches`, View `dwh.v_batch_quality` (Qualitätsrate + Schwund je Woche) für KPI Batchqualitätsrate und Chart „Batchqualität über Zeit". Zuletzt **Profitabilität [ANPASSUNG 2026-07-05]**: (1) Transportkosten werden **kapazitätsallokiert** statt als Vollkosten verbucht ([ANNAHME] LKW-Sammeltour 2.000 / Sammelverschiffung 13.800 Kartons + 0,02 €/Karton Handling; vorher Quote 137 % vom Umsatz, jetzt 24,9 % im Zielkorridor 15–30 %); (2) `unit_cost` = **simulierter Wareneinsatz** je Produkt (50–65 % der Preisband-Untergrenze, separater RNG → **seed-neutral**, alle Bestandskennzahlen unverändert). Im DWH entstehen daraus `cogs_total`/`gross_profit` (Bruttomarge 53,2 %), `storage_days`/`storage_cost` (WMS-Verweildauer × Knotensatz) und `contribution_margin` (vereinfachter **logistischer** Deckungsbeitrag 27,3 % – kein Unternehmensgewinn); dazu `wms.stock_movements` (Bestandsbewegungen, ETL-abgeleitet, kein neuer Eventtyp) + Views `v_profitability`/`v_stock_by_node` + Verifikation `sql/09` §7. Da `shared/` alle fünf Zielsysteme speist, nach jeder Änderung `shared/` neu erzeugen **und** den vollständigen ETL-Lauf wiederholen. Daten neu generieren:
 ```bash
 # ganze Verzeichnisse löschen (nicht per Glob shared/erp/* – bei ~6.000 Dateien sonst "argument list too long")
 rm -rf shared/erp shared/wms shared/tms
@@ -638,15 +638,17 @@ python3 analytics/dashboard.py
 
 **Erzeugte Dateien:** `analytics/dashboard.pdf`, `analytics/dashboard.png`, `analytics/dashboard.html`
 
-**5 Charts:**
+**5 Charts ([ANPASSUNG 2026-07-05] – Auswahl neu geschnitten, Profitabilität integriert):**
 
 | Chart | Typ | Fachliche Aussage |
 |-------|-----|-------------------|
-| 1 | Zeitreihe | Umsatz pro Woche – Trend und Saisonalität erkennbar |
-| 2 | Balkendiagramm | Carrier-Performance: Ø Verzögerung und Lieferanzahl je CAR-1xx |
-| 3 | Balkendiagramm | Umsatz nach Produkt (BAN-101 vs. BAN-110) |
-| 4 | Balkendiagramm | Durchschnittliche Verzögerung je Supply-Chain-Knoten |
-| 5 | Zeitreihe | Kühlketten-Qualität: Anteil Temperaturausreißer (> 15 °C) pro Woche |
+| 1 | Zeitreihe | Umsatzentwicklung nach Kundensegment (EUR/Monat) – Discounter tragen den Umsatz |
+| 2 | Pareto (Balken + kumulierte %-Linie, **eine** %-Achse) | Top-Kunden nach Umsatz: 6 von 10 Kunden liefern ~84 % des Umsatzes; EUR als Direktbeschriftung |
+| 3 | Histogramm + SLA-Linie | Verzögerungsverteilung der Endlieferungen; Fulfillment-SLA 60 min (8 von 252 = 3,2 % darüber) |
+| 4 | Horizontal-Balken | Verspätungsgründe je Transportabschnitt (>30 Min., `tms.transport_completions.delay_reason`, nur gesetzte Gründe) |
+| 5 | Wasserfall | Umsatz → COGS (simuliert) → Transport (allokiert) → Lager → **logistischer Deckungsbeitrag** (27,3 %) |
+
+Das interaktive `dashboard.html` (plotly) enthält dieselben 5 Visuals (Wasserfall als natives plotly-Waterfall-Visual). Footer-Hinweis in allen Ausgaben: „COGS simuliert · Transportkosten allokiert · logistischer Deckungsbeitrag, kein Unternehmensgewinn".
 
 ---
 
@@ -672,7 +674,7 @@ python3 analytics/clustering.py
 
 ---
 
-### `analytics/forecast.py` – ARIMA Absatzprognose
+### `analytics/forecast.py` – Absatzprognose (ARIMA-Zeitreihe + Regression)
 
 **Ausführen:**
 ```bash
@@ -681,20 +683,24 @@ python3 analytics/forecast.py
 
 **Erzeugte Dateien:** `analytics/forecast.pdf`, `analytics/forecast.png`, `analytics/forecast_model_summary.txt`
 
-**Methode:**
-- Modell: ARIMA(1,0,1)
-- Datenbasis: 13 echte Monate aus `dwh.v_monthly_revenue` + 24 Monate synthetische Vorlauf-History (transparent als solche markiert)
-- Prognose: 3 Monate voraus mit 95%-Konfidenzintervall
-- Bewertungsmetriken: RMSE und MAE als In-Sample-Fit-Fehler auf den echten Monaten im Chart ausgewiesen
-- Hinweis: Erster und letzter echter Monat sind Randmonate der 52-Wochen-Zeitreihe; mit längerer echter Historie wird die Prognose belastbarer.
+**Methode ([ANPASSUNG 2026-07-05]: zwei Modelle, gleiche Datenbasis):**
+- Modell 1 (Zeitreihe): ARIMA(1,0,1) – modelliert die **Autokorrelation** der Reihe; 3-Monats-Prognose mit 95%-Konfidenzintervall
+- Modell 2 (Regression, Vergleich): `sklearn.LinearRegression` mit leakage-freien Kalender-Features (Trend `t`, Saison `month_sin`/`month_cos`) – Koeffizienten + Prognose in `forecast_model_summary.txt`
+- Datenbasis (beide): 13 echte Monate aus `dwh.v_monthly_revenue` + 24 Monate synthetische Vorlauf-History (transparent als solche markiert)
+- Bewertungsmetriken: RMSE und MAE beider Modelle als In-Sample-Fit-Fehler auf den echten Monaten (Chart-Infobox + TXT); Vergleichstabelle beider Prognosen im Chart
+- Hinweis: Erster und letzter echter Monat sind Randmonate der 52-Wochen-Zeitreihe; mit längerer echter Historie werden beide Prognosen belastbarer.
 
 **Hinweis R-4 aus PROJECT_STATUS.md:** Der Datengenerator erzeugt inzwischen eine 52-Wochen-Zeitreihe mit mehreren Bestellungen pro Woche. Ältere Analytics-Hilfsdaten bzw. synthetische Historien sind nach einem Generator-Refresh zu prüfen und ggf. zu ersetzen.
 
 ---
 
+**Hinweis Profitabilität ([ANPASSUNG 2026-07-05]):** Der Profitabilitäts-Wasserfall (Umsatz → −COGS → −Transport → −Lager → **logistischer Deckungsbeitrag**, Ist: 325.008,80 € → 88.630,56 € = 27,3 %) ist **Chart 5 des BI-Dashboards** (`analytics/dashboard.py`); ein separates `profitability.py` existiert nicht mehr. Segment-Detailwerte (Discounter 23,3 % / Vollsortimenter 30,6 % / Premium 36,8 % DB-Quote) und Lagerkosten je Knoten liefern `dwh.v_profitability` bzw. `sql/10_kpi_queries.sql`. Begriffe/Annahmen (bewusst): COGS **simuliert** (50–65 % der Preisband-Untergrenze), Transportkosten **kapazitätsallokiert** (sonst Quote 137 %), Lagerkostensätze `[ANNAHME]` 0,020/0,012 €/Karton/Tag; Ergebnis ist ein **vereinfachter logistischer Deckungsbeitrag**, kein Unternehmensgewinn.
+
+---
+
 ## 9. Dokumentation (`docs/`)
 
-Alle 14 Dokumente sind in Deutsch verfasst und referenzieren konkrete Projektdaten (kein generischer Text).
+Alle 17 Dokumente (00–16) sind in Deutsch verfasst und referenzieren konkrete Projektdaten (kein generischer Text).
 
 ### `docs/00_part1_checklist.md` – Anforderungsabgleich
 
@@ -947,6 +953,7 @@ ERP: 534 Events verarbeitet
 WMS: 1.522 Events verarbeitet
 TMS: 6.300 Events verarbeitet
 PostgreSQL: 10 Suppliers, 10 Customers, 10 Products, 252 Orders, 1.512 Shipments geladen
+PostgreSQL: 3.024 stock_movements abgeleitet (1.512 IN / 1.512 OUT, Schritt [5/8])
 MongoDB: 1.512 shipment_events, 1.512 node_events, 252 batch_tracking, 252 order_events
 Redis: alle Key-Typen gesetzt
 Neo4j: Nodes und Relationships angelegt

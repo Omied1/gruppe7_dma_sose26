@@ -199,9 +199,18 @@ CREATE TABLE IF NOT EXISTS dwh.fact_fulfillment (
     delivery_priority_code  VARCHAR(10),                    -- HIGH / NORMAL / LOW
 
     -- [ANPASSUNG 2026-07-01] Transport-Kennzahlen (Kern-Set)
-    transport_cost          NUMERIC(12,2),                  -- Gesamt-Transportkosten je Fulfillment (Route, EUR)
+    transport_cost          NUMERIC(12,2),                  -- ALLOKIERTE Gesamt-Transportkosten je Fulfillment (EUR, s. tms.shipments)
     distance_km             NUMERIC(10,2),                  -- Gesamt-Transportdistanz je Fulfillment (km)
     delay_reason            VARCHAR(30),                    -- Verspätungsgrund des finalen Legs (NULL = pünktlich)
+
+    -- [ANPASSUNG 2026-07-05] Profitabilitäts-Kennzahlen (vereinfachter LOGISTISCHER Deckungsbeitrag,
+    -- KEIN vollständiger Unternehmensgewinn: ohne Personal-/Verwaltungs-/Vertriebskosten)
+    unit_cost               NUMERIC(10,2),                  -- simulierter Wareneinsatz je Einheit (erp.products.unit_cost)
+    cogs_total              NUMERIC(12,2),                  -- COGS = quantity × unit_cost
+    gross_profit            NUMERIC(12,2),                  -- Bruttogewinn = total_value − cogs_total
+    storage_days            NUMERIC(8,2),                   -- Summe Verweildauer an Lagerknoten (Tage, aus WMS-Zeitstempeln)
+    storage_cost            NUMERIC(12,2),                  -- Lagerkosten = Σ(quantity × Verweildauer × Knotensatz)
+    contribution_margin     NUMERIC(12,2),                  -- log. Deckungsbeitrag = total_value − cogs − transport − storage
 
     -- Abgeleitete KPI-Flags (berechnet im ETL, vermeidet redundante CASE-Logik in Analytics)
     on_time_flag            BOOLEAN,                        -- TRUE = delay_minutes <= 60 (SLA-konform)
@@ -242,6 +251,19 @@ ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS on_time_flag BOOLEAN;
 ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(12,2);
 ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS distance_km    NUMERIC(10,2);
 ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS delay_reason   VARCHAR(30);
+-- [ANPASSUNG 2026-07-05] Profitabilitäts-Kennzahlen (COGS / Bruttogewinn / Lagerkosten / log. Deckungsbeitrag)
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS unit_cost           NUMERIC(10,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS cogs_total          NUMERIC(12,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS gross_profit        NUMERIC(12,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS storage_days        NUMERIC(8,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS storage_cost        NUMERIC(12,2);
+ALTER TABLE dwh.fact_fulfillment ADD COLUMN IF NOT EXISTS contribution_margin NUMERIC(12,2);
+
+COMMENT ON COLUMN dwh.fact_fulfillment.cogs_total          IS 'Wareneinsatz (COGS) = quantity × unit_cost. unit_cost ist SIMULIERT ([ANNAHME] 50-65 % der Preisband-Untergrenze), kein realer Beschaffungspreis.';
+COMMENT ON COLUMN dwh.fact_fulfillment.gross_profit        IS 'Bruttogewinn = total_value − cogs_total. Basis für gross_margin_pct in Views/KPIs.';
+COMMENT ON COLUMN dwh.fact_fulfillment.storage_days        IS 'Summe der Verweildauer an Lagerknoten (COLD_STORAGE/WAREHOUSE) in Tagen, abgeleitet aus wms.node_processings.processed_at (Ankunft) bis tms.shipments.started_at (Abgang).';
+COMMENT ON COLUMN dwh.fact_fulfillment.storage_cost        IS 'Lagerkosten = Σ über Lagerknoten (quantity × Verweildauer × storage_cost_per_unit_day). Sätze in wms.supply_chain_nodes ([ANNAHME]).';
+COMMENT ON COLUMN dwh.fact_fulfillment.contribution_margin IS 'Vereinfachter LOGISTISCHER Deckungsbeitrag = total_value − cogs_total − transport_cost − storage_cost. KEIN vollständiger Unternehmensgewinn (keine Personal-/Verwaltungs-/Vertriebskosten).';
 
 COMMENT ON COLUMN dwh.fact_fulfillment.transport_cost IS 'Gesamt-Transportkosten je Fulfillment (Summe der 6 Routen-Legs, EUR). Seit dem faithful Mapping werden TMS-Shipments über order_reference exakt der Bestellung zugeordnet.';
 COMMENT ON COLUMN dwh.fact_fulfillment.distance_km    IS 'Geschätzte Gesamt-Transportdistanz je Fulfillment (Summe der 6 Routen-Legs, km). Dominiert von der Seefracht Afrika->Europa.';
@@ -336,6 +358,8 @@ COMMENT ON VIEW dwh.v_batch_quality IS
 -- Grain: 1 Zeile (Gesamtaggregat über alle Fulfillment-Vorgänge)
 -- Verwendung: PowerBI KPI-Cards (Liefertreue, Ø Bestellwert, Temperaturausreißer)
 -- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS dwh.v_kpi_summary;
+
 CREATE OR REPLACE VIEW dwh.v_kpi_summary AS
 SELECT
     COUNT(*)                                                                 AS total_fulfillments,
@@ -353,11 +377,93 @@ SELECT
     -- KPI 4: Ø Bestellwert
     ROUND(AVG(total_value), 2)                                               AS kpi_avg_order_value_eur,
     -- KPI 5: Gesamtumsatz
-    ROUND(SUM(total_value), 2)                                               AS kpi_total_revenue_eur
+    ROUND(SUM(total_value), 2)                                               AS kpi_total_revenue_eur,
+    -- [ANPASSUNG 2026-07-05] Profitabilitäts-KPIs (vereinfachter logistischer Deckungsbeitrag)
+    -- KPI 6: Bruttomarge % = (Umsatz − COGS) / Umsatz
+    ROUND(100.0 * SUM(gross_profit) / NULLIF(SUM(total_value), 0), 1)        AS kpi_gross_margin_pct,
+    -- KPI 7: Transportkostenquote % (allokierte Kosten)
+    ROUND(100.0 * SUM(transport_cost) / NULLIF(SUM(total_value), 0), 1)      AS kpi_transport_cost_pct,
+    -- KPI 8: Lagerkostenquote %
+    ROUND(100.0 * SUM(storage_cost) / NULLIF(SUM(total_value), 0), 1)        AS kpi_storage_cost_pct,
+    -- KPI 9: Deckungsbeitragsquote % (logistisch, kein Unternehmensgewinn)
+    ROUND(100.0 * SUM(contribution_margin) / NULLIF(SUM(total_value), 0), 1) AS kpi_contribution_margin_pct,
+    -- Absolutwerte für KPI-Cards
+    ROUND(SUM(cogs_total), 2)                                                AS kpi_total_cogs_eur,
+    ROUND(SUM(transport_cost), 2)                                            AS kpi_total_transport_cost_eur,
+    ROUND(SUM(storage_cost), 2)                                              AS kpi_total_storage_cost_eur,
+    ROUND(SUM(contribution_margin), 2)                                       AS kpi_total_contribution_margin_eur
 FROM  dwh.fact_fulfillment;
 
 COMMENT ON VIEW dwh.v_kpi_summary IS
-    'Fulfillment-Kernwerte: Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz. Batchqualitätsrate liegt separat in v_batch_quality bzw. erp.batches.';
+    'Fulfillment-Kernwerte: Liefertreue, Ø Verzögerung, Temperaturausreißer-Quote, Ø Bestellwert, Gesamtumsatz + Profitabilität (Bruttomarge, Transport-/Lagerkostenquote, log. Deckungsbeitragsquote). Batchqualitätsrate liegt separat in v_batch_quality.';
+
+-- -----------------------------------------------------------------------------
+-- View: Profitabilität je Monat und Kundensegment
+-- Grain: 1 Zeile pro (Jahr, Monat, customer_type)
+-- [ANPASSUNG 2026-07-05] Verwendung: Wasserfall/Segment-Analysen (profitability.py),
+-- PowerBI Seite "Profitabilität". Margen-Prozente werden auf SUMMEN gerechnet
+-- (nicht auf Zeilenebene gemittelt), damit sie korrekt aggregieren.
+-- Begriffe: gross_profit/Bruttogewinn, contribution_margin = vereinfachter
+-- LOGISTISCHER Deckungsbeitrag (ohne Personal-/Verwaltungs-/Vertriebskosten).
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS dwh.v_profitability;
+
+CREATE OR REPLACE VIEW dwh.v_profitability AS
+SELECT
+    d.year,
+    d.month,
+    c.customer_type,
+    COUNT(*)                                                                    AS fulfillments,
+    ROUND(SUM(f.total_value), 2)                                                AS revenue_eur,
+    ROUND(SUM(f.cogs_total), 2)                                                 AS cogs_eur,
+    ROUND(SUM(f.gross_profit), 2)                                               AS gross_profit_eur,
+    ROUND(100.0 * SUM(f.gross_profit) / NULLIF(SUM(f.total_value), 0), 1)       AS gross_margin_pct,
+    ROUND(SUM(f.transport_cost), 2)                                             AS transport_cost_eur,
+    ROUND(SUM(f.storage_cost), 2)                                               AS storage_cost_eur,
+    ROUND(SUM(f.contribution_margin), 2)                                        AS contribution_margin_eur,
+    ROUND(100.0 * SUM(f.contribution_margin) / NULLIF(SUM(f.total_value), 0), 1) AS contribution_margin_pct
+FROM  dwh.fact_fulfillment f
+JOIN  dwh.dim_date     d ON d.date_sk     = f.order_date_sk
+JOIN  dwh.dim_customer c ON c.customer_sk = f.customer_sk
+GROUP BY d.year, d.month, c.customer_type
+ORDER BY d.year, d.month, c.customer_type;
+
+COMMENT ON VIEW dwh.v_profitability IS
+    'Profitabilität je Monat × Kundensegment: Umsatz, COGS (simuliert), Bruttogewinn/-marge, allokierte Transportkosten, Lagerkosten, logistischer Deckungsbeitrag + Quote. KEIN vollständiger Unternehmensgewinn.';
+
+-- -----------------------------------------------------------------------------
+-- View: Bestandsverlauf je Knoten (einfaches Inventory-Modell)
+-- Grain: 1 Zeile pro (Knoten, Kalenderwoche)
+-- [ANPASSUNG 2026-07-05] Quelle: wms.stock_movements (ETL-abgeleitet aus NodeProcessed).
+-- balance_end_of_week = kumulierte IN−OUT-Bilanz -> zeigt Durchfluss-Peaks je Knoten.
+-- Am Simulationsende ist die Bilanz überall 0 (alle 252 Batches ausgeliefert).
+-- -----------------------------------------------------------------------------
+DROP VIEW IF EXISTS dwh.v_stock_by_node;
+
+CREATE OR REPLACE VIEW dwh.v_stock_by_node AS
+WITH weekly_flows AS (
+    SELECT
+        n.node_code,
+        n.sequence_order,
+        DATE_TRUNC('week', m.moved_at)::DATE                                AS kalenderwoche,
+        SUM(CASE WHEN m.direction = 'IN'  THEN m.quantity ELSE 0 END)       AS qty_in,
+        SUM(CASE WHEN m.direction = 'OUT' THEN m.quantity ELSE 0 END)       AS qty_out
+    FROM  wms.stock_movements     m
+    JOIN  wms.supply_chain_nodes  n ON n.node_id = m.node_id
+    GROUP BY n.node_code, n.sequence_order, DATE_TRUNC('week', m.moved_at)
+)
+SELECT
+    node_code,
+    kalenderwoche,
+    qty_in,
+    qty_out,
+    qty_in - qty_out                                                        AS net_change,
+    SUM(qty_in - qty_out) OVER (PARTITION BY node_code ORDER BY kalenderwoche) AS balance_end_of_week
+FROM weekly_flows
+ORDER BY sequence_order, kalenderwoche;
+
+COMMENT ON VIEW dwh.v_stock_by_node IS
+    'Wöchentlicher Bestandsverlauf je Supply-Chain-Knoten aus wms.stock_movements: Zugang, Abgang, Netto und kumulierte Wochenend-Bilanz. Einfaches Inventory-Modell ohne tägliche Snapshots.';
 
 -- -----------------------------------------------------------------------------
 -- View: Monatliche Umsatz-Zeitreihe (Absatzprognose-Basis)
@@ -401,5 +507,5 @@ COMMENT ON VIEW dwh.v_monthly_revenue IS
 
 DO $$
 BEGIN
-    RAISE NOTICE 'DWH-Schema erstellt: 7 Dimensionstabellen + 1 Faktentabelle + 4 analytische Views. dim_date: 1095 Zeilen (2025–2027). on_time_flag ergänzt.';
+    RAISE NOTICE 'DWH-Schema erstellt: 7 Dimensionstabellen + 1 Faktentabelle + 7 analytische Views (inkl. v_profitability, v_stock_by_node). dim_date: 1095 Zeilen (2025–2027).';
 END $$;

@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS erp.products (
     product_code    VARCHAR(20)     NOT NULL UNIQUE,    -- Kanonischer Key, z.B. "BAN-101"
     product_name    VARCHAR(100)    NOT NULL,
     category        VARCHAR(50)     NOT NULL,
+    unit_cost       NUMERIC(10,2)   CHECK (unit_cost > 0), -- [ANPASSUNG 2026-07-05] simulierter Wareneinsatz je Einheit (EUR)
     supplier_id     INT             REFERENCES erp.suppliers(supplier_id),
     -- Nullable wegen ETL-Zweiphasen-Lade: erst product_code, dann supplier_id per UPDATE-Pass
     event_timestamp TIMESTAMP       NOT NULL,           -- Zeitstempel aus ProductCreated-Event (JSON: timestamp)
@@ -74,9 +75,13 @@ CREATE TABLE IF NOT EXISTS erp.products (
     source_event    VARCHAR(50)     NOT NULL DEFAULT 'ProductCreated'
 );
 
+-- [ANPASSUNG 2026-07-05] Wareneinsatz idempotent für bestehende DBs ergänzen
+ALTER TABLE erp.products ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(10,2) CHECK (unit_cost > 0);
+
 COMMENT ON TABLE  erp.products IS 'Produktstammdaten aus ERP. product_code ist kanonischer Business Key. WMS und TMS verwenden abweichende Formate (MDM erforderlich).';
 COMMENT ON COLUMN erp.products.product_code IS 'ERP-Format: BAN-101. WMS-Format: BAN_101. TMS-Format: ban-101. Harmonisierung via mdm.source_mappings.';
 COMMENT ON COLUMN erp.products.supplier_id  IS 'FK zu erp.suppliers. Jedes Produkt hat genau einen Lieferanten.';
+COMMENT ON COLUMN erp.products.unit_cost    IS 'Simulierter Wareneinsatz (COGS) je Einheit in EUR. [ANNAHME] 50-65 % der Untergrenze des Kategorie-Preisbands -> strukturell < unit_price. Basis für Bruttogewinn/-marge im DWH; KEIN realer Beschaffungspreis.';
 
 -- -----------------------------------------------------------------------------
 -- Bestellköpfe

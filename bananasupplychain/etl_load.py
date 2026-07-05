@@ -74,8 +74,9 @@ def extract_events(system: str) -> list:
 
 # ── Statistik-Zähler ─────────────────────────────────────────────────────────
 stats = {}
-def count(label):
-    stats[label] = stats.get(label, 0) + 1
+def count(label, n=1):
+    # n erlaubt Batch-Zählung (z. B. rowcount aus SQL-basierten Ableitungsschritten)
+    stats[label] = stats.get(label, 0) + n
 
 # ── Neo4j Topologie-Konstanten ────────────────────────────────────────────────
 # node_name muss mit mdm.golden_records.canonical_name (05_create_mdm_tables.sql)
@@ -150,11 +151,12 @@ def load_postgres(erp_events, wms_events, tms_events, pg):
             row = cur.fetchone()
             supplier_id = row[0] if row else None
             cur.execute("""
-                INSERT INTO erp.products (product_code, product_name, category, supplier_id, event_timestamp)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO erp.products (product_code, product_name, category, unit_cost, supplier_id, event_timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (product_code) DO NOTHING
-            """, (canonical, ev["product_name"], ev.get("category"), supplier_id,
-                  ev.get("timestamp")))
+            """, (canonical, ev["product_name"], ev.get("category"),
+                  ev.get("unit_cost"),  # [ANPASSUNG 2026-07-05] simulierter Wareneinsatz (COGS-Basis)
+                  supplier_id, ev.get("timestamp")))
             count("pg.products")
 
     # ── Schritt 2: WMS-Stammdaten ─────────────────────────────────────────────
@@ -509,6 +511,56 @@ def load_mdm(pg):
 # =============================================================================
 # LOAD – MongoDB
 # =============================================================================
+def derive_stock_movements(pg):
+    """[ANPASSUNG 2026-07-05] Leitet Bestandsbewegungen (IN/OUT je Batch x Knoten) deterministisch
+    aus den bereits geladenen NodeProcessed-Daten ab - bewusst KEIN eigener Quell-Eventtyp:
+    keine zusaetzlichen JSON-Dateien, und weil IN (Ankunft) je Batch/Knoten immer vor OUT
+    (Ankunft Folgeknoten bzw. delivered_at) liegt, sind negative Bestaende strukturell unmoeglich.
+    Idempotenz: Tabelle wird vor dem Ableiten geleert (deterministischer Rebuild aus der Quelle)."""
+    cur = pg.cursor()
+    cur.execute("DELETE FROM wms.stock_movements")
+
+    # Wareneingang: Ankunft des Batches am Knoten; Menge = Batchmenge aus erp.batches
+    cur.execute("""
+        INSERT INTO wms.stock_movements (node_id, sku, batch_reference, quantity, direction, moved_at)
+        SELECT np.node_id, np.sku, np.batch_reference, b.quantity, 'IN', np.processed_at
+        FROM   wms.node_processings np
+        JOIN   erp.batches b ON b.batch_identifier = np.batch_reference
+        ON CONFLICT ON CONSTRAINT uq_wms_stock_movement DO NOTHING
+    """)
+    count("pg.stock_movements_in", cur.rowcount)
+
+    # Warenausgang: Ankunft am Folgeknoten (LEAD ueber sequence_order);
+    # letzter WMS-Knoten (CENTRAL_WAREHOUSE): delivered_at der Endlieferung desselben Batches.
+    cur.execute("""
+        INSERT INTO wms.stock_movements (node_id, sku, batch_reference, quantity, direction, moved_at)
+        SELECT seq.node_id, seq.sku, seq.batch_reference, b.quantity, 'OUT',
+               COALESCE(seq.next_processed_at, d.delivered_at, seq.processed_at + INTERVAL '1 day')
+        FROM (
+            SELECT np.node_id, np.sku, np.batch_reference, np.processed_at,
+                   LEAD(np.processed_at) OVER (
+                       PARTITION BY np.batch_reference ORDER BY n.sequence_order
+                   ) AS next_processed_at
+            FROM wms.node_processings np
+            JOIN wms.supply_chain_nodes n ON n.node_id = np.node_id
+        ) seq
+        JOIN erp.batches b ON b.batch_identifier = seq.batch_reference
+        LEFT JOIN LATERAL (
+            SELECT dv.delivered_at
+            FROM   tms.shipments  sh
+            JOIN   tms.deliveries dv ON dv.shipment_id = sh.shipment_id
+            WHERE  sh.batch_identifier = seq.batch_reference
+            ORDER  BY dv.delivered_at DESC
+            LIMIT  1
+        ) d ON TRUE
+        ON CONFLICT ON CONSTRAINT uq_wms_stock_movement DO NOTHING
+    """)
+    count("pg.stock_movements_out", cur.rowcount)
+
+    pg.commit()
+    cur.close()
+
+
 def load_mongodb(erp_events, wms_events, tms_events, mongo_db):
     se  = mongo_db["shipment_events"]
     ne  = mongo_db["node_events"]
@@ -1148,7 +1200,7 @@ def main():
     print("=" * 60)
 
     # ── Verbindungen aufbauen ─────────────────────────────────────────────────
-    print("\n[1/7] Verbindungen aufbauen...")
+    print("\n[1/8] Verbindungen aufbauen...")
     pg    = psycopg2.connect(PG_DSN)
     mongo = MongoClient(MONGO_URI)["logistics"]
     r     = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -1156,7 +1208,7 @@ def main():
     print("  PostgreSQL, MongoDB, Redis, Neo4j – OK")
 
     # ── Extract ───────────────────────────────────────────────────────────────
-    print("\n[2/7] Events laden (Extract)...")
+    print("\n[2/8] Events laden (Extract)...")
     erp_events = extract_events("erp")
     wms_events = extract_events("wms")
     tms_events = extract_events("tms")
@@ -1165,23 +1217,28 @@ def main():
     print(f"  TMS: {len(tms_events)} Events")
 
     # ── Load: PostgreSQL ──────────────────────────────────────────────────────
-    print("\n[3/7] PostgreSQL laden...")
+    print("\n[3/8] PostgreSQL laden...")
     load_postgres(erp_events, wms_events, tms_events, pg)
 
     # ── Load: MDM ─────────────────────────────────────────────────────────────
-    print("[4/7] MDM Golden Records + Source Mappings laden...")
+    print("[4/8] MDM Golden Records + Source Mappings laden...")
     load_mdm(pg)
 
+    # ── Derive: Bestandsbewegungen (Inventory-Modell) ─────────────────────────
+    # [ANPASSUNG 2026-07-05] abgeleitet aus NodeProcessed, kein eigener Eventtyp
+    print("[5/8] Bestandsbewegungen aus NodeProcessed ableiten...")
+    derive_stock_movements(pg)
+
     # ── Load: MongoDB ─────────────────────────────────────────────────────────
-    print("[5/7] MongoDB laden...")
+    print("[6/8] MongoDB laden...")
     load_mongodb(erp_events, wms_events, tms_events, mongo)
 
     # ── Load: Redis ───────────────────────────────────────────────────────────
-    print("[6/7] Redis laden...")
+    print("[7/8] Redis laden...")
     load_redis(erp_events, tms_events, r)
 
     # ── Load: Neo4j ───────────────────────────────────────────────────────────
-    print("[7/7] Neo4j laden...")
+    print("[8/8] Neo4j laden...")
     load_neo4j(erp_events, wms_events, tms_events, neo4j_driver)
 
     # ── Verbindungen schließen ─────────────────────────────────────────────────

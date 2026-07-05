@@ -267,8 +267,13 @@ MATCH (o:Order {order_reference: "ORD-DEMO-001"}),
       (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
 MERGE (o)-[:TRIGGERED]->(b);
 
-// --- 7.3 PROCESSED_AT – alle 7 Stationen (vollständiger 6-Hop-Pfad) ---
+// --- 7.3 PROCESSED_AT – die 6 WMS-Stationen (vollständiger 6-Hop-Pfad) ---
 // Quelle: WMS NodeProcessed-Events + Temperaturen aus tatsächlichen Events
+// [KORREKTUR 2026-07-05] RETAIL_STORE erhält bewusst KEIN PROCESSED_AT:
+// der Retail-Knoten liegt außerhalb des WMS-Verantwortungsbereichs (kein
+// NodeProcessed-Event, vgl. Kommentar in sql/03) und wird ausschließlich über
+// die TMS-Endlieferung (DELIVERED_TO, Abschnitt 7.6) angebunden. Der frühere
+// 7. PROCESSED_AT-MERGE verletzte das Soll "max. 6 Stationen" in verify_all_systems.
 
 MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
       (n:SupplyChainNode {node_code: "BANANA_PLANTATION"})
@@ -299,11 +304,6 @@ MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"})
       (n:SupplyChainNode {node_code: "CENTRAL_WAREHOUSE"})
 MERGE (b)-[:PROCESSED_AT {temperature: 11.9, status: "COMPLETED",
       processed_at: "2026-05-23T18:30:00"}]->(n);
-
-MATCH (b:Batch {batch_identifier: "BATCH-fc6d22f2-099f-4834-860c-297ab3a1c0c7"}),
-      (n:SupplyChainNode {node_code: "RETAIL_STORE"})
-MERGE (b)-[:PROCESSED_AT {temperature: 11.5, status: "COMPLETED",
-      processed_at: "2026-05-24T09:00:00"}]->(n);
 
 // --- 7.4 Shipment (Seefracht Afrika → Europa) ---
 // Quelle: TMS TransportStarted-Event (CAR-104 DB Schenker, SEA_FREIGHT)

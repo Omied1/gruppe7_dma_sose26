@@ -10,6 +10,8 @@
 
 **Nachtrag 2026-07-02 (Kleinkram-Audit):** Restliche Audit-Punkte abgeräumt: `docs/00` untere Hälfte auf kanonische Zahlen gehoben (275 → 6.300 TMS; 395-Event-/60-Shipment-/10-Order-Stand → 8.356/1.512/252; Datei-Listen um docs 13–16 + sql 06b/10 ergänzt; Test-Sektion auf faithful DWH + verify aktualisiert). Ebenso `docs/12` §7 (ETL-Nachweis-Tabelle + Prüfqueries) von 395-Event- auf 8.356-Event-Basis gehoben. SKILL.md Event-Counts (50/70/257/263 → 534/1.522/6.300, ETL 383 → 8.356; DDL 01–08 → 01–10). README/SKILL Doc-/SQL-Counts (00–16, 01–10). `.gitignore`-Platzhalter `{database_file}` entfernt. `dashboard.py`-Docstring ohne ungenutztes `kaleido` (verifiziert: nur `savefig`/`write_html`, kein `write_image`). „43/43 PASS" → „43 Checks, 0 FAIL" (docs/16 + README + PROJECT_STATUS; zeitunabhängig korrekt, da 2 der 43 Checks TTL-bedingt WARN sein können). Veraltete Root-PDFs (Projektstand/Projektanleitung) **gelöscht** – Inhalt widersprach den .md (383 Events/60 Shipments), Generatoren schrieben in alten Desktop-Pfad; die .md sind maßgeblich. Die zugehörigen Generator-Skripte (`create_status_report.py`, `create_guide_pdf.py`) sind damit verwaist. Ein anschließender Vollsweep hob weitere Alt-Zahlen in Abgabe-Docs auf kanonisch (`docs/01` Eventtyp-Gesamtübersicht 377 → 8.356; `docs/11` 377 Events/98 Dokumente → 8.356/2.444; `PROJEKTANLEITUNG` erwartete ETL-Ausgabe 50/70/10 Orders/60 Shipments → 534/1.522/252/1.512 + F-6-Troubleshooting-Eintrag volumen-unabhängig) — `docs/` + `README` + `PROJEKTANLEITUNG` sind jetzt frei von Alt-Zahlen (Sweep grün). **Alle Audit-Punkte (M-1/M-2/M-3 + Kleinkram) erledigt.**
 
+**Nachtrag 2026-07-05 (Profitabilitäts-Erweiterung, Generator-basiert):** Auf Nutzerwunsch umgesetzt: **(1) Transportkosten kapazitätsallokiert** im Generator ([ANNAHME] LKW-Sammeltour 2.000 / Sammelverschiffung 13.800 Kartons + 0,02 €/Karton Handling) → Quote von 137 % auf **24,9 %** (Zielkorridor 15–30 %); **(2) COGS**: `erp.products.unit_cost` = simulierter Wareneinsatz (50–65 % der Preisband-Untergrenze, **separater RNG → seed-neutral**: Umsatz 325.008,80 €, Liefertreue 96,8 %, alle kanonischen Zahlen exakt unverändert); **(3) Lagerkosten** aus echten WMS-/TMS-Zeitstempeln (Verweildauer × `storage_cost_per_unit_day` je Knoten, [ANNAHME] 0,020/0,012) = 1,0 %; **(4) Inventory light**: `wms.stock_movements` (3.024 Bewegungen, im ETL deterministisch aus NodeProcessed abgeleitet – kein neuer Eventtyp, keine Snapshots/Redis-Bestände, Begründung dokumentiert). Im DWH: 6 neue Fact-Measures (`unit_cost`, `cogs_total`, `gross_profit`, `storage_days`, `storage_cost`, `contribution_margin` = **vereinfachter logistischer Deckungsbeitrag 88.630,56 € / 27,3 %**, Bruttomarge **53,2 %**), Views `v_profitability` + `v_stock_by_node`, `v_kpi_summary` um KPI 6–9 erweitert; `sql/10` KPI 6/7; `sql/09` §7 (8 neue P-/I-Checks, alle PASS); `sql/06b` um stock_movements + RATIO-Muster ergänzt (heilt auch die Alt-Lücke transport_cost/distance_km/spoilage_pct = NOMINAL). Neues Wasserfall-Visual (dataviz-validierte Palette), seit dem Dashboard-Umbau (s. u.) als **Chart 5 in `dashboard.py`** integriert. **Voller Pipeline-Lauf:** `shared/`-Regen (534/1.522/6.300), Komplett-Reset aller 5 Stores, ETL 1+2, generate_documents (2.444), **verify 43/43 PASS, 0 WARN/FAIL**, DQ **38/41** (3 bewusste FAILs, identische Zahlen 230/463/80). **Dabei behobener Altfehler (F-14):** `cypher/01` gab dem Demo-Batch ein 7. PROCESSED_AT am RETAIL_STORE – widerspricht dem WMS-Modell (Retail ohne NodeProcessed, vgl. sql/03) und dem verify-Soll „max 6"; Kante entfernt (Datei + Live-Graph), `cypher/02` §6.1 auf 6 Zeilen korrigiert. Doku nachgezogen: docs/07 (Measures/7 Views/Annahmen), docs/14 (KPI 6/7 + §1.2), docs/15 (DAX + Seite 5 Profitabilität), docs/16 (§3.7 + Kennzahlen + bewusste Entscheidungen), README + PROJEKTANLEITUNG (Generator-Anpassungsblöcke, Schritt 8, erwartete Ergebnisse).
+
 ---
 
 ## 1. Aktueller Gesamtstatus
@@ -18,7 +20,7 @@
 Datenmodelle, ETL-Skript, alle Datenbanksysteme und Dokumentation sind erstellt
 und getestet.
 
-**Teil 2 – Analytics:** Dashboard (5 Charts, auf neue Felder gehoben: Kundensegment-Umsatz, Verspätungsgründe, Bestellwert-Boxplot/Kundentyp, Transportkosten/Route, Batchqualität/Zeit), Clustering (k-Means + Cluster↔Segment-Abgleich) und Absatzprognose (ARIMA) laufen gegen den faithful DWH (252 Fact-Zeilen, 13 Monate). **Neu (2026-07-02):** Deskriptive Statistik (`descriptive_stats.py`), KPI-Katalog (`sql/10_kpi_queries.sql` + `docs/14`), PowerBI-Konzept (`docs/15`) und Abschlussbericht (`docs/16`) erstellt und getestet → **A-1 bis A-7 abgabefähig, Teil 2 vollständig**.
+**Teil 2 – Analytics:** Dashboard (5 Charts, Set 2026-07-05 neu geschnitten: Umsatzentwicklung/Segment, Pareto Top-Kunden, Verzögerungsverteilung + SLA, Verspätungsgründe/Transportabschnitt, Profitabilitäts-Wasserfall), Clustering (k-Means + Cluster↔Segment-Abgleich) und Absatzprognose (ARIMA) laufen gegen den faithful DWH (252 Fact-Zeilen, 13 Monate). **Neu (2026-07-02):** Deskriptive Statistik (`descriptive_stats.py`), KPI-Katalog (`sql/10_kpi_queries.sql` + `docs/14`), PowerBI-Konzept (`docs/15`) und Abschlussbericht (`docs/16`) erstellt und getestet → **A-1 bis A-7 abgabefähig, Teil 2 vollständig**.
 
 ---
 
@@ -73,7 +75,7 @@ und getestet.
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `cypher/01_create_graph_model.cypher` | Constraints + 4 Indizes; 8 Node-Typen, 13 Relationships; vollständige SUPPLIES-Kanten für alle 10 Produkte (aus ProductCreated-Events); Beispiel-Batch (BATCH-fc6d22f2-…) mit 7 PROCESSED_AT-Knoten (6-Hop-Pfad); 8 Beispielabfragen; Nachweis-Queries | abgabefähig |
+| `cypher/01_create_graph_model.cypher` | Constraints + 4 Indizes; 8 Node-Typen, 13 Relationships; vollständige SUPPLIES-Kanten für alle 10 Produkte (aus ProductCreated-Events); Beispiel-Batch (BATCH-fc6d22f2-…) mit 6 PROCESSED_AT-Stationen + DELIVERED_TO ans RETAIL (6-Hop-Pfad; **[KORREKTUR 2026-07-05]** 7. PROCESSED_AT am RETAIL_STORE entfernt – Retail hat kein WMS-Event, F-14); 8 Beispielabfragen; Nachweis-Queries | abgabefähig |
 | `cypher/02_verification_queries.cypher` | Aktive (nicht auskommentierte) Verifikationsqueries: Node/Rel-Counts je Typ, Constraints/Indizes prüfen, 6-Hop-Pfad, Fulfillment-Kette, Kühlketten-Monitoring, Integritätsprüfungen | erstellt |
 
 ### Generierte Daten (`shared/`)
@@ -88,13 +90,14 @@ und getestet.
 
 | Datei | Inhalt | Status |
 |---|---|---|
-| `analytics/dashboard.py` | 5 BI-Charts (Umsatz-Zeitreihe nach Kundensegment, Verspaetungsgruende, Bestellwert-Boxplot nach Kundentyp, Transportkosten je Route, Batchqualitaet ueber Zeit); Output: PDF + PNG + HTML | abgabefaehig |
+| `analytics/dashboard.py` | **[ANPASSUNG 2026-07-05] Chart-Set neu geschnitten:** 5 BI-Charts (1. Umsatzentwicklung nach Kundensegment, 2. Pareto Top-Kunden [eine %-Achse, EUR-Direktlabels], 3. Verzögerungsverteilung + 60-min-SLA-Linie, 4. Verspätungsgründe je Transportabschnitt >30 Min., 5. Profitabilitäts-Wasserfall → log. Deckungsbeitrag); HTML mit denselben 5 Visuals (natives plotly-Waterfall); Footer mit Annahmenhinweis; Output: PDF + PNG + HTML | abgabefaehig |
 | `analytics/clustering.py` | Kundensegmentierung k-Means mit fachlich gewähltem k=3; Elbow-/Silhouette-Diagnose; Business-Interpretation Ø Bestellwert vs. Ø Verzögerung; Output: PDF + PNG | abgabefaehig |
-| `analytics/forecast.py` | Absatzprognose ARIMA(1,0,1); 13 echte Monate + 24 Monate synthetische History (transparent markiert); 3-Monats-Prognose, RMSE 3.626 / MAE 3.035; Output: PDF + PNG + TXT | abgabefaehig |
+| `analytics/forecast.py` | Absatzprognose ARIMA(1,0,1); 13 echte Monate + 24 Monate synthetische History (transparent markiert); 3-Monats-Prognose, RMSE 3.626 / MAE 3.035; **[ANPASSUNG 2026-07-05]** zusätzlich lineare Regressionsprognose als Vergleichsmodell (t + month_sin/cos, leakage-frei; RMSE 3.281,5 / MAE 2.525,8; Koeffizienten + Prognose in TXT); Output: PDF + PNG + TXT | abgabefaehig |
 | `analytics/descriptive_stats.py` | Deskriptive Statistik (A-1): n/Min/Max/Mittelwert/Median/Std/Q1/Q3/IQR + IQR-Ausreißer fuer delay_minutes, avg_temperature, quantity, unit_price, total_value; Output: Konsole + `descriptive_stats.txt`; getestet gegen DWH (252 Zeilen) | abgabefaehig |
+| ~~`analytics/profitability.py`~~ | **[2026-07-05] entfernt** – Wasserfall in `dashboard.py` (Chart 5) integriert; Segment-/Knotensicht via `dwh.v_profitability` + `sql/10`; PNG/PDF ebenfalls gelöscht | entfällt |
 | `sql/10_kpi_queries.sql` | KPI-Definition (A-2): 5 Pflicht-KPIs + Ursachen-KPI aus DWH (Liefertreue 96,8 %, Ø Transportdauer 14,92 T, Temp-Ausreißer 7,9 %, Ø Bestellwert 1.289,72 €, Batchqualität 36,5 %); ausfuehrbar gegen laufende DB | abgabefaehig |
 | `docs/14_analytics_kpis.md` | KPI-Katalog (Formel/Quelle/Zielwert/Ist) + deskriptive Statistik + fachliche Interpretation | abgabefaehig |
-| `docs/15_powerbi_concept.md` | PowerBI-Konzept (A-4): Datenmodell, DAX-Measures, 4 Report-Seiten, Slicer, Umsetzungsleitfaden | abgabefaehig |
+| `docs/15_powerbi_concept.md` | PowerBI-Konzept (A-4): Datenmodell, DAX-Measures, 5 Report-Seiten (inkl. Profitabilität), Slicer, Umsetzungsleitfaden | abgabefaehig |
 
 ---
 
@@ -148,12 +151,12 @@ Alle folgenden Komponenten wurden zuletzt am **2026-05-14** gegen laufende Docke
 
 | # | Aufgabe | Status | Nachweis |
 |---|---|---|---|
-| A-3 | 5 Python-Charts (Matplotlib/Seaborn/Plotly): Umsatz-Zeitreihe nach Kundensegment, Verspaetungsgruende, Bestellwert-Boxplot nach Kundentyp, Transportkosten je Route, Batchqualitaet ueber Zeit | **abgabefaehig** | `analytics/dashboard.py` → `dashboard.pdf`, `dashboard.png`, `dashboard.html` |
+| A-3 | 5 Python-Charts (Matplotlib/Seaborn/Plotly), **Set 2026-07-05 neu geschnitten**: Umsatzentwicklung nach Kundensegment, Pareto Top-Kunden, Verzögerungsverteilung + SLA-Grenze, Verspätungsgründe je Transportabschnitt, Profitabilitäts-Wasserfall | **abgabefaehig** | `analytics/dashboard.py` → `dashboard.pdf`, `dashboard.png`, `dashboard.html` |
 | A-5 | Clustering: Kundensegmentierung mit k-Means (Elbow-Methode, 4 Features, Silhouette-Score) | **abgabefaehig** | `analytics/clustering.py` → `clustering.pdf`, `clustering.png` |
-| A-6 | Absatzprognose: ARIMA auf Bestellvolumen (RMSE/MAE im Chart; 13 echte Monate + 24 Monate synthetische Vorlauf-History transparent markiert) | **abgabefaehig** | `analytics/forecast.py` → `forecast.pdf`, `forecast.png`, `forecast_model_summary.txt` |
+| A-6 | Absatzprognose: **Zeitreihe (ARIMA) + Regression (LinearRegression)** auf Bestellvolumen; RMSE/MAE beider Modelle im Chart; 13 echte Monate + 24 Monate synthetische Vorlauf-History transparent markiert | **abgabefaehig** | `analytics/forecast.py` → `forecast.pdf`, `forecast.png`, `forecast_model_summary.txt` |
 | A-1 | Deskriptive Statistik: n/Min/Max/Mittelwert/Median/Std/Q1/Q3/IQR + IQR-Ausreißer fuer delay_minutes, avg_temperature, quantity, unit_price, total_value | **abgabefaehig** | `analytics/descriptive_stats.py` → `descriptive_stats.txt`; `docs/14_analytics_kpis.md` §2 |
 | A-2 | KPI-Definition: 5 Pflicht-KPIs + Ursachen-KPI mit Formel, Datenquelle, Zielwert, Ist-Wert (SQL aus DWH) | **abgabefaehig** | `sql/10_kpi_queries.sql` (getestet); `docs/14_analytics_kpis.md` §1 |
-| A-4 | PowerBI-Dashboard: Konzept (Datenmodell, DAX-Measures, 4 Report-Seiten, Slicer, Umsetzungsleitfaden) | **abgabefaehig** | `docs/15_powerbi_concept.md` (.pbix optional, Windows-only) |
+| A-4 | PowerBI-Dashboard: Konzept (Datenmodell, DAX-Measures, 5 Report-Seiten (inkl. Profitabilität), Slicer, Umsetzungsleitfaden) | **abgabefaehig** | `docs/15_powerbi_concept.md` (.pbix optional, Windows-only) |
 | A-7 | Abschlussbericht: Zusammenfassung aller Ergebnisse Teil 1 + Teil 2 (inkl. Kennzahlen-Überblick, bewusste Entscheidungen) | **abgabefaehig** | `docs/16_abschlussbericht.md` |
 
 ### Noch offen
