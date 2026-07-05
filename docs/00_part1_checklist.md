@@ -206,8 +206,8 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | PostgreSQL: DWH fact_fulfillment | ✅ 252 Zeilen | faithful (`order_reference`), 13 Monate, Umsatz 325.008,80 € |
 | MongoDB: Collections | ✅ 4 Collections | shipment_events (1.512), node_events (1.512), batch_tracking (252), order_events (252) |
 | Redis: Alle Key-Typen | ✅ Funktioniert | STRING, HASH, LIST, SORTED SET, COUNTER |
-| Neo4j: Graphmodell | ✅ 2.058 Nodes | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops |
-| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 2.444 Dokumente in MinIO (Referenzen in PostgreSQL) nach generate_documents.py |
+| Neo4j: Graphmodell | ✅ 2.061 Nodes | Supply-Chain-Pfad PLANTATION→RETAIL in 6 Hops (2.058 ETL + 3 Demo-Objekte aus cypher/01) |
+| MinIO: Buckets + Dokumente | ✅ 4 Buckets | 2.520 Dokumente in MinIO (Referenzen in PostgreSQL) nach generate_documents.py |
 | verify_all_systems.py | ✅ 43 Checks, 0 FAIL | 41 PASS + 2 TTL-WARN (Redis-Cache) über alle 5 Zielsysteme |
 | ETL-Skript | ✅ Vollständig | `bananasupplychain/etl_load.py` – lädt alle 8.356 Events in PostgreSQL, MongoDB, Redis, Neo4j |
 
@@ -218,8 +218,8 @@ Alle Komponenten wurden gegen die laufenden Docker-Container getestet und funkti
 | PostgreSQL | 10 Supplier, 10 Customer, 10 Products, 252 Orders, 252 Batches, 1.512 Shipments, 3.009 Positions, 1.512 Completions, 252 Deliveries |
 | MongoDB | 1.512 shipment_events (Lifecycle-Dokumente), 1.512 node_events, 252 batch_tracking, 252 order_events |
 | Redis | 1.512 Shipment-Status, 252 Order-Status, 1.512 Route-Verläufe (Sorted Sets) |
-| Neo4j | 1.512 Shipments, 252 Orders, 252 Batches + Stammdaten (2.058 Nodes) |
-| MinIO (generate_documents.py) | 1.512 Lieferscheine, 176 Rechnungen, 252 B/L, 252 Zollfreigaben, 252 Qualitätszertifikate → 2.444 gesamt |
+| Neo4j | 1.512 Shipments, 252 Orders, 252 Batches + Stammdaten (2.058 Nodes aus ETL; +3 Demo-Objekte aus cypher/01 = 2.061 gesamt) |
+| MinIO (generate_documents.py) | 1.512 Lieferscheine, 252 Rechnungen (SUCCESSFUL + DELAYED; nur FAILED ohne Rechnung), 252 B/L, 252 Zollfreigaben, 252 Qualitätszertifikate → 2.520 gesamt |
 
 ---
 

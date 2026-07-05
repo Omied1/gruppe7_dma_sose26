@@ -154,8 +154,8 @@ sind bei schnelldrehender Frischware nachrangig.
 | Bestellungen / Order-Items / Batches | je **252** |
 | Shipments / GPS-Positionen / Completions / Deliveries | 1.512 / 3.009 / 1.512 / 252 |
 | MongoDB (shipment/node/batch/order events) | 1.512 / 1.512 / 252 / 252 |
-| Neo4j Nodes | 2.058 |
-| MinIO PDFs | 2.444 |
+| Neo4j Nodes | 2.061 (2.058 aus ETL + 3 Demo-Objekte aus cypher/01) |
+| MinIO PDFs | 2.520 (Rechnungen auch für DELAYED; nur FAILED ohne Rechnung) |
 | DWH fact_fulfillment / dim_date | 252 / 1.095 |
 | Bestandsbewegungen (wms.stock_movements) | 3.024 (1.512 IN / 1.512 OUT) |
 | Verifikation | **43 Checks, 0 FAIL** (+ 8 Profitabilitäts-/Inventory-Checks PASS, sql/09 §7) |

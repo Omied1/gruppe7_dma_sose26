@@ -59,7 +59,7 @@ Beispiele:
 
 **Inhalt:** Rechnungen an Einzelhandelskunden (ALDI, LIDL, etc.) pro Bestellung.
 
-**Auslöser:** Nach `DeliveryCompleted` mit `delivery_status = "SUCCESSFUL"` wird die Rechnung generiert.
+**Auslöser:** Nach `DeliveryCompleted` mit `delivery_status = "SUCCESSFUL"` **oder `"DELAYED"`** wird die Rechnung generiert – auch verspätet gelieferte Ware wurde geliefert und wird fakturiert. Nur `"FAILED"` (nicht zugestellt) bleibt ohne Rechnung. [ANPASSUNG 2026-07-06]
 
 **Pflichtfelder im Dokument:**
 - Rechnungsnummer (= `order_reference`)
@@ -257,7 +257,7 @@ Das Projekt trennt bewusst zwei Ausführungspfade:
 | Phase | Skript | Zweck | Dokumente |
 |---|---|---|---|
 | ETL (Pflichtlauf) | `bananasupplychain/etl_load.py` | Alle 8.356 Events in PostgreSQL, MongoDB, Redis, Neo4j laden | kein MinIO-Upload |
-| Dokument-Generator | `bananasupplychain/generate_documents.py` | Echte, inhaltlich korrekte PDFs erzeugen | Alle 4 Buckets mit vollständigen PDFs (2.444 Dokumente) |
+| Dokument-Generator | `bananasupplychain/generate_documents.py` | Echte, inhaltlich korrekte PDFs erzeugen | Alle 4 Buckets mit vollständigen PDFs (2.520 Dokumente) |
 
 **Reihenfolge für die Abgabe:**
 ```bash

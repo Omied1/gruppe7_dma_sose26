@@ -1,12 +1,17 @@
 # ER-Modell – Banana Supply Chain (ERP / WMS / TMS)
 
 **Modul:** Datenmanagement und Analytics (M.Sc.), SoSe 26  
-**Stand:** 2026-05-12  
+**Stand:** 2026-07-06 (abgeglichen gegen die aktuellen DDL-Dateien)  
 **Grundlage:** SQL-Schemata in `sql/02_create_erp_tables.sql`, `sql/03_create_wms_tables.sql`, `sql/04_create_tms_tables.sql`
 
 ---
 
 ## 1. ER-Diagramm (Mermaid)
+
+> **Bewusste Vereinfachung:** Rein technische Spalten (`created_at`, `event_timestamp`,
+> `source_event`, `currency`) sind im Diagramm nur exemplarisch dargestellt, damit die
+> fachlichen Schlüssel und Beziehungen lesbar bleiben. Maßgeblich für die vollständige
+> Spaltenliste sind die DDL-Dateien in `sql/`.
 
 ```mermaid
 erDiagram
@@ -27,7 +32,8 @@ erDiagram
         int     product_id      PK
         varchar product_code    UK  "z.B. BAN-101 (kanonisch)"
         varchar product_name
-        varchar category
+        varchar category            "Standard/Sustainable/Specialty/Premium"
+        numeric unit_cost           "simulierter Wareneinsatz EUR (COGS-Basis)"
         int     supplier_id     FK
         ts      created_at
     }
@@ -36,6 +42,7 @@ erDiagram
         int     customer_id     PK
         varchar customer_number UK  "z.B. CUST-101"
         varchar customer_name
+        varchar customer_type       "DISCOUNTER/VOLLSORTIMENTER/PREMIUM"
         varchar city
         varchar country
         ts      created_at
@@ -68,6 +75,8 @@ erDiagram
         varchar supply_chain_node
         varchar wms_sku                 "BAN_108 (WMS-Format)"
         varchar tms_product_reference   "ban-108 (TMS-Format)"
+        varchar quality_status          "OK/REDUCED/REJECTED (aus Kühlkette)"
+        numeric spoilage_pct            "Schwund in Prozent"
         ts      harvested_at
     }
 
@@ -99,6 +108,7 @@ erDiagram
         varchar node_type           "PLANTATION / COLD_STORAGE / etc."
         varchar region
         int     sequence_order      "1-7"
+        numeric storage_cost_per_unit_day "Lagerkostensatz EUR/Einheit/Tag"
         ts      created_at
     }
 
@@ -110,6 +120,17 @@ erDiagram
         numeric temperature         "Kühlkette: 10-15°C"
         varchar status              "COMPLETED / PENDING / FAILED"
         ts      processed_at
+    }
+
+    WMS_STOCK_MOVEMENTS {
+        int     movement_id     PK
+        int     node_id         FK
+        varchar sku                 "BAN_108 (WMS-Format)"
+        varchar batch_reference     "→ erp.batches.batch_identifier"
+        int     quantity
+        varchar direction           "IN / OUT"
+        ts      moved_at
+        varchar source              "ETL-abgeleitet aus NodeProcessed"
     }
 
     %% =========================================
@@ -138,6 +159,11 @@ erDiagram
         varchar transport_mode              "TRUCK / SEA_FREIGHT"
         varchar cargo_product_reference     "ban-108"
         int     carrier_id              FK
+        numeric distance_km                 "Streckenlänge des Legs"
+        numeric transport_cost              "ALLOKIERTE Kosten EUR (Kapazitätsanteil)"
+        varchar currency                    "EUR"
+        varchar order_reference             "→ erp.orders (faithful Mapping)"
+        varchar batch_identifier            "→ erp.batches (faithful Mapping)"
         ts      estimated_arrival
         ts      started_at
     }
@@ -157,6 +183,7 @@ erDiagram
         int     shipment_id     FK
         varchar arrival_node
         int     delay_minutes
+        varchar delay_reason        "NULL = pünktlich; sonst WEATHER/TRAFFIC etc."
         ts      completed_at
     }
 
@@ -188,6 +215,7 @@ erDiagram
     %% =========================================
 
     WMS_SUPPLY_CHAIN_NODES ||--o{ WMS_NODE_PROCESSINGS : "verarbeitet"
+    WMS_SUPPLY_CHAIN_NODES ||--o{ WMS_STOCK_MOVEMENTS  : "bucht Bestand (IN/OUT)"
 
     %% =========================================
     %% BEZIEHUNGEN – TMS
@@ -245,6 +273,14 @@ Jeder `wms.supply_chain_node` kann viele `wms.node_processings` haben – eine f
 
 ---
 
+### 2.5b WMS: Knoten → Bestandsbewegung (1:N) — [ANPASSUNG 2026-07-05]
+
+`wms.stock_movements` ist das einfache Inventory-Modell: je Batch und Knoten genau **ein Wareneingang** (IN = Ankunft, `processed_at`) und **ein Warenausgang** (OUT = Ankunft am Folgeknoten bzw. `delivered_at` am letzten WMS-Knoten). Die Bewegungen werden **im ETL deterministisch aus NodeProcessed abgeleitet** – es gibt bewusst keinen eigenen Quell-Eventtyp. Weil IN je Batch/Knoten immer vor OUT liegt, sind negative Bestände strukturell unmöglich (`UNIQUE(batch_reference, node_id, direction)`).
+
+**Kardinalität:** `1 Node : N StockMovements` (aktuell 3.024 Bewegungen = 2 × 1.512 NodeProcessings)
+
+---
+
 ### 2.6 TMS: Carrier → Shipment (1:N)
 
 Ein Carrier (`tms.carriers`) führt viele Transporte (`tms.shipments`) durch. Jedes Shipment hat genau einen Carrier. In der Seefracht (Afrika→Europa) werden Maersk, MSC oder Hapag Lloyd eingesetzt; im Landtransport DHL oder DB Schenker.
@@ -267,6 +303,12 @@ Ein Shipment (`tms.shipments`) hat einen vollständigen Lifecycle:
 - `1 Shipment : 1 Completion`
 - `1 Shipment : 0–1 Delivery`
 
+> **Faithful Mapping ([ANPASSUNG 2026-07-02]):** Jedes Shipment trägt zusätzlich
+> `order_reference` und `batch_identifier` als logische Cross-Schema-Referenzen auf die
+> tatsächliche Bestellung/Charge. Darüber ordnet ETL Phase 2 jede Endlieferung exakt
+> ihrer Bestellung zu (252 Fact-Zeilen); `transport_cost` (kapazitätsallokiert) und
+> `distance_km` werden je `order_reference` über die 6 Legs summiert.
+
 ---
 
 ### 2.8 ERP: Document References (polymorphe MinIO-Verknüpfung)
@@ -286,9 +328,12 @@ Diese Beziehungen bestehen fachlich, sind aber aus Architekturgrün­den nicht a
 | Von                                | Feld                      | Zu                                                            | Typ                           |
 | ---------------------------------- | ------------------------- | ------------------------------------------------------------- | ----------------------------- |
 | `wms.node_processings`             | `batch_reference`         | `erp.batches.batch_identifier`                                | Logische Referenz             |
+| `wms.stock_movements`              | `batch_reference`         | `erp.batches.batch_identifier`                                | Logische Referenz (ETL-abgeleitet) |
 | `wms.warehouse_skus`               | `erp_product_code`        | `erp.products.product_code`                                   | Logische Referenz             |
 | `tms.transport_product_references` | `erp_product_code`        | `erp.products.product_code`                                   | Logische Referenz             |
 | `tms.shipments`                    | `cargo_product_reference` | `tms.transport_product_references`                            | Logische Referenz             |
+| `tms.shipments`                    | `order_reference`         | `erp.orders.order_reference`                                  | Logische Referenz (faithful Mapping) |
+| `tms.shipments`                    | `batch_identifier`        | `erp.batches.batch_identifier`                                | Logische Referenz (faithful Mapping) |
 | `erp.batches`                      | `wms_sku`                 | `wms.warehouse_skus.sku`                                      | Redundant via MDM             |
 | `erp.document_references`          | `entity_key`              | `erp.orders.order_reference` / `erp.batches.batch_identifier` | polymorphe Referenz (kein FK) |
 

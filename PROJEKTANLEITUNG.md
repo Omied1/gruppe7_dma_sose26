@@ -57,7 +57,7 @@ shared/tms/  (6.300 JSON) ─┘         │           MongoDB (4 Collections)
                                    │           Redis (STRING/HASH/LIST/ZSET)
                                    │           Neo4j (8 Node-Typen, 13 Beziehungen)
                                    │
-                         generate_documents.py ──► MinIO (4 Buckets, 2.444 PDFs)
+                         generate_documents.py ──► MinIO (4 Buckets, 2.520 PDFs)
                                    │
                          etl_dwh.py ──► PostgreSQL dwh-Schema (Sternschema)
                                    │
@@ -508,7 +508,7 @@ etl_load.py
 python3 bananasupplychain/etl_dwh.py
 ```
 
-**Grain:** 1 Zeile pro Endlieferung (`tms.deliveries`). INNER JOIN auf `tms.deliveries` stellt sicher, dass nur abgeschlossene Lieferketten ins DWH fließen (kein LEFT JOIN, der zu 60 statt 10 Facts führen würde – Fehler F-9 aus der Vergangenheit).
+**Grain:** 1 Zeile pro Endlieferung (`tms.deliveries`). INNER JOIN auf `tms.deliveries` stellt sicher, dass nur abgeschlossene Lieferketten ins DWH fließen – ein LEFT JOIN würde jede Bestellung über die Zwischen-Legs versechsfachen (historischer Fehler F-9: damals 60 statt 10 Facts; aktueller Stand: korrekt 252 Facts).
 
 **Ablauf:**
 1. Dimensionen befüllen: `dim_customer`, `dim_supplier`, `dim_product`, `dim_carrier`, `dim_route`, `dim_supply_chain_node`
@@ -526,14 +526,14 @@ python3 bananasupplychain/etl_dwh.py
 python3 bananasupplychain/generate_documents.py
 ```
 
-**Erzeugte Dokumente (2.444 PDFs):**
+**Erzeugte Dokumente (2.520 PDFs):**
 
 | Bucket | Inhalt | Anzahl | Auslöser |
 |--------|--------|--------|---------|
-| `invoices` | Rechnungen an Kunden | 8 | OrderCreated |
-| `delivery-notes` | Lieferscheine | 60 | DeliveryCompleted |
-| `transport-docs` | Bill of Lading + Zollfreigaben | 10 + 10 | ShipmentStarted |
-| `batch-certificates` | Qualitätszertifikate für Chargen | 10 | BatchHarvested |
+| `invoices` | Rechnungen an Kunden | 252 | DeliveryCompleted mit Status SUCCESSFUL **oder DELAYED** – auch verspätete Ware wurde geliefert und wird fakturiert; nur FAILED bleibt ohne Rechnung [ANPASSUNG 2026-07-06] |
+| `delivery-notes` | Lieferscheine | 1.512 | TransportStarted (je Transport-Leg) |
+| `transport-docs` | Bill of Lading + Zollfreigaben | 252 + 252 | TransportStarted (Seefracht-Leg) |
+| `batch-certificates` | Qualitätszertifikate für Chargen | 252 | NodeProcessed am QUALITY_CONTROL |
 
 **Referenzierungsmuster:** PostgreSQL speichert **nur** den Objektpfad (z.B. `delivery-notes/2026/01/DN-SHP-abc123.pdf`), nie das Dokument selbst. So bleibt die Datenbank schlank, und das PDF liegt in MinIO.
 
@@ -967,7 +967,7 @@ Neo4j: Nodes und Relationships angelegt
 python3 bananasupplychain/generate_documents.py
 ```
 
-**Erwartete Ausgabe:** 2.444 PDFs hochgeladen (1.512 + 176 + 252 + 252 + 252)
+**Erwartete Ausgabe:** 2.520 PDFs hochgeladen (1.512 Lieferscheine + 252 Rechnungen + 252 B/L + 252 Zollfreigaben + 252 Zertifikate) [ANPASSUNG 2026-07-06: auch DELAYED wird fakturiert]
 
 ---
 
@@ -1139,7 +1139,7 @@ mc ls local/delivery-notes/
 - [ ] SQL 01–08 ohne Fehler ausgeführt
 - [ ] `test_data_generator.py` ausgeführt: 534 + 1.522 + 6.300 JSON-Dateien vorhanden
 - [ ] `etl_load.py` ausgeführt: alle Records in PostgreSQL, MongoDB, Redis, Neo4j
-- [ ] `generate_documents.py` ausgeführt: 2.444 PDFs in MinIO
+- [ ] `generate_documents.py` ausgeführt: 2.520 PDFs in MinIO
 - [ ] `etl_dwh.py` ausgeführt: 252 fact_fulfillment-Zeilen, 1095 dim_date-Zeilen
 - [ ] `sql/09_verification_queries.sql` zeigt korrekte Counts
 - [ ] `sql/08b_dq_audit.sql` zeigt 38/41 PASS

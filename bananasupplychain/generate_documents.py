@@ -4,7 +4,9 @@ und lädt sie in MinIO hoch.
 
 Dokument-Typen:
   - Lieferschein     (delivery-notes)   → für jeden TransportStarted-Event
-  - Rechnung         (invoices)         → für jeden erfolgreichen DeliveryCompleted-Event
+  - Rechnung         (invoices)         → für jeden abgeschlossenen DeliveryCompleted-Event
+                                           (SUCCESSFUL und DELAYED werden fakturiert;
+                                            nur FAILED erhält keine Rechnung) [ANPASSUNG 2026-07-06]
   - Qualitätszertifikat (batch-certificates) → für jeden NodeProcessed am QUALITY_CONTROL
 
 Ausführung:
@@ -266,7 +268,9 @@ def generate_delivery_note(ev_start: dict) -> bytes:
 # 2. RECHNUNG  (invoice)
 # =============================================================================
 def generate_invoice(ev_delivery: dict, ev_transport: dict) -> bytes:
-    """Erzeugt eine Rechnung für einen erfolgreichen DeliveryCompleted-Event."""
+    """Erzeugt eine Rechnung für einen abgeschlossenen DeliveryCompleted-Event
+    (SUCCESSFUL oder DELAYED – auch verspätete Ware wurde geliefert und wird
+    fakturiert; nur FAILED bleibt ohne Rechnung)."""
     styles = base_styles()
     buf    = io.BytesIO()
     doc    = SimpleDocTemplate(buf, pagesize=A4,
@@ -660,7 +664,9 @@ def main():
     for ev in tms_events:
         if ev.get("event_type") != "DeliveryCompleted":
             continue
-        if ev.get("delivery_status") != "SUCCESSFUL":
+        # [ANPASSUNG 2026-07-06] Auch DELAYED fakturieren (Ware wurde geliefert,
+        # nur verspätet); ausschließlich FAILED erhält keine Rechnung.
+        if ev.get("delivery_status") == "FAILED":
             continue
         sid      = ev["shipment_identifier"]
         ev_start = transport_map.get(sid)

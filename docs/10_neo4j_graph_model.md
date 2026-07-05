@@ -325,4 +325,4 @@ Erwartete Node-Counts nach Ausführung von `cypher/01` **allein** (reines Demo-M
 | Shipment | 1 (Demo) |
 | **Gesamt** | **45** |
 
-> Nach vollständigem Restore (ETL + `cypher/01`) sind es **124 Nodes**: je 10 Supplier/Customer/Product, 7 SupplyChainNode, 5 Carrier, 11 Order (10 ETL + Demo), 10 Batch (der Demo-Batch `fc6d22f2` ist einer der 10 ETL-Batches), 61 Shipment (60 ETL + Demo).
+> Nach vollständigem Restore (ETL + `cypher/01`) sind es **2.061 Nodes** (Stand 2026-07-06): je 10 Supplier/Customer/Product, 7 SupplyChainNode, 5 Carrier, 253 Order (252 ETL + 1 Demo), 253 Batch (252 ETL + 1 Demo – der in `cypher/01` verdrahtete Beispiel-Batch `fc6d22f2` stammt aus einem früheren Generatorstand und existiert seit dem det_uuid-Refresh als eigenständiges Demo-Objekt), 1.513 Shipment (1.512 ETL + `SHIP-DEMO-001`). Der ETL allein erzeugt **2.058 Nodes**.

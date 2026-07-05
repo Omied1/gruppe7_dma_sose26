@@ -223,7 +223,7 @@ cypher-shell -u neo4j -p password -f cypher/02_verification_queries.cypher
 
 ---
 
-## 7. Systemübergreifende Befüllungsnachweise (Stand 2026-05-14)
+## 7. Systemübergreifende Befüllungsnachweise (Stand 2026-07-06, live gegen die Container geprüft)
 
 Ergänzend zu den 41 DQ-Checks belegen die folgenden Prüfqueries, dass alle fünf Zielsysteme nach einem vollständigen ETL-Lauf korrekt befüllt wurden.
 
@@ -234,19 +234,20 @@ Ergänzend zu den 41 DQ-Checks belegen die folgenden Prüfqueries, dass alle fü
 | `erp` | `suppliers` | 10 | SUP-101 bis SUP-110 |
 | `erp` | `customers` | 10 | CUST-101 bis CUST-110 |
 | `erp` | `products` | 10 | BAN-101 bis BAN-110 (ERP-Format) |
-| `erp` | `orders` | 10 | 10 OrderCreated-Events (1 pro Iteration) |
-| `erp` | `order_items` | 10 | 1 Item pro Order |
-| `erp` | `batches` | 10 | 10 BatchHarvested-Events |
-| `erp` | `document_references` | ≥ 66 | befüllt durch `generate_documents.py` |
+| `erp` | `orders` | 252 | 252 OrderCreated-Events (52 Wochen, variable Anzahl) |
+| `erp` | `order_items` | 252 | 1 Item pro Order |
+| `erp` | `batches` | 252 | 252 BatchHarvested-Events |
+| `erp` | `document_references` | 2.520 | befüllt durch `generate_documents.py` (invoice = 252) |
 | `wms` | `warehouse_skus` | 10 | BAN_101..BAN_110 (WMS-Format) |
 | `wms` | `supply_chain_nodes` | 7 | PLANTATION bis RETAIL |
-| `wms` | `node_processings` | 60 | 10 Batches × 6 aktive Knoten |
+| `wms` | `node_processings` | 1.512 | 252 Batches × 6 aktive Knoten |
+| `wms` | `stock_movements` | 3.024 | 1.512 IN + 1.512 OUT (ETL-abgeleitet aus NodeProcessed) |
 | `tms` | `carriers` | 5 | CAR-101 bis CAR-105 |
 | `tms` | `transport_product_references` | 10 | ban-101..ban-110 (TMS-Format) |
-| `tms` | `shipments` | 60 | 60 TransportStarted-Events |
-| `tms` | `shipment_positions` | ≈112 | ≈2 GPS-Positionen je Shipment |
-| `tms` | `transport_completions` | 60 | 60 TransportCompleted-Events |
-| `tms` | `deliveries` | 10 | 10 DeliveryCompleted-Events |
+| `tms` | `shipments` | 1.512 | 1.512 TransportStarted-Events (252 × 6 Legs) |
+| `tms` | `shipment_positions` | 3.009 | ≈2 GPS-Positionen je Shipment |
+| `tms` | `transport_completions` | 1.512 | 1.512 TransportCompleted-Events |
+| `tms` | `deliveries` | 252 | 252 DeliveryCompleted-Events |
 | `mdm` | `golden_records` | 42 | 10 Prod + 10 Kund + 10 Lief + 5 Carrier + 7 Knoten |
 | `mdm` | `source_mappings` | 69 | ERP=30, WMS=17, TMS=22 |
 | `dwh` | `dim_date` | 1095 | 2025-01-01 bis 2027-12-31 (Date Spine) |
@@ -256,7 +257,7 @@ Ergänzend zu den 41 DQ-Checks belegen die folgenden Prüfqueries, dass alle fü
 | `dwh` | `dim_carrier` | 5 | aus ETL Phase 2 |
 | `dwh` | `dim_supply_chain_node` | 7 | aus ETL Phase 2 |
 | `dwh` | `dim_delivery_status` | 4 | SUCCESSFUL, DELAYED, FAILED, IN_TRANSIT |
-| `dwh` | `fact_fulfillment` | 10 | 10 Endlieferungen (1 pro Iteration, Grain-Fix 2026-05-15) |
+| `dwh` | `fact_fulfillment` | 252 | 252 Endlieferungen (faithful Mapping via `order_reference`, 13 Monate) |
 
 **FK-Integrität (intra-Schema):** 0 Orphan-Datensätze in allen geprüften Beziehungen.
 **Cross-Schema-Referenzen:** WMS `batch_reference` → ERP `batch_identifier` = 0 Fehler; TMS `cargo_product_reference` → TMS `transport_product_references` = 0 Fehler.
@@ -275,24 +276,24 @@ Alle 42 Golden Records haben genau ein kanonisches Source Mapping (`is_canonical
 
 | Collection | Dokumente | Prüfung | Status |
 |---|---:|---|---|
-| `shipment_events` | ≥ 60 | Unique-Index auf `shipment_identifier` vorhanden | ✅ PASS |
-| `shipment_events` | ≥ 60 | TTL-Index (90 Tage) vorhanden | ✅ PASS |
-| `shipment_events` | ≥ 60 | `events[]`-Array in Dokumenten vorhanden | ✅ PASS |
-| `node_events` | ≥ 60 | `quality_flags` (temperature_ok) vorhanden | ✅ PASS |
-| `batch_tracking` | ≥ 10 | `nodes_processed[]` eingebettet | ✅ PASS |
-| `order_events` | ≥ 10 | Unique-Index auf `order_reference` vorhanden | ✅ PASS |
+| `shipment_events` | 1.512 | Unique-Index auf `shipment_identifier` vorhanden | ✅ PASS |
+| `shipment_events` | 1.512 | TTL-Index (90 Tage) vorhanden | ✅ PASS |
+| `shipment_events` | 1.512 | `events[]`-Array in Dokumenten vorhanden | ✅ PASS |
+| `node_events` | 1.512 | `quality_flags` (temperature_ok) vorhanden | ✅ PASS |
+| `batch_tracking` | 252 | `nodes_processed[]` eingebettet | ✅ PASS |
+| `order_events` | 252 | Unique-Index auf `order_reference` vorhanden | ✅ PASS |
 
 ### 7.4 Redis – Key-Typen und -Counts
 
 | Key-Pattern | Typ | Anzahl | Status |
 |---|---|---:|---|
-| `shipment:status:*` | STRING | ≥ 120 | ✅ PASS |
-| `shipment:info:*` | HASH | ≥ 120 | ✅ PASS |
-| `shipment:position:*` | HASH | ≥ 1 (TTL 1h) | ✅ PASS |
-| `shipment:route:*` | ZSET | ≥ 1 | ✅ PASS |
-| `order:status:*` | STRING | ≥ 10 | ✅ PASS |
-| `order:timeline:*` | LIST | ≥ 10 | ✅ PASS |
-| `cache:product:*` | HASH | ≥ 10 | ✅ PASS |
+| `shipment:status:*` | STRING | 1.512 | ✅ PASS |
+| `shipment:info:*` | HASH | 1.512 | ✅ PASS |
+| `shipment:position:*` | HASH | ≥ 1 (TTL 1 h; nach Ablauf regulär 0 → verify: WARN) | ✅ PASS |
+| `shipment:route:*` | ZSET | 1.512 | ✅ PASS |
+| `order:status:*` | STRING | 252 | ✅ PASS |
+| `order:timeline:*` | LIST | 252 | ✅ PASS |
+| `cache:product:*` | HASH | ≥ 1 (TTL 1 h; nach Ablauf regulär 0 → verify: WARN) | ✅ PASS |
 | `system:counter:etl_runs` | STRING | ≥ 1 | ✅ PASS |
 
 ### 7.5 Neo4j – Nodes, Relationships und Topologie
@@ -304,23 +305,23 @@ Alle 42 Golden Records haben genau ein kanonisches Source Mapping (`is_canonical
 | Product-Nodes | 10 | ✅ PASS |
 | SupplyChainNode-Nodes | 7 | ✅ PASS |
 | Carrier-Nodes | 5 | ✅ PASS |
-| Order-Nodes | ≥ 10 (ETL) | ✅ PASS |
-| Batch-Nodes | ≥ 10 (ETL) | ✅ PASS |
-| Shipment-Nodes | ≥ 60 | ✅ PASS |
-| Nodes gesamt | ≥ 124 | ✅ PASS |
-| Relationships gesamt | ≥ 47 (Ist 464) | ✅ PASS |
+| Order-Nodes | 253 (252 ETL + 1 Demo) | ✅ PASS |
+| Batch-Nodes | 253 (252 ETL + 1 Demo) | ✅ PASS |
+| Shipment-Nodes | 1.513 (1.512 ETL + SHIP-DEMO-001) | ✅ PASS |
+| Nodes gesamt | 2.061 (2.058 aus ETL + 3 Demo-Objekte aus cypher/01) | ✅ PASS |
+| Relationships gesamt | 58.453 | ✅ PASS |
 | Kürzester Pfad PLANTATION → RETAIL | 6 Hops | ✅ PASS |
 | Produkte ohne SUPPLIES-Beziehung | 0 | ✅ PASS |
-| Demo-Batch PROCESSED_AT (7 Stationen) | 7 | ✅ PASS |
+| Demo-Batch PROCESSED_AT (max. 6 WMS-Stationen; Retail via DELIVERED_TO, F-14-Fix 2026-07-05) | 6 | ✅ PASS |
 
 ### 7.6 MinIO – Buckets und Objekte
 
 | Bucket | Objekte | Metadaten | Status |
 |---|---:|---|---|
-| `delivery-notes` | ≥ 60 | `shipment_identifier`, `transport_mode` | ✅ PASS |
-| `invoices` | ≥ 6 | `shipment_identifier`, `delivery_status` | ✅ PASS |
-| `transport-docs` | ≥ 10 | `document_type: bill_of_lading` | ✅ PASS |
-| `batch-certificates` | ≥ 10 | `batch_identifier`, `product_code` | ✅ PASS |
+| `delivery-notes` | 1.512 | `shipment_identifier`, `transport_mode` | ✅ PASS |
+| `invoices` | 252 (SUCCESSFUL + DELAYED; nur FAILED ohne Rechnung) | `shipment_identifier`, `delivery_status` | ✅ PASS |
+| `transport-docs` | 504 (252 B/L + 252 Zollfreigaben) | `document_type: bill_of_lading` | ✅ PASS |
+| `batch-certificates` | 252 | `batch_identifier`, `product_code` | ✅ PASS |
 
 **Referenzierungsmuster:** PostgreSQL `erp.document_references` enthält Einträge mit Bucket-Name und Objektpfad (befüllt durch `generate_documents.py`). Die Dokumente selbst liegen ausschließlich in MinIO — kein BLOB in der Datenbank.
 

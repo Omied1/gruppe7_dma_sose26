@@ -200,7 +200,7 @@ flowchart TB
 test_data_generator.py
    → shared/erp/  (534 JSON-Dateien: Stammdaten + Orders + Batches)
    → shared/wms/  (1.522 JSON-Dateien: SKUs + Knotenverarbeitungen)
-   → shared/tms/  (257 JSON-Dateien: Carrier + Transporte + GPS + Lieferungen)
+   → shared/tms/  (6.300 JSON-Dateien: Carrier + Transporte + GPS + Lieferungen)
 ```
 
 ### Phase 2: ETL-Verarbeitung (Extract → Transform → Load)

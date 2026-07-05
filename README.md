@@ -150,8 +150,8 @@ docker exec -i postgres psql -U user -d logistics < sql/10_kpi_queries.sql
 |            | Profitabilität: Bruttomarge 53,2 %, Transportkostenquote 24,9 %, log. DB 27,3 % |
 | MongoDB    | 1.512 shipment_events, 1.512 node_events, 252 batch_tracking, 252 order_events |
 | Redis      | STRING / HASH / LIST / ZSET / COUNTER + TTLs auf allen Keys       |
-| Neo4j      | 2.058 Nodes; Pfad PLANTATION → RETAIL in 6 Hops                   |
-| MinIO      | 2.444 PDFs: 1.512 Lieferscheine, 176 Rechnungen, 252 Bill of Lading, |
+| Neo4j      | 2.061 Nodes (2.058 aus ETL + 3 Demo-Objekte aus cypher/01); Pfad PLANTATION → RETAIL in 6 Hops |
+| MinIO      | 2.520 PDFs: 1.512 Lieferscheine, 252 Rechnungen, 252 Bill of Lading, |
 |            | 252 Zollfreigaben, 252 Qualitätszertifikate                       |
 
 ---
